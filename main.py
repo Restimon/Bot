@@ -29,7 +29,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 message_counter = 0
 random_threshold = 5
-last_drop_time = 0  # Cooldown entre les drops de réaction
+last_drop_time = 0 
 
 # ===================== Slash Commands ======================
 
@@ -42,7 +42,7 @@ async def inv_slash(interaction: discord.Interaction, user: discord.Member = Non
 
 @bot.tree.command(name="leaderboard", description="Voir le classement SomniCorp")
 async def leaderboard_slash(interaction: discord.Interaction):
-    embed = build_leaderboard_embed(bot)
+    embed = await build_leaderboard_embed(bot)  
     await interaction.response.send_message(embed=embed)
 
 # ===================== Command Registration ======================
@@ -63,7 +63,6 @@ async def on_ready():
 
     register_all_commands(bot)
 
-    # ✅ Synchronisation une seule fois
     await bot.tree.sync()
 
     charger()
@@ -86,13 +85,13 @@ async def on_message(message):
 
     current_time = asyncio.get_event_loop().time()
     if current_time - last_drop_time < 15:
-        return  # Cooldown global de 15 secondes
+        return 
 
     message_counter += 1
     if message_counter >= random_threshold:
         item = get_random_item()
         await message.add_reaction(item)
-        last_drop_time = current_time  # Reset le cooldown
+        last_drop_time = current_time  
 
         collected_users = set()
 
@@ -135,7 +134,7 @@ async def update_leaderboard_loop():
         if channel_id:
             channel = bot.get_channel(channel_id)
             if channel:
-                embed = await build_leaderboard_embed(bot)
+                embed = await build_leaderboard_embed(bot) 
                 async for msg in channel.history(limit=20):
                     if msg.author == bot.user and msg.embeds and msg.embeds[0].title.startswith("🏆"):
                         await msg.edit(embed=embed)
