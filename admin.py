@@ -10,7 +10,7 @@ def register_admin_commands(bot):
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
         from leaderboard import build_leaderboard_embed
 
-    # Supprime l'ancien leaderboard s'il existe
+        # Supprimer l'ancien leaderboard s’il existe
         old_channel_id = config.get("leaderboard_channel_id")
         old_message_id = config.get("leaderboard_message_id")
 
@@ -21,35 +21,54 @@ def register_admin_commands(bot):
                     old_msg = await old_channel.fetch_message(old_message_id)
                     await old_msg.delete()
                 except discord.NotFound:
-                    pass  # déjà supprimé
+                    pass
 
-    # Enregistre le nouveau salon
+        # Enregistrer le nouveau salon et envoyer le leaderboard
         config["leaderboard_channel_id"] = channel.id
-        save_config()
-
-    # Envoie le nouveau leaderboard
         embed = await build_leaderboard_embed(interaction.client)
         msg = await channel.send(embed=embed)
-
         config["leaderboard_message_id"] = msg.id
         save_config()
 
         await interaction.response.send_message(
-            f"✅ Salon de classement défini sur : {channel.mention}. Le leaderboard a été envoyé.",
+            f"✅ Salon défini sur {channel.mention} et leaderboard envoyé.",
             ephemeral=True
         )
 
-    @bot.tree.command(name="resetall", description="Réinitialise inventaire, PV et classement d’un membre.")
-    @app_commands.describe(user="Le membre à réinitialiser")
+    @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
     @app_commands.checks.has_permissions(administrator=True)
-    async def reset_all(interaction: discord.Interaction, user: discord.Member):
-        uid = str(user.id)
-        inventaire[uid] = []
-        hp[uid] = 100
-        leaderboard[uid] = {"degats": 0, "soin": 0}
+    async def stop_leaderboard(interaction: discord.Interaction):
+        channel_id = config.get("leaderboard_channel_id")
+        message_id = config.get("leaderboard_message_id")
+
+        if not channel_id or not message_id:
+            return await interaction.response.send_message("⚠️ Aucun leaderboard actif.", ephemeral=True)
+
+        channel = interaction.client.get_channel(channel_id)
+        if channel:
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.delete()
+            except discord.NotFound:
+                pass
+
+        config["leaderboard_channel_id"] = None
+        config["leaderboard_message_id"] = None
+        save_config()
+        await interaction.response.send_message("🛑 Leaderboard désactivé et supprimé.", ephemeral=True)
+
+    @bot.tree.command(name="resetall", description="Réinitialise TOUS les joueurs : inventaire, PV, classement.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def reset_all(interaction: discord.Interaction):
+        uids = set(inventaire) | set(hp) | set(leaderboard)
+        for uid in uids:
+            inventaire[uid] = []
+            hp[uid] = 100
+            leaderboard[uid] = {"degats": 0, "soin": 0}
+
         sauvegarder()
         await interaction.response.send_message(
-            f"♻️ Données de {user.mention} réinitialisées.", ephemeral=True
+            f"♻️ Tous les joueurs ont été réinitialisés ({len(uids)} membres).", ephemeral=True
         )
 
     @bot.tree.command(name="resethp", description="Remet les PV d’un membre à 100.")
@@ -68,7 +87,7 @@ def register_admin_commands(bot):
         sauvegarder()
         await interaction.response.send_message(f"📦 Inventaire de {user.mention} vidé.", ephemeral=True)
 
-    @bot.tree.command(name="resetleaderboard", description="Réinitialise les stats de classement d’un membre.")
+    @bot.tree.command(name="resetleaderboard", description="Réinitialise les stats d’un membre.")
     @app_commands.describe(user="Le membre à réinitialiser")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_leaderboard(interaction: discord.Interaction, user: discord.Member):
@@ -76,21 +95,20 @@ def register_admin_commands(bot):
         sauvegarder()
         await interaction.response.send_message(f"🏆 Stats de {user.mention} remises à zéro.", ephemeral=True)
 
-    @bot.tree.command(name="giveitem", description="🎁 Donne un item à un membre (admin seulement).")
-    @app_commands.describe(user="Le membre à qui donner l'item", item="Emoji de l'objet", quantity="Quantité")
+    @bot.tree.command(name="giveitem", description="🎁 Donne un item à un membre.")
+    @app_commands.describe(user="Le membre", item="Emoji de l'objet", quantity="Quantité")
     @app_commands.checks.has_permissions(administrator=True)
     async def give_item(interaction: discord.Interaction, user: discord.Member, item: str, quantity: int = 1):
         uid = str(user.id)
-
         if item not in OBJETS:
             return await interaction.response.send_message(
-                f"❌ L'objet {item} n'existe pas dans OBJETS.", ephemeral=True
+                f"❌ L’objet {item} n’existe pas.", ephemeral=True
             )
 
         inventaire.setdefault(uid, []).extend([item] * quantity)
         sauvegarder()
         await interaction.response.send_message(
-            f"✅ {quantity} × {item} ont été ajoutés à l’inventaire de {user.mention}.", ephemeral=True
+            f"✅ {quantity} × {item} donné à {user.mention}.", ephemeral=True
         )
 
     @give_item.autocomplete("item")
@@ -104,32 +122,6 @@ def register_admin_commands(bot):
     async def give_item_error(interaction: discord.Interaction, error):
         if isinstance(error, app_commands.errors.MissingPermissions):
             await interaction.response.send_message(
-                "⛔ Tu dois être administrateur pour utiliser cette commande.", ephemeral=True)
+                "⛔ Tu dois être admin pour cette commande.", ephemeral=True)
         else:
             await interaction.response.send_message("⚠️ Une erreur est survenue.", ephemeral=True)
-            
-    @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def stop_leaderboard(interaction: discord.Interaction):
-        channel_id = config.get("leaderboard_channel_id")
-        message_id = config.get("leaderboard_message_id")
-
-        if not channel_id or not message_id:
-            return await interaction.response.send_message(
-                "⚠️ Aucun message de leaderboard actif trouvé.", ephemeral=True
-            )
-
-        channel = interaction.client.get_channel(channel_id)
-        if channel:
-            try:
-                msg = await channel.fetch_message(message_id)
-                await msg.delete()
-            except discord.NotFound:
-                pass  # Message déjà supprimé
-
-        config["leaderboard_channel_id"] = None
-        config["leaderboard_message_id"] = None
-        save_config()
-
-        await interaction.response.send_message("🛑 Le leaderboard a été désactivé et supprimé.", ephemeral=True)
-
