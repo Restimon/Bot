@@ -5,12 +5,13 @@ from config import config, save_config
 from data import sauvegarder
 
 def register_admin_commands(bot):
-    @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
+    @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie un leaderboard spécial dans un salon.")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
-        from leaderboard import build_leaderboard_embed
+        from leaderboard import build_leaderboard_embed  # Gardé pour cohérence éventuelle
+        from utils import leaderboard
 
-        # Supprimer l'ancien leaderboard s’il existe
+    # Supprimer l'ancien leaderboard s’il existe
         old_channel_id = config.get("leaderboard_channel_id")
         old_message_id = config.get("leaderboard_message_id")
 
@@ -23,17 +24,33 @@ def register_admin_commands(bot):
                 except discord.NotFound:
                     pass
 
-        # Enregistrer le nouveau salon et envoyer le leaderboard
+    # Générer un leaderboard en texte brut
+        medals = ["🥇", "🥈", "🥉"]
+        sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
+        lines = []
+        for i, (uid, stats) in enumerate(sorted_lb):
+            user = interaction.client.get_user(int(uid))
+            name = user.name if user else f"ID {uid}"
+            rank = medals[i] if i < len(medals) else f"{i+1}."
+            lines.append(f"{rank} **{name}**  →  🗡️ {stats['degats']}   |   💚 {stats['soin']}")
+
+        text = (
+            "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+            "\n".join(lines) if lines else "*Aucune donnée disponible.*\n" +
+            "\n\n📌 Mise à jour automatique toutes les 5 minutes."
+        )    
+    
+    # Envoyer le message et sauvegarder
+        msg = await channel.send(text)
         config["leaderboard_channel_id"] = channel.id
-        embed = await build_leaderboard_embed(interaction.client)
-        msg = await channel.send(embed=embed)
         config["leaderboard_message_id"] = msg.id
         save_config()
 
         await interaction.response.send_message(
-            f"✅ Salon défini sur {channel.mention} et leaderboard envoyé.",
+            f"✅ Salon de leaderboard défini : {channel.mention}. Le message a été envoyé.",
             ephemeral=True
         )
+
 
     @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -87,13 +104,18 @@ def register_admin_commands(bot):
         sauvegarder()
         await interaction.response.send_message(f"📦 Inventaire de {user.mention} vidé.", ephemeral=True)
 
-    @bot.tree.command(name="resetleaderboard", description="Réinitialise les stats d’un membre.")
-    @app_commands.describe(user="Le membre à réinitialiser")
+    @bot.tree.command(name="resetleaderboard", description="Réinitialise les stats de classement de TOUS les membres.")
     @app_commands.checks.has_permissions(administrator=True)
-    async def reset_leaderboard(interaction: discord.Interaction, user: discord.Member):
-        leaderboard[str(user.id)] = {"degats": 0, "soin": 0}
+    async def reset_leaderboard(interaction: discord.Interaction):
+        count = 0
+        for uid in leaderboard:
+            leaderboard[uid] = {"degats": 0, "soin": 0}
+            count += 1
+
         sauvegarder()
-        await interaction.response.send_message(f"🏆 Stats de {user.mention} remises à zéro.", ephemeral=True)
+        await interaction.response.send_message(
+            f"🏆 Classement réinitialisé pour {count} membres.", ephemeral=True
+        )
 
     @bot.tree.command(name="giveitem", description="🎁 Donne un item à un membre.")
     @app_commands.describe(user="Le membre", item="Emoji de l'objet", quantity="Quantité")
