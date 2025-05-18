@@ -1,16 +1,19 @@
 import discord
 from utils import leaderboard
 
-def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
-    """Construit un embed avec le classement SomniCorp."""
+async def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
     lines = []
     medals = ["🥇", "🥈", "🥉"]
     sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
 
     for i, (uid, stats) in enumerate(sorted_lb):
-        member = bot.get_user(int(uid))
+        try:
+            user = bot.get_user(int(uid)) or await bot.fetch_user(int(uid))
+            name = user.name
+        except Exception:
+            name = f"ID {uid}"
+
         prefix = medals[i] if i < len(medals) else "🔹"
-        name = member.name if member else f"ID {uid}"
         lines.append(f"{prefix} {name} : 🗡️ {stats['degats']} | 💚 {stats['soin']}")
 
     embed = discord.Embed(
