@@ -1,4 +1,4 @@
 {
-  "leaderboard_channel_id": 1234567890,
-  "leaderboard_message_id": 987654321
+  "leaderboard_channel_id": <id_du_channel>,
+  "leaderboard_message_id": <id_message> // facultatif, sera recréé si supprimé
 }
