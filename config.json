@@ -1,4 +1,4 @@
 {
   "leaderboard_channel_id": <id_du_channel>,
-  "leaderboard_message_id": <id_message> // facultatif, sera recréé si supprimé
+  "leaderboard_message_id": <id_message> 
 }
