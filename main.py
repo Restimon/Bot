@@ -129,19 +129,39 @@ async def on_message(message):
 
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
+    from utils import leaderboard
+
     while not bot.is_closed():
         channel_id = config.get("leaderboard_channel_id")
-        if channel_id:
+        message_id = config.get("leaderboard_message_id")
+
+        if channel_id and message_id:
             channel = bot.get_channel(channel_id)
             if channel:
-                embed = await build_leaderboard_embed(bot) 
-                async for msg in channel.history(limit=20):
-                    if msg.author == bot.user and msg.embeds and msg.embeds[0].title.startswith("🏆"):
-                        await msg.edit(embed=embed)
-                        break
-                else:
-                    await channel.send(embed=embed)
-        await asyncio.sleep(300)
+                try:
+                    msg = await channel.fetch_message(message_id)
+
+                    # Génère le leaderboard texte (comme dans /setleaderboardchannel)
+                    medals = ["🥇", "🥈", "🥉"]
+                    sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
+                    lines = []
+                    for i, (uid, stats) in enumerate(sorted_lb):
+                        user = bot.get_user(int(uid))
+                        name = user.name if user else f"ID {uid}"
+                        rank = medals[i] if i < len(medals) else f"{i+1}."
+                        lines.append(f"{rank} **{name}**  →  🗡️ {stats['degats']}   |   💚 {stats['soin']}")
+
+                    text = (
+                        "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+                        "\n".join(lines) if lines else "*Aucune donnée disponible.*\n" +
+                        "\n\n📌 Mise à jour automatique toutes les 5 minutes."
+                    )
+
+                    await msg.edit(content=text)
+                except discord.NotFound:
+                    pass  # Message supprimé manuellement
+
+        await asyncio.sleep(300)  # ⏱️ 5 minutes
 
 # ===================== Run ======================
 
