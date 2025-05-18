@@ -9,11 +9,30 @@ def register_admin_commands(bot):
     @app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
         from leaderboard import build_leaderboard_embed
+
+    # Supprime l'ancien leaderboard s'il existe
+        old_channel_id = config.get("leaderboard_channel_id")
+        old_message_id = config.get("leaderboard_message_id")
+
+        if old_channel_id and old_message_id:
+            old_channel = interaction.client.get_channel(old_channel_id)
+            if old_channel:
+                try:
+                    old_msg = await old_channel.fetch_message(old_message_id)
+                    await old_msg.delete()
+                except discord.NotFound:
+                    pass  # déjà supprimé
+
+    # Enregistre le nouveau salon
         config["leaderboard_channel_id"] = channel.id
         save_config()
 
+    # Envoie le nouveau leaderboard
         embed = await build_leaderboard_embed(interaction.client)
-        await channel.send(embed=embed)
+        msg = await channel.send(embed=embed)
+
+        config["leaderboard_message_id"] = msg.id
+        save_config()
 
         await interaction.response.send_message(
             f"✅ Salon de classement défini sur : {channel.mention}. Le leaderboard a été envoyé.",
