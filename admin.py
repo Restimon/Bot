@@ -5,13 +5,13 @@ from config import config, save_config
 from data import sauvegarder
 
 def register_admin_commands(bot):
-    @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie un leaderboard spécial dans un salon.")
+    @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
-        from leaderboard import build_leaderboard_embed  # Gardé pour cohérence éventuelle
-        from utils import leaderboard
+        from leaderboard import leaderboard  # si leaderboard est bien un dict
+        from config import save_config
 
-    # Supprimer l'ancien leaderboard s’il existe
+    # Supprimer ancien leaderboard s’il existe
         old_channel_id = config.get("leaderboard_channel_id")
         old_message_id = config.get("leaderboard_message_id")
 
@@ -24,33 +24,36 @@ def register_admin_commands(bot):
                 except discord.NotFound:
                     pass
 
-    # Générer un leaderboard en texte brut
+    # Générer message texte spécial
         medals = ["🥇", "🥈", "🥉"]
-        sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
+        sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]["degats"], reverse=True)
+
         lines = []
         for i, (uid, stats) in enumerate(sorted_lb):
-            user = interaction.client.get_user(int(uid))
-            name = user.name if user else f"ID {uid}"
-            rank = medals[i] if i < len(medals) else f"{i+1}."
-            lines.append(f"{rank} **{name}**  →  🗡️ {stats['degats']}   |   💚 {stats['soin']}")
+            try:
+                user = await interaction.client.fetch_user(int(uid))
+                name = user.display_name
+            except:
+                name = f"ID {uid}"
+            prefix = medals[i] if i < len(medals) else "🔹"
+            lines.append(f"{prefix} {name}  →  🗡️ {stats['degats']}   |   💚 {stats['soin']}")
 
-        text = (
-            "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
-            "\n".join(lines) if lines else "*Aucune donnée disponible.*\n" +
-            "\n\n📌 Mise à jour automatique toutes les 5 minutes."
-        )    
-    
-    # Envoyer le message et sauvegarder
-        msg = await channel.send(text)
+        content = (
+            "🏆 **CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE** 🏆\n\n" +
+            "\n".join(lines) if lines else "Aucune donnée à afficher."
+        )
+
+    # Envoyer le message texte dans le nouveau salon
+        msg = await channel.send(content)
+
+    # Enregistrer dans la config
         config["leaderboard_channel_id"] = channel.id
         config["leaderboard_message_id"] = msg.id
         save_config()
 
         await interaction.response.send_message(
-            f"✅ Salon de leaderboard défini : {channel.mention}. Le message a été envoyé.",
-            ephemeral=True
+            f"✅ Leaderboard envoyé dans {channel.mention}.", ephemeral=True
         )
-
 
     @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
     @app_commands.checks.has_permissions(administrator=True)
