@@ -88,3 +88,29 @@ def register_admin_commands(bot):
                 "⛔ Tu dois être administrateur pour utiliser cette commande.", ephemeral=True)
         else:
             await interaction.response.send_message("⚠️ Une erreur est survenue.", ephemeral=True)
+            
+    @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def stop_leaderboard(interaction: discord.Interaction):
+        channel_id = config.get("leaderboard_channel_id")
+        message_id = config.get("leaderboard_message_id")
+
+        if not channel_id or not message_id:
+            return await interaction.response.send_message(
+                "⚠️ Aucun message de leaderboard actif trouvé.", ephemeral=True
+            )
+
+        channel = interaction.client.get_channel(channel_id)
+        if channel:
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.delete()
+            except discord.NotFound:
+                pass  # Message déjà supprimé
+
+        config["leaderboard_channel_id"] = None
+        config["leaderboard_message_id"] = None
+        save_config()
+
+        await interaction.response.send_message("🛑 Le leaderboard a été désactivé et supprimé.", ephemeral=True)
+
