@@ -47,7 +47,7 @@ def register_admin_commands(bot):
         content = (
             "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
             "\n".join(lines) +
-            "\n\n📌 Mise à jour automatique toutes les 5 minutes."
+            "\n\n📌 Classement mis à jour automatiquement par SomniCorp."
         )
 
         msg = await channel.send(content=content)  # ← cette ligne doit être bien alignée
