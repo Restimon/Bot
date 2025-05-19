@@ -7,13 +7,12 @@ from data import sauvegarder
 def register_admin_commands(bot):
     @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
     @discord.app_commands.checks.has_permissions(administrator=True)
-    async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
+        async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
         from config import save_config
         from utils import leaderboard
 
-        - await interaction.response.send_message(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
 
-        # Supprimer l'ancien leaderboard si présent
         old_channel_id = config.get("leaderboard_channel_id")
         old_message_id = config.get("leaderboard_message_id")
         if old_channel_id and old_message_id:
@@ -25,7 +24,6 @@ def register_admin_commands(bot):
                 except discord.NotFound:
                     pass
 
-        # Génération du message spécial (non embed)
         medals = ["🥇", "🥈", "🥉"]
         sorted_lb = sorted(
             leaderboard.items(),
@@ -38,11 +36,9 @@ def register_admin_commands(bot):
         for uid, stats in sorted_lb:
             user = interaction.client.get_user(int(uid))
             if not user:
-                continue  # Ignore utilisateurs inconnus
-
+                continue
             if rank >= 10:
                 break
-
             total = stats["degats"] + stats["soin"]
             prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
             lines.append(f"{prefix} **{user.name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
@@ -54,15 +50,12 @@ def register_admin_commands(bot):
             "\n\n📌 Mise à jour automatique toutes les 5 minutes."
         )
 
-# ...
-         msg = await channel.send(content=content)
-            config["leaderboard_channel_id"] = channel.id
-            config["leaderboard_message_id"] = msg.id
-            save_config()
+        msg = await channel.send(content=content)  # ← cette ligne doit être bien alignée
+        config["leaderboard_channel_id"] = channel.id
+        config["leaderboard_message_id"] = msg.id
+        save_config()
 
-# ✅ Ce message doit venir ici
-            await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
-
+        await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
 
     @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
     @app_commands.checks.has_permissions(administrator=True)
