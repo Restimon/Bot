@@ -1,32 +1,37 @@
 import discord
 from discord import app_commands
 from data import sauvegarder
-from utils import inventaire, OBJETS
+from utils import OBJETS, get_user_data
 from combat import apply_item_with_cooldown
 
 def register_fight_command(bot):
     @bot.tree.command(name="fight", description="Attaque un autre membre avec un objet spécifique")
     @app_commands.describe(target="La personne à attaquer", item="Objet d’attaque à utiliser (emoji)")
     async def fight_slash(interaction: discord.Interaction, target: discord.Member, item: str):
+        guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
         tid = str(target.id)
 
-        if uid not in inventaire or item not in inventaire[uid]:
+        user_inv, _, _ = get_user_data(guild_id, uid)
+
+        if item not in user_inv:
             return await interaction.response.send_message("❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True)
 
         if item not in OBJETS or OBJETS[item]["type"] != "attaque":
             return await interaction.response.send_message("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
 
-        inventaire[uid].remove(item)
+        user_inv.remove(item)
         embed = apply_item_with_cooldown(uid, tid, item, interaction)
         sauvegarder()
         await interaction.response.send_message(embed=embed)
 
     @fight_slash.autocomplete("item")
     async def autocomplete_items(interaction: discord.Interaction, current: str):
+        guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
-        items = inventaire.get(uid, [])
-        attack_items = sorted(set(i for i in items if OBJETS.get(i, {}).get("type") == "attaque"))
+        user_inv, _, _ = get_user_data(guild_id, uid)
+
+        attack_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "attaque"))
         return [
             app_commands.Choice(name=f"{emoji}", value=emoji)
             for emoji in attack_items if current in emoji
