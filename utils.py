@@ -25,7 +25,7 @@ GIFS = {
     "soin_autre": "https://i.makeagif.com/media/9-05-2023/UUHN2G.gif"
 }
 
-# Liste d'objets avec pondération basée sur rareté
+# Objets avec pondération (plus rare = moins probable)
 def get_random_item():
     pool = []
     for emoji, data in OBJETS.items():
@@ -34,29 +34,28 @@ def get_random_item():
 
 # ====================== Données multi-serveur ======================
 
-# {guild_id: {user_id: [objets]}}
-inventaire = {}
+# Données globales indexées par guild → user
+DATA = {}
 
-# {guild_id: {user_id: 100}}
-hp = {}
-
-# {guild_id: {user_id: {"degats": x, "soin": y}}}
-leaderboard = {}
-
-# Cooldowns
+# Cooldowns globaux (non serveur-spécifiques pour l’instant)
 cooldowns = {"attack": {}, "heal": {}}
 
-# Constantes de cooldown en secondes
+# Cooldowns en secondes
 ATTACK_COOLDOWN = 15 * 60
 HEAL_COOLDOWN = 60 * 60
 
-# Fonction utilitaire pour s'assurer que les structures existent
 def get_user_data(guild_id, user_id):
     gid = str(guild_id)
     uid = str(user_id)
 
-    inventaire.setdefault(gid, {}).setdefault(uid, [])
-    hp.setdefault(gid, {}).setdefault(uid, 100)
-    leaderboard.setdefault(gid, {}).setdefault(uid, {"degats": 0, "soin": 0})
+    if gid not in DATA:
+        DATA[gid] = {}
 
-    return inventaire[gid][uid], hp[gid][uid], leaderboard[gid][uid]
+    if uid not in DATA[gid]:
+        DATA[gid][uid] = {
+            "inventory": [],
+            "hp": 100,
+            "stats": {"degats": 0, "soin": 0}
+        }
+
+    return DATA[gid][uid]
