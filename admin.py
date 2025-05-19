@@ -26,17 +26,16 @@ def register_admin_commands(bot):
                     pass
 
     # Enregistrer le nouveau salon et envoyer le leaderboard
-    config["leaderboard_channel_id"] = channel.id
-    embed = await build_leaderboard_embed(interaction.client)
-    msg = await channel.send(embed=embed)
-    config["leaderboard_message_id"] = msg.id
-    save_config()
+        config["leaderboard_channel_id"] = channel.id
+        embed = await build_leaderboard_embed(interaction.client)
+        msg = await channel.send(embed=embed)
+        config["leaderboard_message_id"] = msg.id
+        save_config()
 
-    await interaction.followup.send(  # ← remplacer send_message par followup.send
-        f"✅ Salon défini sur {channel.mention} et leaderboard envoyé.",
-        ephemeral=True
-    )
-
+        await interaction.followup.send(  # ← remplacer send_message par followup.send
+            f"✅ Salon défini sur {channel.mention} et leaderboard envoyé.",
+            ephemeral=True
+        )
 
     # Générer message texte spécial
         medals = ["🥇", "🥈", "🥉"]
