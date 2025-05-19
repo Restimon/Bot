@@ -9,12 +9,13 @@ async def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
     rank = 0
     lines = []
     for uid, stats in sorted_lb:
-        user = bot.get_user(int(uid))
-        if not user:
-            continue  # Ignore les utilisateurs inconnus
+        try:
+            user = await bot.fetch_user(int(uid))
+        except discord.NotFound:
+            continue  # Ignore les utilisateurs inconnus ou supprimés
 
         if rank >= 10:
-            break  # Stop après les 10 premiers
+            break
 
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
         total = stats["degats"] + stats["soin"]
