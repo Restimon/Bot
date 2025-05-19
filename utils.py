@@ -1,5 +1,6 @@
 import random
 
+# Objets disponibles
 OBJETS = {
     "❄️": {"type": "attaque", "degats": 1, "rarete": 1},
     "🔥": {"type": "attaque", "degats": 5, "rarete": 3},
@@ -11,6 +12,7 @@ OBJETS = {
     "💉": {"type": "soin", "soin": 15, "rarete": 8}
 }
 
+# Gifs associés aux objets
 GIFS = {
     "❄️": "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExY3NlcTYyZDVkMjhpY3dpbmVhaXB2OXRoZGNxMHp2d3dnMmhldWR4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/sTUe8s1481gY0/giphy.gif",
     "🔥": "https://i.gifer.com/MV3z.gif",
@@ -23,15 +25,22 @@ GIFS = {
     "soin_autre": "https://i.makeagif.com/media/9-05-2023/UUHN2G.gif"
 }
 
+# Liste d'objets avec pondération basée sur rareté
 def get_random_item():
     pool = []
     for emoji, data in OBJETS.items():
         pool.extend([emoji] * (26 - data["rarete"]))
     return random.choice(pool)
 
-# Dictionnaires partagés entre les modules
+# ====================== Données multi-serveur ======================
+
+# {guild_id: {user_id: [objets]}}
 inventaire = {}
+
+# {guild_id: {user_id: 100}}
 hp = {}
+
+# {guild_id: {user_id: {"degats": x, "soin": y}}}
 leaderboard = {}
 
 # Cooldowns
@@ -40,3 +49,14 @@ cooldowns = {"attack": {}, "heal": {}}
 # Constantes de cooldown en secondes
 ATTACK_COOLDOWN = 15 * 60
 HEAL_COOLDOWN = 60 * 60
+
+# Fonction utilitaire pour s'assurer que les structures existent
+def get_user_data(guild_id, user_id):
+    gid = str(guild_id)
+    uid = str(user_id)
+
+    inventaire.setdefault(gid, {}).setdefault(uid, [])
+    hp.setdefault(gid, {}).setdefault(uid, 100)
+    leaderboard.setdefault(gid, {}).setdefault(uid, {"degats": 0, "soin": 0})
+
+    return inventaire[gid][uid], hp[gid][uid], leaderboard[gid][uid]
