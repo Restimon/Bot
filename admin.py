@@ -7,7 +7,7 @@ from data import sauvegarder
 def register_admin_commands(bot):
     @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
     @discord.app_commands.checks.has_permissions(administrator=True)
-        async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
+    async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
         from config import save_config
         from utils import leaderboard
 
