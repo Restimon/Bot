@@ -12,6 +12,11 @@ def register_profile_command(bot):
         user_hp = hp.get(uid, 100)
         user_inv = inventaire.get(uid, [])
         user_stats = leaderboard.get(uid, {"degats": 0, "soin": 0})
+        points = user_stats["degats"] + user_stats["soin"]
+
+        # Calcul du rang
+        sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
+        rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
 
         # Regrouper les objets par emoji et compter
         item_counts = {}
@@ -25,16 +30,22 @@ def register_profile_command(bot):
 
         embed = discord.Embed(
             title=f"📄 Profil SomniCorp de {member.display_name}",
-            description=f"Voici les informations enregistrées pour ce membre.",
+            description="Voici les informations enregistrées pour ce membre.",
             color=discord.Color.purple()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="❤️ Points de vie", value=f"{user_hp} / 100", inline=False)
         embed.add_field(name="🎒 Inventaire", value=inv_display, inline=False)
-        embed.add_field(name="📊 Statistiques", value=(
-            f"• 🗡️ Dégâts infligés : **{user_stats.get('degats', 0)}**\n"
-            f"• ✨ Soins prodigués : **{user_stats.get('soin', 0)}**"
-        ), inline=False)
+        embed.add_field(
+            name="📊 Statistiques",
+            value=(
+                f"• 🗡️ Dégâts infligés : **{user_stats.get('degats', 0)}**\n"
+                f"• ✨ Soins prodigués : **{user_stats.get('soin', 0)}**\n"
+                f"• 🎯 Points totaux : **{points}**"
+            ),
+            inline=False
+        )
+        embed.add_field(name="🏆 Classement général", value=f"{rank if rank else 'Non classé'}", inline=False)
         embed.set_footer(text="Analyse générée par les serveurs de SomniCorp.")
 
         await interaction.response.send_message(embed=embed, ephemeral=False)
