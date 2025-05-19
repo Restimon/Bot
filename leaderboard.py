@@ -11,7 +11,10 @@ async def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
     for uid, stats in sorted_lb:
         user = bot.get_user(int(uid))
         if not user:
-            continue  # Ignore les utilisateurs inconnus
+            continue  # Ne garde que les membres valides
+
+    name = user.name  # Pas de fallback ID ici non plus
+  # Ignore les utilisateurs inconnus
 
         if rank >= 10:
             break
