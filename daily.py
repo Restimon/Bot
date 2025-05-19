@@ -1,34 +1,40 @@
 import discord
 import time
-from utils import get_random_item, inventaire, hp, leaderboard
+from utils import get_random_item, get_user_data
 from data import sauvegarder
 
+# Structure par serveur : {guild_id: {user_id: timestamp}}
 last_daily_claim = {}
 
 def register_daily_command(bot):
     @bot.tree.command(name="daily", description="Réclame ta récompense quotidienne SomniCorp")
     async def daily_slash(interaction: discord.Interaction):
-        uid = str(interaction.user.id)
+        guild_id = str(interaction.guild_id)
+        user_id = str(interaction.user.id)
         now = time.time()
 
-        if uid in last_daily_claim and now - last_daily_claim[uid] < 86400:
-            remaining = 86400 - (now - last_daily_claim[uid])
+        # Initialise le dict pour ce serveur
+        last_daily_claim.setdefault(guild_id, {})
+
+        last_claim = last_daily_claim[guild_id].get(user_id)
+        if last_claim and now - last_claim < 86400:
+            remaining = 86400 - (now - last_claim)
             hours = int(remaining // 3600)
             minutes = int((remaining % 3600) // 60)
             return await interaction.response.send_message(
-                f"⏳ SomniCorp t'a déjà donné ta récompense aujourd'hui ! Reviens dans **{hours}h {minutes}min**.",
+                f"⏳ Tu as déjà réclamé ta récompense aujourd’hui ! Reviens dans **{hours}h {minutes}min**.",
                 ephemeral=True
             )
 
         reward1 = get_random_item()
         reward2 = get_random_item()
-        inventaire.setdefault(uid, []).extend([reward1, reward2])
-        hp.setdefault(uid, 100)
-        leaderboard.setdefault(uid, {"degats": 0, "soin": 0})
-        last_daily_claim[uid] = now
+
+        user_inv, _, _ = get_user_data(guild_id, user_id)
+        user_inv.extend([reward1, reward2])
+        last_daily_claim[guild_id][user_id] = now
         sauvegarder()
 
         await interaction.response.send_message(
-            f"🎁 Tu as reçu tes récompenses journalières : {reward1} et {reward2} !\n**Merci de ta fidélité à SomniCorp.**",
+            f"🎁 Tu as reçu : {reward1} et {reward2} !\n**SomniCorp apprécie ta loyauté.**",
             ephemeral=True
         )
