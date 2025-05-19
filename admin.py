@@ -11,7 +11,7 @@ def register_admin_commands(bot):
         from config import save_config
         from utils import leaderboard
 
-        await interaction.response.defer(ephemeral=True)
+        - await interaction.response.send_message(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
 
         # Supprimer l'ancien leaderboard si présent
         old_channel_id = config.get("leaderboard_channel_id")
@@ -54,12 +54,15 @@ def register_admin_commands(bot):
             "\n\n📌 Mise à jour automatique toutes les 5 minutes."
         )
 
-        msg = await channel.send(content=content)
-        config["leaderboard_channel_id"] = channel.id
-        config["leaderboard_message_id"] = msg.id
-        save_config()
+# ...
+            msg = await channel.send(content=content)
+            config["leaderboard_channel_id"] = channel.id
+            config["leaderboard_message_id"] = msg.id
+            save_config()
 
-        await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
+# ✅ Ce message doit venir ici
+            await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
+
 
     @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
     @app_commands.checks.has_permissions(administrator=True)
