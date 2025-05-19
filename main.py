@@ -154,11 +154,14 @@ async def update_leaderboard_loop():
                     rank += 1
 
 
-                text = (
-                    "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
-                    "\n".join(lines) if lines else "*Aucune donnée disponible.*" +
-                    "\n\n📌 Mise à jour automatique toutes les 5 minutes."
-                )
+                if lines:
+                    text = (
+                        "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+                        "\n".join(lines) +
+                        "\n\n📌 Mise à jour automatique toutes les 5 minutes."
+                    )
+                else:
+                    text = "*Aucune donnée disponible.*"
 
                 try:
                     # Si un message est enregistré, essaie de le modifier
