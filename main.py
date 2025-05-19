@@ -141,7 +141,7 @@ async def update_leaderboard_loop():
             if channel:
                 # Construit le message texte du leaderboard
                 medals = ["🥇", "🥈", "🥉"]
-                sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
+                sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
                 lines = []
                 rank = 0
                 for uid, stats in sorted_lb[:10]:
