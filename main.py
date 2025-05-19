@@ -143,11 +143,16 @@ async def update_leaderboard_loop():
                 medals = ["🥇", "🥈", "🥉"]
                 sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
                 lines = []
-                for i, (uid, stats) in enumerate(sorted_lb):
+                rank = 0
+                for uid, stats in sorted_lb:
                     user = bot.get_user(int(uid))
-                    name = user.name if user else f"ID {uid}"
-                    rank = medals[i] if i < len(medals) else f"{i+1}."
-                    lines.append(f"{rank} **{name}**  →  🗡️ {stats['degats']}   |   💚 {stats['soin']}")
+                    if not user:
+                        continue  # Ignore les comptes inconnus/supprimés
+
+                    prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+                    lines.append(f"{prefix} **{user.name}**  →  🗡️ {stats['degats']}   |   💚 {stats['soin']}")
+                    rank += 1
+
 
                 text = (
                     "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
