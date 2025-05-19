@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from config import load_config, config
 from data import charger, sauvegarder
-from utils import cooldowns, get_random_item, inventaire, hp, leaderboard, OBJETS
+from utils import cooldowns, get_random_item, inventaire, hp, leaderboard, OBJETS, get_user_data
 from combat import apply_item_with_cooldown
 from inventory import build_inventory_embed
 from leaderboard import build_leaderboard_embed
@@ -111,9 +111,11 @@ async def on_message(message):
                     bot.wait_for("reaction_add", check=check),
                     timeout=end_time - asyncio.get_event_loop().time(),
                 )
+                guild_id = str(message.guild.id)
                 uid = str(user.id)
-                inventaire.setdefault(uid, []).append(item)
-                hp.setdefault(uid, 100)
+                user_inv, _, _ = get_user_data(guild_id, uid)
+                user_inv.append(item)
+                )
                 leaderboard.setdefault(uid, {"degats": 0, "soin": 0})
                 collected_users.add(user.id)
                 await message.channel.send(f"✅ {user.mention} a ramassé {item} offert par SomniCorp!")
@@ -141,13 +143,15 @@ async def update_leaderboard_loop():
             channel = bot.get_channel(channel_id)
             if channel:
                 medals = ["🥇", "🥈", "🥉"]
-                sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
+                guild_id = str(channel.guild.id)
+                server_lb = leaderboard.get(guild_id, {})
+                sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
                 lines = []
                 rank = 0
 
                 for uid, stats in sorted_lb:
                     guild = channel.guild
-                    member = guild.get_member(int(uid))
+                    member = channel.guild.get_member(int(uid))
                     if not member:
                         continue
 
