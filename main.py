@@ -147,7 +147,10 @@ async def update_leaderboard_loop():
                 for uid, stats in sorted_lb[:10]:
                     user = bot.get_user(int(uid))
                     if not user:
-                        continue  # Ignore les comptes inconnus/supprimés
+                        continue  # Skip unknown users
+
+                    name = user.name  # ✅ Affiche uniquement le nom
+
 
                     prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
                     total = stats['degats'] + stats['soin']
