@@ -115,8 +115,6 @@ async def on_message(message):
                 uid = str(user.id)
                 user_inv, _, _ = get_user_data(guild_id, uid)
                 user_inv.append(item)
-                )
-                leaderboard.setdefault(uid, {"degats": 0, "soin": 0})
                 collected_users.add(user.id)
                 await message.channel.send(f"✅ {user.mention} a ramassé {item} offert par SomniCorp!")
             except asyncio.TimeoutError:
