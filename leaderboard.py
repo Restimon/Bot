@@ -4,7 +4,7 @@ from utils import leaderboard
 async def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
     """Construit un embed avec le classement SomniCorp, en ignorant les utilisateurs inconnus."""
     medals = ["🥇", "🥈", "🥉"]
-    sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
+    sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
 
     rank = 0
     lines = []
