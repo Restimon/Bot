@@ -140,46 +140,35 @@ async def update_leaderboard_loop():
         if channel_id:
             channel = bot.get_channel(channel_id)
             if channel:
-                # Construit le message texte du leaderboard
                 medals = ["🥇", "🥈", "🥉"]
                 sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
                 lines = []
                 rank = 0
-                for uid, stats in sorted_lb[:10]:
+
+                for uid, stats in sorted_lb:
                     user = bot.get_user(int(uid))
                     if not user:
-                        continue  # Skip unknown users
-
-                    name = user.name  # ✅ Affiche uniquement le nom
-
-
-                    prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+                        continue
+                    if rank >= 10:
+                        break
                     total = stats['degats'] + stats['soin']
-                    lines.append(
-                        f"{prefix} **{user.name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points"
-                    )
+                    prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+                    lines.append(f"{prefix} **{user.name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
                     rank += 1
 
-
-                if lines:
-                    text = (
-                        "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
-                        "\n".join(lines) +
-                        "\n\n📌 Mise à jour automatique toutes les 5 minutes."
-                    )
-                else:
-                    text = "*Aucune donnée disponible.*"
+                text = (
+                    "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+                    "\n".join(lines) +
+                    "\n\n📌 Mise à jour automatique toutes les 5 minutes."
+                ) if lines else "*Aucune donnée disponible.*"
 
                 try:
-                    # Si un message est enregistré, essaie de le modifier
                     if message_id:
                         msg = await channel.fetch_message(message_id)
                         await msg.edit(content=text)
                     else:
                         raise discord.NotFound(response=None, message="No message ID")
-
                 except (discord.NotFound, discord.HTTPException):
-                    # S'il n'existe plus ou jamais envoyé : recréer un nouveau
                     msg = await channel.send(content=text)
                     config["leaderboard_message_id"] = msg.id
                     save_config()
