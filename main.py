@@ -150,7 +150,10 @@ async def update_leaderboard_loop():
                         continue  # Ignore les comptes inconnus/supprimés
 
                     prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-                    lines.append(f"{prefix} **{user.name}**  →  🗡️ {stats['degats']}   |   💚 {stats['soin']}")
+                    total = stats['degats'] + stats['soin']
+                    lines.append(
+                        f"{prefix} **{user.name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points"
+                    )
                     rank += 1
 
 
