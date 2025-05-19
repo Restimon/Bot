@@ -8,10 +8,11 @@ def register_admin_commands(bot):
     @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
-        from leaderboard import leaderboard  # si leaderboard est bien un dict
-        from config import save_config
+        await interaction.response.defer(ephemeral=True)  # ← ajoute ceci dès le début
 
-    # Supprimer ancien leaderboard s’il existe
+        from leaderboard import build_leaderboard_embed
+
+    # Supprimer l'ancien leaderboard s’il existe
         old_channel_id = config.get("leaderboard_channel_id")
         old_message_id = config.get("leaderboard_message_id")
 
@@ -23,6 +24,19 @@ def register_admin_commands(bot):
                     await old_msg.delete()
                 except discord.NotFound:
                     pass
+
+    # Enregistrer le nouveau salon et envoyer le leaderboard
+    config["leaderboard_channel_id"] = channel.id
+    embed = await build_leaderboard_embed(interaction.client)
+    msg = await channel.send(embed=embed)
+    config["leaderboard_message_id"] = msg.id
+    save_config()
+
+    await interaction.followup.send(  # ← remplacer send_message par followup.send
+        f"✅ Salon défini sur {channel.mention} et leaderboard envoyé.",
+        ephemeral=True
+    )
+
 
     # Générer message texte spécial
         medals = ["🥇", "🥈", "🥉"]
