@@ -42,8 +42,8 @@ async def inv_slash(interaction: discord.Interaction, user: discord.Member = Non
 
 @bot.tree.command(name="leaderboard", description="Voir le classement SomniCorp")
 async def leaderboard_slash(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True) 
-    embed = await build_leaderboard_embed(bot)
+    await interaction.response.defer(thinking=True)
+    embed = await build_leaderboard_embed(bot, interaction.guild)  # ← passe la guild ici
     await interaction.followup.send(embed=embed)
 
 # ===================== Command Registration ======================
