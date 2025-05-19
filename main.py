@@ -146,14 +146,16 @@ async def update_leaderboard_loop():
                 rank = 0
 
                 for uid, stats in sorted_lb:
-                    user = bot.get_user(int(uid))
-                    if not user:
+                    guild = channel.guild
+                    member = guild.get_member(int(uid))
+                    if not member:
                         continue
+
                     if rank >= 10:
                         break
                     total = stats['degats'] + stats['soin']
                     prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-                    lines.append(f"{prefix} **{user.name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+                    lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
                     rank += 1
 
                 text = (
