@@ -18,6 +18,15 @@ def register_profile_command(bot):
         sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
 
+        # Appliquer médaille si top 3
+        medal = ""
+        if rank == 1:
+            medal = "🥇 "
+        elif rank == 2:
+            medal = "🥈 "
+        elif rank == 3:
+            medal = "🥉 "
+
         # Regrouper les objets par emoji et compter
         item_counts = {}
         for item in user_inv:
@@ -45,7 +54,11 @@ def register_profile_command(bot):
             ),
             inline=False
         )
-        embed.add_field(name="🏆 Classement général", value=f"{rank if rank else 'Non classé'}", inline=False)
+        embed.add_field(
+            name="🏆 Classement général",
+            value=f"{medal}{rank}" if rank else "Non classé",
+            inline=False
+        )
         embed.set_footer(text="Analyse générée par les serveurs de SomniCorp.")
 
         await interaction.response.send_message(embed=embed, ephemeral=False)
