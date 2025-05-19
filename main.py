@@ -157,7 +157,7 @@ async def update_leaderboard_loop():
                         break
                     total = stats['degats'] + stats['soin']
                     prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-                    lines.append(f"{prefix} **{user.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+                    lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
                     rank += 1
 
                 text = (
