@@ -6,6 +6,8 @@ def register_profile_command(bot):
     @bot.tree.command(name="info", description="Affiche le profil SomniCorp d’un membre.")
     @app_commands.describe(user="Le membre à inspecter")
     async def profile_slash(interaction: discord.Interaction, user: discord.Member = None):
+        await interaction.response.defer(thinking=True, ephemeral=False)  # ← Ajout ici
+
         member = user or interaction.user
         uid = str(member.id)
 
@@ -61,4 +63,4 @@ def register_profile_command(bot):
         )
         embed.set_footer(text="Analyse générée par les serveurs de SomniCorp.")
 
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        await interaction.followup.send(embed=embed)
