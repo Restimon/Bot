@@ -130,54 +130,59 @@ async def on_message(message):
 
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
-    from utils import leaderboard
-    from config import save_config
+    from config import get_guild_config, save_config
 
     while not bot.is_closed():
-        channel_id = config.get("leaderboard_channel_id")
-        message_id = config.get("leaderboard_message_id")
+        for guild in bot.guilds:
+            guild_id = str(guild.id)
+            guild_config = get_guild_config(guild_id)
 
-        if channel_id:
+            channel_id = guild_config.get("leaderboard_channel_id")
+            message_id = guild_config.get("leaderboard_message_id")
+
+            if not channel_id:
+                continue
+
             channel = bot.get_channel(channel_id)
-            if channel:
-                medals = ["🥇", "🥈", "🥉"]
-                guild_id = str(channel.guild.id)
-                server_lb = leaderboard.get(guild_id, {})
-                sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
-                lines = []
-                rank = 0
+            if not channel:
+                continue
 
-                for uid, stats in sorted_lb:
-                    guild = channel.guild
-                    member = channel.guild.get_member(int(uid))
-                    if not member:
-                        continue
+            medals = ["🥇", "🥈", "🥉"]
+            server_lb = leaderboard.get(guild_id, {})
+            sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
+            lines = []
+            rank = 0
 
-                    if rank >= 10:
-                        break
-                    total = stats['degats'] + stats['soin']
-                    prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-                    lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
-                    rank += 1
+            for uid, stats in sorted_lb:
+                member = guild.get_member(int(uid))
+                if not member:
+                    continue
+                if rank >= 10:
+                    break
+                total = stats['degats'] + stats['soin']
+                prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+                lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+                rank += 1
 
-                text = (
-                    "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
-                    "\n".join(lines) +
-                    "\n\n📌 Mise à jour automatique toutes les 5 minutes."
-                ) if lines else "*Aucune donnée disponible.*"
+            text = (
+                "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+                "\n".join(lines) +
+                "\n\n📌 Mise à jour automatique toutes les 5 minutes."
+            ) if lines else "*Aucune donnée disponible.*"
 
-                try:
-                    if message_id:
-                        msg = await channel.fetch_message(message_id)
-                        await msg.edit(content=text)
-                    else:
-                        raise discord.NotFound(response=None, message="No message ID")
-                except (discord.NotFound, discord.HTTPException):
-                    msg = await channel.send(content=text)
-                    config["leaderboard_message_id"] = msg.id
-                    save_config()
+            try:
+                if message_id:
+                    msg = await channel.fetch_message(message_id)
+                    await msg.edit(content=text)
+                else:
+                    raise discord.NotFound(response=None, message="No message ID")
+            except (discord.NotFound, discord.HTTPException):
+                msg = await channel.send(content=text)
+                guild_config["leaderboard_message_id"] = msg.id
+                save_config()
 
         await asyncio.sleep(300)
+
 
 # ===================== Run ======================
 
