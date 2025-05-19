@@ -37,7 +37,7 @@ last_drop_time = 0
 async def inv_slash(interaction: discord.Interaction, user: discord.Member = None):
     member = user or interaction.user
     uid = str(member.id)
-    embed = build_inventory_embed(uid, bot)
+    embed = build_inventory_embed(uid, bot, str(interaction.guild.id))
     await interaction.response.send_message(embed=embed, ephemeral=(user is not None and user != interaction.user))
 
 @bot.tree.command(name="leaderboard", description="Voir le classement SomniCorp")
