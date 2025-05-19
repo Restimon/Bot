@@ -2,24 +2,32 @@ import discord
 from utils import leaderboard
 
 async def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
-    """Construit un embed avec le classement SomniCorp, en ignorant les utilisateurs inconnus."""
+    from utils import leaderboard
+
     medals = ["🥇", "🥈", "🥉"]
     sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
 
-    rank = 0
     lines = []
+    rank = 0
     for uid, stats in sorted_lb:
-        try:
-            user = await bot.fetch_user(int(uid))
-        except discord.NotFound:
-            continue  # Ignore les utilisateurs inconnus ou supprimés
+        user = None
+
+        # Essayer de récupérer le pseudo via les guilds
+        for guild in bot.guilds:
+            member = guild.get_member(int(uid))
+            if member:
+                user = member
+                break
+
+        if not user:
+            continue
 
         if rank >= 10:
             break
 
-        prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
         total = stats["degats"] + stats["soin"]
-        lines.append(f"{prefix} **{user.name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+        prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+        lines.append(f"{prefix} **{user.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
         rank += 1
 
     embed = discord.Embed(
