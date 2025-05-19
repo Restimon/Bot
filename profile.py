@@ -33,7 +33,7 @@ def register_profile_command(bot):
             item_counts[item] = item_counts.get(item, 0) + 1
 
         inv_display = "Aucun objet." if not item_counts else "\n".join(
-            f"{emoji} × {count} — *{OBJETS.get(emoji, {}).get('type', 'inconnu')}*"
+            f"{emoji} × {count}"
             for emoji, count in item_counts.items()
         )
 
