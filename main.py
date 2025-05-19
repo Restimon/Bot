@@ -144,7 +144,7 @@ async def update_leaderboard_loop():
                 sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
                 lines = []
                 rank = 0
-                for uid, stats in sorted_lb:
+                for uid, stats in sorted_lb[:10]:
                     user = bot.get_user(int(uid))
                     if not user:
                         continue  # Ignore les comptes inconnus/supprimés
