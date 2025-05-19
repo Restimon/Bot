@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from utils import inventaire, hp, leaderboard, OBJETS
+from utils import get_user_data, inventaire, hp, leaderboard, OBJETS
 
 def register_profile_command(bot):
     @bot.tree.command(name="info", description="Affiche le profil SomniCorp d’un membre.")
@@ -9,16 +9,17 @@ def register_profile_command(bot):
         await interaction.response.defer(thinking=True, ephemeral=False)
 
         member = user or interaction.user
+        guild_id = str(interaction.guild.id)
         uid = str(member.id)
 
-        user_hp = hp.get(uid, 100)
-        user_inv = inventaire.get(uid, [])
-        user_stats = leaderboard.get(uid, {"degats": 0, "soin": 0})
+        # Récupérer les données utilisateur dans ce serveur
+        user_inv, user_hp, user_stats = get_user_data(guild_id, uid)
         points = user_stats["degats"] + user_stats["soin"]
 
-        # Tri du leaderboard pour classement global
+        # Tri du classement pour CE serveur uniquement
+        server_leaderboard = leaderboard.get(guild_id, {})
         sorted_lb = sorted(
-            leaderboard.items(),
+            server_leaderboard.items(),
             key=lambda x: x[1]["degats"] + x[1]["soin"],
             reverse=True
         )
