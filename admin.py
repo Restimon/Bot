@@ -6,16 +6,16 @@ from data import sauvegarder
 
 def register_admin_commands(bot):
     @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
-    @app_commands.checks.has_permissions(administrator=True)
+    @discord.app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
-        await interaction.response.defer(ephemeral=True)  # ← ajoute ceci dès le début
+        from config import save_config
+        from utils import leaderboard
 
-        from leaderboard import build_leaderboard_embed
+        await interaction.response.defer(ephemeral=True)
 
-    # Supprimer l'ancien leaderboard s’il existe
+        # Supprimer l'ancien leaderboard si présent
         old_channel_id = config.get("leaderboard_channel_id")
         old_message_id = config.get("leaderboard_message_id")
-
         if old_channel_id and old_message_id:
             old_channel = interaction.client.get_channel(old_channel_id)
             if old_channel:
@@ -25,48 +25,41 @@ def register_admin_commands(bot):
                 except discord.NotFound:
                     pass
 
-    # Enregistrer le nouveau salon et envoyer le leaderboard
-        config["leaderboard_channel_id"] = channel.id
-        embed = await build_leaderboard_embed(interaction.client)
-        msg = await channel.send(embed=embed)
-        config["leaderboard_message_id"] = msg.id
-        save_config()
-
-        await interaction.followup.send(  # ← remplacer send_message par followup.send
-            f"✅ Salon défini sur {channel.mention} et leaderboard envoyé.",
-            ephemeral=True
-        )
-
-    # Générer message texte spécial
+        # Génération du message spécial (non embed)
         medals = ["🥇", "🥈", "🥉"]
-        sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]["degats"], reverse=True)
+        sorted_lb = sorted(
+            leaderboard.items(),
+            key=lambda x: x[1]["degats"] + x[1]["soin"],
+            reverse=True
+        )
 
         lines = []
-        for i, (uid, stats) in enumerate(sorted_lb):
-            try:
-                user = await interaction.client.fetch_user(int(uid))
-                name = user.display_name
-            except:
-                name = f"ID {uid}"
-            prefix = medals[i] if i < len(medals) else "🔹"
-            lines.append(f"{prefix} {name}  →  🗡️ {stats['degats']}   |   💚 {stats['soin']}")
+        rank = 0
+        for uid, stats in sorted_lb:
+            user = interaction.client.get_user(int(uid))
+            if not user:
+                continue  # Ignore utilisateurs inconnus
+
+            if rank >= 10:
+                break
+
+            total = stats["degats"] + stats["soin"]
+            prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+            lines.append(f"{prefix} **{user.name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+            rank += 1
 
         content = (
-            "🏆 **CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE** 🏆\n\n" +
-            "\n".join(lines) if lines else "Aucune donnée à afficher."
+            "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+            "\n".join(lines) +
+            "\n\n📌 Mise à jour automatique toutes les 5 minutes."
         )
 
-    # Envoyer le message texte dans le nouveau salon
-        msg = await channel.send(content)
-
-    # Enregistrer dans la config
+        msg = await channel.send(content=content)
         config["leaderboard_channel_id"] = channel.id
         config["leaderboard_message_id"] = msg.id
         save_config()
 
-        await interaction.response.send_message(
-            f"✅ Leaderboard envoyé dans {channel.mention}.", ephemeral=True
-        )
+        await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
 
     @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
     @app_commands.checks.has_permissions(administrator=True)
