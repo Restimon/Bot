@@ -1,25 +1,19 @@
 import discord
 from utils import leaderboard
 
-async def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
-    from utils import leaderboard
-
+async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
     medals = ["🥇", "🥈", "🥉"]
-    sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]['degats'], reverse=True)
+    guild_id = str(guild.id)
+    server_lb = leaderboard.get(guild_id, {})
+
+    # Trier par total (dégâts + soin)
+    sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
 
     lines = []
     rank = 0
     for uid, stats in sorted_lb:
-        user = None
-
-        # Essayer de récupérer le pseudo via les guilds
-        for guild in bot.guilds:
-            member = guild.get_member(int(uid))
-            if member:
-                user = member
-                break
-
-        if not user:
+        member = guild.get_member(int(uid))
+        if not member:
             continue
 
         if rank >= 10:
@@ -27,13 +21,13 @@ async def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
 
         total = stats["degats"] + stats["soin"]
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-        lines.append(f"{prefix} **{user.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+        lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
         rank += 1
 
     embed = discord.Embed(
-        title="🏆 Classement selon SomniCorp",
+        title=f"🏆 Classement de {guild.name}",
         description="\n".join(lines) if lines else "*Aucun joueur valide trouvé.*",
         color=discord.Color.gold()
     )
-    embed.set_footer(text="SomniCorp vous remercie de votre participation.")
+    embed.set_footer(text="Classement propre à ce serveur.")
     return embed
