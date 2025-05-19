@@ -55,7 +55,7 @@ def register_admin_commands(bot):
         )
 
 # ...
-            msg = await channel.send(content=content)
+         msg = await channel.send(content=content)
             config["leaderboard_channel_id"] = channel.id
             config["leaderboard_message_id"] = msg.id
             save_config()
