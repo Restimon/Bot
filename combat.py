@@ -1,6 +1,13 @@
 import time
 import discord
-from utils import OBJETS, GIFS, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN, leaderboard, hp
+from utils import (
+    OBJETS,
+    GIFS,
+    cooldowns,
+    ATTACK_COOLDOWN,
+    HEAL_COOLDOWN,
+    get_user_data
+)
 
 def is_on_cooldown(user_id, action_type):
     now = time.time()
@@ -18,34 +25,38 @@ def build_embed_from_item(item, description, is_heal_other=False):
     return embed
 
 def apply_item_with_cooldown(user_id, target_id, item, ctx):
-    action = OBJETS[item]
+    guild_id = ctx.guild.id
+    user_id = str(user_id)
+    target_id = str(target_id)
     now = time.time()
 
-    if user_id not in hp:
-        hp[user_id] = 100
-    if target_id not in hp:
-        hp[target_id] = 100
-    if user_id not in leaderboard:
-        leaderboard[user_id] = {"degats": 0, "soin": 0}
+    user_inv, user_hp, user_stats = get_user_data(guild_id, user_id)
+    _, target_hp, _ = get_user_data(guild_id, target_id)
 
     user_obj = ctx.guild.get_member(int(user_id))
+    target_obj = ctx.guild.get_member(int(target_id))
     user_mention = user_obj.mention if user_obj else f"<@{user_id}>"
-    target_mention = ctx.guild.get_member(int(target_id)).mention
+    target_mention = target_obj.mention if target_obj else f"<@{target_id}>"
+
+    action = OBJETS[item]
 
     if action["type"] == "attaque":
         on_cooldown, remaining = is_on_cooldown(user_id, "attack")
         if on_cooldown:
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer.\n**Information SomniCorp !**")
-        if hp[user_id] <= 0:
-            return build_embed_from_item(item, f"⚠️ {user_mention} est temporairement hors service selon SomniCorp. Attaque refusée.")
+        if target_hp <= 0:
+            return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service. Attaque inutile.")
 
         dmg = action["degats"]
-        before = hp[target_id]
-        hp[target_id] = max(hp[target_id] - dmg, 0)
-        after = hp[target_id]
-        leaderboard[user_id]["degats"] += dmg
+        before = target_hp
+        new_hp = max(target_hp - dmg, 0)
+
+        # Mise à jour
+        get_user_data(guild_id, target_id)[1] = new_hp
+        user_stats["degats"] += dmg
         cooldowns["attack"][user_id] = now
-        return build_embed_from_item(item, f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n**Information SomniCorp !** {target_mention} : {before} - {dmg} = {after} / 100 PV")
+
+        return build_embed_from_item(item, f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV")
 
     elif action["type"] == "soin":
         on_cooldown, remaining = is_on_cooldown(user_id, "heal")
@@ -53,9 +64,12 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             return build_embed_from_item(item, f"⏳ {user_mention}, veuillez patienter {remaining // 60} min selon les protocoles de recharge SomniCorp.", user_id != target_id)
 
         heal = action["soin"]
-        before = hp[target_id]
-        hp[target_id] = min(hp[target_id] + heal, 100)
-        after = hp[target_id]
-        leaderboard[user_id]["soin"] += heal
+        before = target_hp
+        new_hp = min(target_hp + heal, 100)
+
+        # Mise à jour
+        get_user_data(guild_id, target_id)[1] = new_hp
+        user_stats["soin"] += heal
         cooldowns["heal"][user_id] = now
-        return build_embed_from_item(item, f"{user_mention} soigne {target_mention} de {heal} PV avec {item} !\n**Information SomniCorp !** {target_mention} : {before} + {heal} = {after} / 100 PV", user_id != target_id)
+
+        return build_embed_from_item(item, f"{user_mention} soigne {target_mention} de {heal} PV avec {item} !\n**SomniCorp :** {target_mention} : {before} + {heal} = {new_hp} / 100 PV", user_id != target_id)
