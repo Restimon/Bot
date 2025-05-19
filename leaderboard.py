@@ -27,5 +27,5 @@ async def build_leaderboard_embed(bot: discord.Client) -> discord.Embed:
         description="\n".join(lines) if lines else "*Aucun joueur valide trouvé.*",
         color=discord.Color.gold()
     )
-    embed.set_footer(text="Classement mis à jour automatiquement par SomniCorp.")
+    embed.set_footer(text="SomniCorp vous remercie de votre participation.")
     return embed
