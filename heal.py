@@ -1,4 +1,3 @@
-# heal.py
 import discord
 from discord import app_commands
 from utils import OBJETS, get_user_data
