@@ -1,20 +1,21 @@
 import discord
 from discord import app_commands
-from utils import inventaire, hp, leaderboard, OBJETS
+from utils import inventaire, hp, leaderboard, OBJETS, get_user_data
 from config import config, save_config
 from data import sauvegarder
 
 def register_admin_commands(bot):
     @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
-    @discord.app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
-        from config import save_config
-        from utils import leaderboard
+        guild_id = str(interaction.guild.id)
 
         await interaction.response.defer(ephemeral=True)
 
-        old_channel_id = config.get("leaderboard_channel_id")
-        old_message_id = config.get("leaderboard_message_id")
+        guild_config = config.setdefault(guild_id, {})
+        old_channel_id = guild_config.get("leaderboard_channel_id")
+        old_message_id = guild_config.get("leaderboard_message_id")
+
         if old_channel_id and old_message_id:
             old_channel = interaction.client.get_channel(old_channel_id)
             if old_channel:
@@ -25,11 +26,8 @@ def register_admin_commands(bot):
                     pass
 
         medals = ["🥇", "🥈", "🥉"]
-        sorted_lb = sorted(
-            leaderboard.items(),
-            key=lambda x: x[1]["degats"] + x[1]["soin"],
-            reverse=True
-        )
+        server_lb = leaderboard.get(guild_id, {})
+        sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
 
         lines = []
         rank = 0
@@ -50,9 +48,9 @@ def register_admin_commands(bot):
             "\n\n📌 Classement mis à jour automatiquement par SomniCorp."
         )
 
-        msg = await channel.send(content=content)  # ← cette ligne doit être bien alignée
-        config["leaderboard_channel_id"] = channel.id
-        config["leaderboard_message_id"] = msg.id
+        msg = await channel.send(content=content)
+        guild_config["leaderboard_channel_id"] = channel.id
+        guild_config["leaderboard_message_id"] = msg.id
         save_config()
 
         await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
@@ -60,8 +58,10 @@ def register_admin_commands(bot):
     @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
     @app_commands.checks.has_permissions(administrator=True)
     async def stop_leaderboard(interaction: discord.Interaction):
-        channel_id = config.get("leaderboard_channel_id")
-        message_id = config.get("leaderboard_message_id")
+        guild_id = str(interaction.guild.id)
+        guild_config = config.get(guild_id, {})
+        channel_id = guild_config.get("leaderboard_channel_id")
+        message_id = guild_config.get("leaderboard_message_id")
 
         if not channel_id or not message_id:
             return await interaction.response.send_message("⚠️ Aucun leaderboard actif.", ephemeral=True)
@@ -74,19 +74,21 @@ def register_admin_commands(bot):
             except discord.NotFound:
                 pass
 
-        config["leaderboard_channel_id"] = None
-        config["leaderboard_message_id"] = None
+        guild_config["leaderboard_channel_id"] = None
+        guild_config["leaderboard_message_id"] = None
         save_config()
         await interaction.response.send_message("🛑 Leaderboard désactivé et supprimé.", ephemeral=True)
 
     @bot.tree.command(name="resetall", description="Réinitialise TOUS les joueurs : inventaire, PV, classement.")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_all(interaction: discord.Interaction):
-        uids = set(inventaire) | set(hp) | set(leaderboard)
+        guild_id = str(interaction.guild.id)
+
+        uids = set(inventaire.get(guild_id, {})) | set(hp.get(guild_id, {})) | set(leaderboard.get(guild_id, {}))
         for uid in uids:
-            inventaire[uid] = []
-            hp[uid] = 100
-            leaderboard[uid] = {"degats": 0, "soin": 0}
+            inventaire[guild_id][uid] = []
+            hp[guild_id][uid] = 100
+            leaderboard[guild_id][uid] = {"degats": 0, "soin": 0}
 
         sauvegarder()
         await interaction.response.send_message(
@@ -97,7 +99,10 @@ def register_admin_commands(bot):
     @app_commands.describe(user="Le membre à soigner")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_hp(interaction: discord.Interaction, user: discord.Member):
-        hp[str(user.id)] = 100
+        guild_id = str(interaction.guild.id)
+        uid = str(user.id)
+        _, user_hp, _ = get_user_data(guild_id, uid)
+        hp[guild_id][uid] = 100
         sauvegarder()
         await interaction.response.send_message(f"❤️ PV de {user.mention} remis à 100.", ephemeral=True)
 
@@ -105,16 +110,19 @@ def register_admin_commands(bot):
     @app_commands.describe(user="Le membre dont l’inventaire sera vidé")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_inventory(interaction: discord.Interaction, user: discord.Member):
-        inventaire[str(user.id)] = []
+        guild_id = str(interaction.guild.id)
+        uid = str(user.id)
+        inventaire[guild_id][uid] = []
         sauvegarder()
         await interaction.response.send_message(f"📦 Inventaire de {user.mention} vidé.", ephemeral=True)
 
     @bot.tree.command(name="resetleaderboard", description="Réinitialise les stats de classement de TOUS les membres.")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_leaderboard(interaction: discord.Interaction):
+        guild_id = str(interaction.guild.id)
         count = 0
-        for uid in leaderboard:
-            leaderboard[uid] = {"degats": 0, "soin": 0}
+        for uid in leaderboard.get(guild_id, {}):
+            leaderboard[guild_id][uid] = {"degats": 0, "soin": 0}
             count += 1
 
         sauvegarder()
@@ -126,13 +134,16 @@ def register_admin_commands(bot):
     @app_commands.describe(user="Le membre", item="Emoji de l'objet", quantity="Quantité")
     @app_commands.checks.has_permissions(administrator=True)
     async def give_item(interaction: discord.Interaction, user: discord.Member, item: str, quantity: int = 1):
+        guild_id = str(interaction.guild.id)
         uid = str(user.id)
+
         if item not in OBJETS:
             return await interaction.response.send_message(
                 f"❌ L’objet {item} n’existe pas.", ephemeral=True
             )
 
-        inventaire.setdefault(uid, []).extend([item] * quantity)
+        user_inv, _, _ = get_user_data(guild_id, uid)
+        user_inv.extend([item] * quantity)
         sauvegarder()
         await interaction.response.send_message(
             f"✅ {quantity} × {item} donné à {user.mention}.", ephemeral=True
