@@ -6,7 +6,7 @@ def register_profile_command(bot):
     @bot.tree.command(name="info", description="Affiche le profil SomniCorp d’un membre.")
     @app_commands.describe(user="Le membre à inspecter")
     async def profile_slash(interaction: discord.Interaction, user: discord.Member = None):
-        await interaction.response.defer(thinking=True, ephemeral=False)  # ← Ajout ici
+        await interaction.response.defer(thinking=True, ephemeral=False)
 
         member = user or interaction.user
         uid = str(member.id)
@@ -16,27 +16,25 @@ def register_profile_command(bot):
         user_stats = leaderboard.get(uid, {"degats": 0, "soin": 0})
         points = user_stats["degats"] + user_stats["soin"]
 
-        # Calcul du rang
-        sorted_lb = sorted(leaderboard.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
+        # Tri du leaderboard pour classement global
+        sorted_lb = sorted(
+            leaderboard.items(),
+            key=lambda x: x[1]["degats"] + x[1]["soin"],
+            reverse=True
+        )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
 
-        # Appliquer médaille si top 3
-        medal = ""
-        if rank == 1:
-            medal = "🥇 "
-        elif rank == 2:
-            medal = "🥈 "
-        elif rank == 3:
-            medal = "🥉 "
+        # Médaille si top 3
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        medal = medals.get(rank, "")
 
-        # Regrouper les objets par emoji et compter
+        # Regrouper inventaire
         item_counts = {}
         for item in user_inv:
             item_counts[item] = item_counts.get(item, 0) + 1
 
         inv_display = "Aucun objet." if not item_counts else "\n".join(
-            f"{emoji} × {count}"
-            for emoji, count in item_counts.items()
+            f"{emoji} × {count}" for emoji, count in item_counts.items()
         )
 
         embed = discord.Embed(
@@ -50,15 +48,15 @@ def register_profile_command(bot):
         embed.add_field(
             name="📊 Statistiques",
             value=(
-                f"• 🗡️ Dégâts infligés : **{user_stats.get('degats', 0)}**\n"
-                f"• ✨ Soins prodigués : **{user_stats.get('soin', 0)}**\n"
+                f"• 🗡️ Dégâts infligés : **{user_stats['degats']}**\n"
+                f"• ✨ Soins prodigués : **{user_stats['soin']}**\n"
                 f"• 🎯 Points totaux : **{points}**"
             ),
             inline=False
         )
         embed.add_field(
             name="🏆 Classement général",
-            value=f"{medal}{rank}" if rank else "Non classé",
+            value=f"{medal} Rang {rank}" if rank else "Non classé",
             inline=False
         )
         embed.set_footer(text="Analyse générée par les serveurs de SomniCorp.")
