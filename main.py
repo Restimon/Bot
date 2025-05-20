@@ -2,8 +2,11 @@ import discord
 from discord.ext import commands
 import asyncio
 import os
-from dotenv import load_dotenv
+import atexit
+import signal
+import sys
 
+from dotenv import load_dotenv
 from config import load_config, config
 from data import charger, sauvegarder
 from utils import cooldowns, get_random_item, OBJETS  
@@ -249,6 +252,20 @@ async def autosave_data_loop():
         sauvegarder()
         await asyncio.sleep(300)
 
+def on_shutdown():
+    print("💾 Sauvegarde finale avant extinction du bot...")
+    sauvegarder()
+
+# Appel automatique à la fermeture normale du programme
+atexit.register(on_shutdown)
+
+# Capture manuelle de signaux comme Ctrl+C ou arrêt système
+def handle_signal(sig, frame):
+    on_shutdown()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, handle_signal)
+signal.signal(signal.SIGTERM, handle_signal)
 # ===================== Run ======================
 
 bot.run(os.getenv("DISCORD_TOKEN"))
