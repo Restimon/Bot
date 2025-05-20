@@ -1,5 +1,5 @@
 import discord
-from storage import leaderboard  
+from storage import leaderboard, hp  # 🔧 ajoute hp ici
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
     """
@@ -23,9 +23,10 @@ async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> 
             continue  # ignorer les membres non trouvés (ex : ont quitté le serveur)
 
         total = stats["degats"] + stats["soin"]
+        current_hp = hp.get(guild_id, {}).get(uid, 100)  # 🔥 récupération des PV
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
         lines.append(
-            f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points"
+            f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points | ❤️ {current_hp} PV"
         )
 
     embed = discord.Embed(
