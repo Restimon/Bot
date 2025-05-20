@@ -1,7 +1,8 @@
 import discord
 from discord import app_commands
 from data import sauvegarder
-from utils import OBJETS, get_user_data
+from utils import OBJETS
+from storage import get_user_data
 from combat import apply_item_with_cooldown
 
 def register_fight_command(bot):
