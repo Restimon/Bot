@@ -64,7 +64,8 @@ async def on_ready():
 
     register_all_commands(bot)
 
-    await bot.tree.sync()
+    for guild in bot.guilds:
+    await bot.tree.sync(guild=guild)
 
     charger()
     load_config()
