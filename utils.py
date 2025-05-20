@@ -32,11 +32,3 @@ def get_random_item():
         pool.extend([emoji] * (26 - data["rarete"]))
     return random.choice(pool)
 
-# ====================== Données multi-serveur ======================
-
-# Cooldowns globaux (non serveur-spécifiques pour l’instant)
-cooldowns = {"attack": {}, "heal": {}}
-
-# Cooldowns en secondes
-ATTACK_COOLDOWN = 15 * 60
-HEAL_COOLDOWN = 60 * 60
