@@ -3,7 +3,8 @@ import os
 from storage import inventaire, hp, leaderboard
 from utils import cooldowns  # Important pour accès aux cooldowns globaux
 
-DATA_FILE = "data.json"
+# ✅ Utilisation du disk persistant monté via Render
+DATA_FILE = "/persistent/data.json"
 
 # Claims quotidiens (par serveur → par utilisateur)
 last_daily_claim = {}
@@ -19,6 +20,7 @@ HEAL_COOLDOWN = 60 * 60    # 1 heure
 def sauvegarder():
     """Sauvegarde toutes les données SomniCorp dans un seul fichier JSON."""
     try:
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({
                 "inventaire": inventaire,
@@ -53,6 +55,8 @@ def charger():
         leaderboard.update(data.get("leaderboard", {}))
         last_daily_claim = data.get("last_daily_claim", {})
         cooldowns.update(data.get("cooldowns", {"attack": {}, "heal": {}}))
+
+        print("✅ Données chargées depuis data.json.")
 
     except json.JSONDecodeError:
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
