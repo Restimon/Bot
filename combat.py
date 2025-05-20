@@ -42,21 +42,27 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
     action = OBJETS[item]
 
     if action["type"] == "attaque":
-        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
-        if on_cooldown:
-            return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer.\n**Information SomniCorp !**")
-        if target_hp <= 0:
-            return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service. Attaque inutile.")
+    on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
+    if on_cooldown:
+        return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer.\n**Information SomniCorp !**")
+    if target_hp <= 0:
+        return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service. Attaque inutile.")
 
-        dmg = action["degats"]
-        before = target_hp
-        new_hp = max(target_hp - dmg, 0)
+    dmg = action["degats"]
+    before = target_hp
+    new_hp = max(target_hp - dmg, 0)
 
-        get_user_data(guild_id, target_id)[1] = new_hp
-        user_stats["degats"] += dmg
-        cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
+    # ✅ Mise à jour propre via storage
+    from storage import hp
+    hp[guild_id][target_id] = new_hp
 
-        return build_embed_from_item(item, f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV")
+    user_stats["degats"] += dmg
+    cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
+
+    return build_embed_from_item(
+        item,
+        f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV"
+    )
 
     elif action["type"] == "soin":
         on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
