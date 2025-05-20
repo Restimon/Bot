@@ -9,7 +9,7 @@ import datetime
 
 from dotenv import load_dotenv
 from config import load_config, config
-from data import charger, sauvegarder
+from data import charger, sauvegarder, charger_daily_claims, charger_cooldowns
 from utils import cooldowns, get_random_item, OBJETS  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
