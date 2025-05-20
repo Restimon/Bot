@@ -21,10 +21,14 @@ def register_fight_command(bot):
         if item not in OBJETS or OBJETS[item]["type"] != "attaque":
             return await interaction.response.send_message("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
 
-        user_inv.remove(item)
-        embed = apply_item_with_cooldown(uid, tid, item, interaction)
+        embed, success = apply_item_with_cooldown(uid, tid, item, interaction)
+
+        if success:
+            user_inv.remove(item)  # On ne consomme l’objet que si l’attaque a vraiment lieu
+
         sauvegarder()
         await interaction.response.send_message(embed=embed)
+
 
     # 🔽 Veille à ce que ceci soit bien indenté au même niveau que `async def fight_slash`
     @fight_slash.autocomplete("item")
