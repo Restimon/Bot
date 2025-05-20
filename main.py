@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 
 from config import load_config, config
 from data import charger, sauvegarder
-from utils import cooldowns, get_random_item, OBJETS, get_user_data
+from utils import cooldowns, get_random_item, OBJETS  
+from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
 from combat import apply_item_with_cooldown
 from inventory import build_inventory_embed
