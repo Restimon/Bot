@@ -27,6 +27,7 @@ def sauvegarder():
                 "last_daily_claim": last_daily_claim,
                 "cooldowns": cooldowns
             }, f, indent=4, ensure_ascii=False)
+        print("💾 Données sauvegardées dans data.json.")  
     except Exception as e:
         print(f"❌ Erreur lors de la sauvegarde : {e}")
 
