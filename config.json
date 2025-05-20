@@ -1,11 +1,10 @@
 {
   "123456789012345678": {
-    "leaderboard_channel_id": 111111111111111111,
-    "leaderboard_message_id": 222222222222222222
+    "special_leaderboard_channel_id": 111111111111111111,
+    "special_leaderboard_message_id": 222222222222222222
   },
   "987654321098765432": {
-    "leaderboard_channel_id": 333333333333333333,
-    "leaderboard_message_id": 444444444444444444
+    "special_leaderboard_channel_id": 333333333333333333,
+    "special_leaderboard_message_id": 444444444444444444
   }
 }
-
