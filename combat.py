@@ -59,10 +59,15 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         return build_embed_from_item(item, f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV")
 
-    elif action["type"] == "soin":
+        elif action["type"] == "soin":
         on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
         if on_cooldown:
-            return build_embed_from_item(item, f"⏳ {user_mention}, veuillez patienter {remaining // 60} min selon les protocoles de recharge SomniCorp.", user_id != target_id)
+            embed = build_embed_from_item(
+                item,
+                f"⏳ {user_mention}, veuillez patienter {remaining // 60} min selon les protocoles de recharge SomniCorp.",
+                is_heal_other=(user_id != target_id)
+            )
+            return embed, False
 
         heal = action["soin"]
         before = target_hp
@@ -72,4 +77,8 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         user_stats["soin"] += heal
         cooldowns["heal"].setdefault(guild_id, {})[user_id] = now
 
-        return build_embed_from_item(item, f"{user_mention} soigne {target_mention} de {heal} PV avec {item} !\n**SomniCorp :** {target_mention} : {before} + {heal} = {new_hp} / 100 PV", user_id != target_id)
+        return build_embed_from_item(
+            item,
+            f"{user_mention} soigne {target_mention} de {heal} PV avec {item} !\n**SomniCorp :** {target_mention} : {before} + {heal} = {new_hp} / 100 PV",
+            is_heal_other=(user_id != target_id)
+        ), True
