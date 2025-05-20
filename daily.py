@@ -3,9 +3,9 @@ import time
 from utils import get_random_item
 from storage import get_user_data
 from data import sauvegarder
+from data import last_daily_claim, sauvegarder_daily_claims
 
 # Structure : {guild_id: {user_id: last_claim_timestamp}}
-last_daily_claim = {}
 
 def register_daily_command(bot):
     @bot.tree.command(name="daily", description="Réclame ta récompense quotidienne SomniCorp")
@@ -16,6 +16,7 @@ def register_daily_command(bot):
 
         last_daily_claim.setdefault(guild_id, {})
         last_claim = last_daily_claim[guild_id].get(user_id)
+        sauvegarder_daily_claims()
 
         if last_claim and now - last_claim < 86400:
             remaining = 86400 - (now - last_claim)
