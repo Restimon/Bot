@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
-from config import config, save_config
+from config import config, save_config, get_guild_config
 from data import sauvegarder
 
 def register_admin_commands(bot):
@@ -10,7 +10,6 @@ def register_admin_commands(bot):
     @app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
         guild_id = str(interaction.guild.id)
-
         await interaction.response.defer(ephemeral=True)
 
         guild_config = config.setdefault(guild_id, {})
@@ -56,6 +55,31 @@ def register_admin_commands(bot):
 
         await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
 
+    @bot.tree.command(name="get_leaderboard_channel", description="📊 Voir le salon du leaderboard spécial")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def get_leaderboard_channel(interaction: discord.Interaction):
+        guild_id = str(interaction.guild.id)
+        config = get_guild_config(guild_id)
+        channel_id = config.get("leaderboard_channel_id")
+
+        if channel_id:
+            channel = interaction.guild.get_channel(channel_id)
+            if channel:
+                await interaction.response.send_message(
+                    f"📍 Le salon du leaderboard spécial est : {channel.mention} (`#{channel.name}` - ID `{channel.id}`)",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"⚠️ Le salon avec l'ID `{channel_id}` n'existe plus ou est inaccessible.",
+                    ephemeral=True
+                )
+        else:
+            await interaction.response.send_message(
+                "❌ Aucun salon de leaderboard n’a encore été configuré pour ce serveur.",
+                ephemeral=True
+            )
+
     @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
     @app_commands.checks.has_permissions(administrator=True)
     async def stop_leaderboard(interaction: discord.Interaction):
@@ -84,13 +108,11 @@ def register_admin_commands(bot):
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_all(interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
-
         uids = set(inventaire.get(guild_id, {})) | set(hp.get(guild_id, {})) | set(leaderboard.get(guild_id, {}))
         for uid in uids:
             inventaire[guild_id][uid] = []
             hp[guild_id][uid] = 100
             leaderboard[guild_id][uid] = {"degats": 0, "soin": 0}
-
         sauvegarder()
         await interaction.response.send_message(
             f"♻️ Tous les joueurs ont été réinitialisés ({len(uids)} membres).", ephemeral=True
@@ -125,11 +147,8 @@ def register_admin_commands(bot):
         for uid in leaderboard.get(guild_id, {}):
             leaderboard[guild_id][uid] = {"degats": 0, "soin": 0}
             count += 1
-
         sauvegarder()
-        await interaction.response.send_message(
-            f"🏆 Classement réinitialisé pour {count} membres.", ephemeral=True
-        )
+        await interaction.response.send_message(f"🏆 Classement réinitialisé pour {count} membres.", ephemeral=True)
 
     @bot.tree.command(name="giveitem", description="🎁 Donne un item à un membre.")
     @app_commands.describe(user="Le membre", item="Emoji de l'objet", quantity="Quantité")
@@ -137,30 +156,20 @@ def register_admin_commands(bot):
     async def give_item(interaction: discord.Interaction, user: discord.Member, item: str, quantity: int = 1):
         guild_id = str(interaction.guild.id)
         uid = str(user.id)
-
         if item not in OBJETS:
-            return await interaction.response.send_message(
-                f"❌ L’objet {item} n’existe pas.", ephemeral=True
-            )
-
+            return await interaction.response.send_message(f"❌ L’objet {item} n’existe pas.", ephemeral=True)
         user_inv, _, _ = get_user_data(guild_id, uid)
         user_inv.extend([item] * quantity)
         sauvegarder()
-        await interaction.response.send_message(
-            f"✅ {quantity} × {item} donné à {user.mention}.", ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ {quantity} × {item} donné à {user.mention}.", ephemeral=True)
 
     @give_item.autocomplete("item")
     async def autocomplete_give_item(interaction: discord.Interaction, current: str):
-        return [
-            app_commands.Choice(name=emoji, value=emoji)
-            for emoji in OBJETS if current in emoji
-        ][:25]
+        return [app_commands.Choice(name=emoji, value=emoji) for emoji in OBJETS if current in emoji][:25]
 
     @give_item.error
     async def give_item_error(interaction: discord.Interaction, error):
         if isinstance(error, app_commands.errors.MissingPermissions):
-            await interaction.response.send_message(
-                "⛔ Tu dois être admin pour cette commande.", ephemeral=True)
+            await interaction.response.send_message("⛔ Tu dois être admin pour cette commande.", ephemeral=True)
         else:
             await interaction.response.send_message("⚠️ Une erreur est survenue.", ephemeral=True)
