@@ -38,7 +38,10 @@ last_drop_time = 0
 
 @bot.tree.command(name="inv", description="Voir l'inventaire d'un membre")
 async def inv_slash(interaction: discord.Interaction, user: discord.Member = None):
-    await interaction.response.defer(thinking=False)  
+    try:
+        await interaction.response.defer(thinking=False)
+    except discord.NotFound:
+        return  
 
     member = user or interaction.user
     guild_id = str(interaction.guild.id)
@@ -46,7 +49,7 @@ async def inv_slash(interaction: discord.Interaction, user: discord.Member = Non
 
     embed = build_inventory_embed(user_id, bot, guild_id)
 
-    await interaction.followup.send(  
+    await interaction.followup.send(
         embed=embed,
         ephemeral=(user is not None and user != interaction.user)
     )
