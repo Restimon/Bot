@@ -15,6 +15,7 @@ def register_daily_command(bot):
         last_daily_claim.setdefault(guild_id, {})
         last_claim = last_daily_claim[guild_id].get(user_id)
 
+        # ⚠️ SI déjà reçu : réponse éphémère
         if last_claim and now - last_claim < 86400:
             remaining = 86400 - (now - last_claim)
             hours = int(remaining // 3600)
@@ -24,6 +25,7 @@ def register_daily_command(bot):
                 ephemeral=True
             )
 
+        # 🎁 Sinon, accorde les récompenses
         reward1 = get_random_item()
         reward2 = get_random_item()
 
@@ -32,7 +34,8 @@ def register_daily_command(bot):
         last_daily_claim[guild_id][user_id] = now
         sauvegarder()
 
+        # ✅ Message public
         await interaction.response.send_message(
-            f"🎁 Tu as reçu : {reward1} et {reward2} !\n**SomniCorp apprécie ta loyauté.**",
-            ephemeral=True
+            f"🎁 {interaction.user.mention} a reçu : {reward1} et {reward2} !\n**SomniCorp apprécie ta loyauté.**",
+            ephemeral=False
         )
