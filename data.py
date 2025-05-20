@@ -1,6 +1,6 @@
 import json
 import os
-from utils import inventaire, hp, leaderboard
+from storage import inventaire, hp, leaderboard
 
 DATA_FILE = "data.json"
 
