@@ -1,5 +1,5 @@
 import discord
-from utils import leaderboard
+from storage import leaderboard  
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
     """
