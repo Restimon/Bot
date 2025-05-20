@@ -19,7 +19,7 @@ def register_heal_command(bot):
             return await interaction.response.send_message("❌ Objet inconnu ou non spécifié.", ephemeral=True)
 
         if item not in user_inv:
-            return await interaction.response.send_message("🚫 Tu n’as pas cet objet de soin dans ton inventaire.", ephemeral=True)
+            return await interaction.response.send_message(f"🚫 SomniCorp ne détecte pas {item} dans ton inventaire.", ephemeral=True)
 
         if OBJETS[item]["type"] != "soin":
             return await interaction.response.send_message("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
