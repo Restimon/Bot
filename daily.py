@@ -22,7 +22,7 @@ def register_daily_command(bot):
             hours = int(remaining // 3600)
             minutes = int((remaining % 3600) // 60)
             return await interaction.response.send_message(
-                f"⏳ Tu as déjà réclamé ta récompense aujourd’hui ! Reviens dans **{hours}h {minutes}min**.",
+                f"⏳ Tu as déjà réclamé ta récompense aujourd’hui offert par SomniCorp ! Reviens dans **{hours}h {minutes}min**.",
                 ephemeral=True
             )
 
@@ -36,7 +36,7 @@ def register_daily_command(bot):
         sauvegarder()
 
         embed = discord.Embed(
-            title="🎁 Récompense quotidienne SomniCorp",
+            title="🎁 Récompense quotidienne de SomniCorp",
             description=f"{interaction.user.mention} a reçu : {reward1} et {reward2} !\nMerci pour ta fidélité à **SomniCorp**.",
             color=discord.Color.green()
         )
