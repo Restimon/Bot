@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
-from utils import inventaire, hp, leaderboard, OBJETS, get_user_data
+from storage import inventaire, hp, leaderboard, get_user_data
+from utils import OBJETS
 from config import config, save_config
 from data import sauvegarder
 
