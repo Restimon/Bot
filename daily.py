@@ -31,8 +31,8 @@ def register_daily_command(bot):
         reward1 = get_random_item()
         reward2 = get_random_item()
 
-        user_data = get_user_data(guild_id, user_id)
-        user_data["inventory"].extend([reward1, reward2])
+        user_inv, _, _ = get_user_data(guild_id, user_id)
+        user_inv.extend([reward1, reward2])
         last_daily_claim[guild_id][user_id] = now
         sauvegarder()
 
