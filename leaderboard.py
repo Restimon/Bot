@@ -2,27 +2,31 @@ import discord
 from utils import leaderboard
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
+    """
+    Génère un embed affichant le classement SomniCorp pour un serveur donné.
+    """
     medals = ["🥇", "🥈", "🥉"]
     guild_id = str(guild.id)
     server_lb = leaderboard.get(guild_id, {})
 
-    # Trier par total (dégâts + soin)
-    sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
+    # Trier les utilisateurs par total de points (dégâts + soins)
+    sorted_lb = sorted(
+        server_lb.items(),
+        key=lambda x: x[1]['degats'] + x[1]['soin'],
+        reverse=True
+    )
 
     lines = []
-    rank = 0
-    for uid, stats in sorted_lb:
+    for rank, (uid, stats) in enumerate(sorted_lb[:10]):  # max 10 joueurs
         member = guild.get_member(int(uid))
         if not member:
-            continue
-
-        if rank >= 10:
-            break
+            continue  # ignorer les membres non trouvés (ex : ont quitté le serveur)
 
         total = stats["degats"] + stats["soin"]
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-        lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
-        rank += 1
+        lines.append(
+            f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points"
+        )
 
     embed = discord.Embed(
         title=f"🏆 Classement de {guild.name}",
