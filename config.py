@@ -1,7 +1,7 @@
 import json
 import os
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = "/persistent/config.json"
 config = {}  # Structure attendue : {guild_id: {"leaderboard_channel_id": int, "leaderboard_message_id": int}}
 
 def load_config():
