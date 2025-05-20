@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 
 from config import load_config, config
-from data import charger, sauvegarder, charger_daily_claims
+from data import charger, sauvegarder, charger_daily_claims, sauvegarder_cooldowns
 from utils import cooldowns, get_random_item, OBJETS  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
@@ -77,6 +77,7 @@ def register_all_commands(bot):
 async def on_ready():
     charger() 
     charger_daily_claims()
+    charger_cooldowns()
     load_config()
 
     register_all_commands(bot)
@@ -92,7 +93,8 @@ async def on_ready():
     bot.loop.create_task(update_leaderboard_loop())
     bot.loop.create_task(yearly_reset_loop())
     bot.loop.create_task(autosave_daily_claims_loop())
-    
+    bot.loop.create_task(autosave_cooldowns_loop())
+
 @bot.event
 async def on_message(message):
     global message_counter, random_threshold, last_drop_time
@@ -246,6 +248,12 @@ async def autosave_daily_claims_loop():
     await bot.wait_until_ready()
     while not bot.is_closed():
         sauvegarder_daily_claims()
+        await asyncio.sleep(300)  
+
+async def autosave_cooldowns_loop():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        sauvegarder_cooldowns()
         await asyncio.sleep(300)  
 
 
