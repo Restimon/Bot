@@ -36,3 +36,17 @@ def register_fight_command(bot):
             app_commands.Choice(name=f"{emoji}", value=emoji)
             for emoji in attack_items if current in emoji
         ]
+@app_commands.autocomplete("item")
+async def autocomplete_items(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id)
+    uid = str(interaction.user.id)
+    user_inv, _, _ = get_user_data(guild_id, uid)
+
+    attack_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "attaque"))
+    if not attack_items:
+        return [app_commands.Choice(name="Aucune arme disponible", value="")]
+
+    return [
+        app_commands.Choice(name=f"{emoji}", value=emoji)
+        for emoji in attack_items if current in emoji
+    ][:25]
