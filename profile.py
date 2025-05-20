@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
-from utils import get_user_data, inventaire, hp, leaderboard, OBJETS
+from storage import get_user_data, inventaire, hp, leaderboard
+from utils import OBJETS
 
 def register_profile_command(bot):
     @bot.tree.command(name="info", description="Affiche le profil SomniCorp d’un membre.")
