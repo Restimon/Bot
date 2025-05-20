@@ -91,7 +91,8 @@ async def on_ready():
 
     bot.loop.create_task(update_leaderboard_loop())
     bot.loop.create_task(yearly_reset_loop())
-
+    bot.loop.create_task(autosave_daily_claims_loop())
+    
 @bot.event
 async def on_message(message):
     global message_counter, random_threshold, last_drop_time
@@ -239,6 +240,13 @@ async def yearly_reset_loop():
         else:
             # Vérifie toutes les 30 secondes
             await asyncio.sleep(30)
+
+async def autosave_daily_claims_loop():
+    from data import sauvegarder_daily_claims
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        sauvegarder_daily_claims()
+        await asyncio.sleep(300)  
 
 
 # ===================== Run ======================
