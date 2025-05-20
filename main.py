@@ -108,9 +108,9 @@ async def on_message(message):
 
     message_counter += 1
     if message_counter >= random_threshold:
+        last_drop_time = current_time
         item = get_random_item()
-        await message.add_reaction(item)
-        last_drop_time = current_time  
+        await message.add_reaction(item)  
 
         collected_users = set()
 
