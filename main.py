@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 
 from config import load_config, config
-from data import charger, sauvegarder
+from data import charger, sauvegarder, charger_daily_claims
 from utils import cooldowns, get_random_item, OBJETS  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
@@ -75,7 +75,8 @@ def register_all_commands(bot):
 
 @bot.event
 async def on_ready():
-    charger()            # CHARGE D’ABORD LES DONNÉES !
+    charger() 
+    charger_daily_claims()
     load_config()
 
     register_all_commands(bot)
