@@ -75,16 +75,13 @@ def register_all_commands(bot):
 
 @bot.event
 async def on_ready():
-    for guilde in bot.guilds:
-        await bot.tree.sync(guild=guilde)
+    charger()            # CHARGE D’ABORD LES DONNÉES !
+    load_config()
 
     register_all_commands(bot)
 
     for guild in bot.guilds:
-        await bot.tree.sync(guild=guild)  # ← ligne indentée correctement
-
-    charger()
-    load_config()
+        await bot.tree.sync(guild=guild)
 
     print(f"✅ SomniCorp Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
