@@ -27,18 +27,23 @@ def build_embed_from_item(item, description, is_heal_other=False):
     return embed
 
 def apply_item_with_cooldown(user_id, target_id, item, ctx):
+    import time  
+
     guild_id = str(ctx.guild.id)
     user_id = str(user_id)
     target_id = str(target_id)
     now = time.time()
 
     user_inv, user_hp, user_stats = get_user_data(guild_id, user_id)
-    _, target_hp, _ = get_user_data(guild_id, target_id)
+    _, target_hp, target_stats = get_user_data(guild_id, target_id)
 
     user_obj = ctx.guild.get_member(int(user_id))
     target_obj = ctx.guild.get_member(int(target_id))
     user_mention = user_obj.mention if user_obj else f"<@{user_id}>"
     target_mention = target_obj.mention if target_obj else f"<@{target_id}>"
+
+    if item not in OBJETS:
+        return None 
 
     action = OBJETS[item]
 
@@ -68,3 +73,30 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             item,
             f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV"
         ), True
+
+    elif action["type"] == "soin":
+        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
+        if on_cooldown:
+            return build_embed_from_item(
+                item,
+                f"{user_mention} doit attendre encore {remaining // 60} min avant d’utiliser un soin.\n**Information SomniCorp !**"
+            ), False
+
+        heal = action["soin"]
+        before = target_hp
+        new_hp = min(target_hp + heal, 100)
+
+        hp[guild_id][target_id] = new_hp
+        user_stats["soin"] += heal
+        cooldowns["heal"].setdefault(guild_id, {})[user_id] = now
+
+        return build_embed_from_item(
+            item,
+            f"{user_mention} soigne {target_mention} avec {item}, restaurant {heal} PV !\n**SomniCorp :** {target_mention} : {before} + {heal} = {new_hp} / 100 PV"
+        ), True
+
+    else:
+        return build_embed_from_item(
+            item,
+            f"⚠️ L'objet {item} est de type inconnu ou non pris en charge."
+        ), False
