@@ -21,7 +21,7 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     embed = discord.Embed(color=discord.Color.blurple())
 
     if not item_counts:
-        embed.description = "📦 SomniCorp détecte aucun objet dans l'inventaire."
+        embed.description = "📦 SomniCorp ne détecte aucun objet dans l'inventaire."
     else:
         # Affiche chaque emoji avec la quantité
         rows = [f"{emoji} × **{count}**" for emoji, count in item_counts.items()]
@@ -33,3 +33,4 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     embed.set_author(name=f"Inventaire SomniCorp de {name}")
 
     return embed
+
