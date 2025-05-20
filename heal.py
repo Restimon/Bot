@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
-from utils import OBJETS, get_user_data
+from utils import OBJETS
+from storage import get_user_data
 from data import sauvegarder
 from combat import apply_item_with_cooldown
 
