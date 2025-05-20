@@ -1,13 +1,11 @@
-import time
-import discord
 from utils import (
     OBJETS,
     GIFS,
     cooldowns,
     ATTACK_COOLDOWN,
-    HEAL_COOLDOWN,
-    get_user_data
+    HEAL_COOLDOWN
 )
+from storage import get_user_data
 from storage import hp
 
 def is_on_cooldown(guild_id, user_id, action_type):
