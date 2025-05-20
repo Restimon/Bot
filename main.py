@@ -158,8 +158,8 @@ async def update_leaderboard_loop():
             guild_id = str(guild.id)
             guild_config = get_guild_config(guild_id)
 
-            channel_id = guild_config.get("leaderboard_channel_id")
-            message_id = guild_config.get("leaderboard_message_id")
+            channel_id = guild_config.get("special_leaderboard_channel_id")
+            message_id = guild_config.get("special_leaderboard_message_id")
 
             if not channel_id:
                 continue
@@ -199,7 +199,7 @@ async def update_leaderboard_loop():
                     raise discord.NotFound(response=None, message="No message ID")
             except (discord.NotFound, discord.HTTPException):
                 msg = await channel.send(content=text)
-                guild_config["leaderboard_message_id"] = msg.id
+                guild_config["special_leaderboard_message_id"] = msg.id
                 save_config()
 
         await asyncio.sleep(300)
