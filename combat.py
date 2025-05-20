@@ -52,7 +52,6 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
     before = target_hp
     new_hp = max(target_hp - dmg, 0)
 
-    # ✅ Mise à jour propre via storage
     from storage import hp
     hp[guild_id][target_id] = new_hp
 
