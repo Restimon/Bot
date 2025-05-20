@@ -14,11 +14,9 @@ def register_profile_command(bot):
         uid = str(member.id)
 
         # Récupérer les données utilisateur dans ce serveur
-        user_data = get_user_data(guild_id, uid)
         user_inv, user_hp, user_stats = get_user_data(guild_id, uid)
-        user_hp = user_data["hp"]
-        user_stats = user_data["stats"]
         points = user_stats["degats"] + user_stats["soin"]
+
 
         # Tri du classement pour CE serveur uniquement
         server_leaderboard = leaderboard.get(guild_id, {})
