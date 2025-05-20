@@ -32,4 +32,8 @@ def get_random_item():
         pool.extend([emoji] * (26 - data["rarete"]))
     return random.choice(pool)
 
-cooldowns = {"attack": {}, "heal": {}}
+# Cooldowns globaux (utilisés dans data.py)
+cooldowns = {
+    "attack": {},
+    "heal": {}
+}
