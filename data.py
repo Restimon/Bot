@@ -53,7 +53,8 @@ def charger():
         inventaire.update(data.get("inventaire", {}))
         hp.update(data.get("hp", {}))
         leaderboard.update(data.get("leaderboard", {}))
-        last_daily_claim = data.get("last_daily_claim", {})
+        last_daily_claim.clear()
+        last_daily_claim.update(data.get("last_daily_claim", {}))
         cooldowns.update(data.get("cooldowns", {"attack": {}, "heal": {}}))
 
         print("✅ Données chargées depuis data.json.")
