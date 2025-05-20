@@ -9,7 +9,8 @@ last_daily_claim = {}
 
 def register_daily_command(bot):
     @bot.tree.command(name="daily", description="Réclame ta récompense quotidienne SomniCorp")
-async def daily_slash(interaction: discord.Interaction):
+    async def daily_slash(interaction: discord.Interaction):
+        
     guild_id = str(interaction.guild_id)
     user_id = str(interaction.user.id)  # 👈 toujours une string
     now = time.time()
