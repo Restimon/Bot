@@ -16,6 +16,7 @@ from fight import register_fight_command
 from heal import register_heal_command
 from admin import register_admin_commands
 from profile import register_profile_command
+from temp_commands import register_temp_commands
 
 load_dotenv()
 
@@ -55,7 +56,8 @@ def register_all_commands(bot):
     register_heal_command(bot)
     register_admin_commands(bot)
     register_profile_command(bot)
-
+    register_temp_commands(bot)
+    
 # ===================== Events ======================
 
 @bot.event
