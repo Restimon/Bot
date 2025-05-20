@@ -9,7 +9,7 @@ import datetime
 
 from dotenv import load_dotenv
 from config import load_config, config
-from data import charger, sauvegarder, charger_daily_claims, charger_cooldowns
+from data import charger, sauvegarder
 from utils import cooldowns, get_random_item, OBJETS  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
@@ -80,8 +80,6 @@ def register_all_commands(bot):
 @bot.event
 async def on_ready():
     charger() 
-    charger_daily_claims()
-    charger_cooldowns()
     load_config()
 
     register_all_commands(bot)
