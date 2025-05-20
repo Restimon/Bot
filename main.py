@@ -37,10 +37,13 @@ last_drop_time = 0
 
 @bot.tree.command(name="inv", description="Voir l'inventaire d'un membre")
 async def inv_slash(interaction: discord.Interaction, user: discord.Member = None):
+    await interaction.response.defer(thinking=True, ephemeral=True)  # ← Ajout ici
+
     member = user or interaction.user
     uid = str(member.id)
     embed = build_inventory_embed(uid, bot, str(interaction.guild.id))
-    await interaction.response.send_message(embed=embed, ephemeral=(user is not None and user != interaction.user))
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="leaderboard", description="Voir le classement SomniCorp")
 async def leaderboard_slash(interaction: discord.Interaction):
