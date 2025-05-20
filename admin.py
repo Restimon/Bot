@@ -14,8 +14,8 @@ def register_admin_commands(bot):
         await interaction.response.defer(ephemeral=True)
 
         guild_config = config.setdefault(guild_id, {})
-        old_channel_id = guild_config.get("leaderboard_channel_id")
-        old_message_id = guild_config.get("leaderboard_message_id")
+        old_channel_id = guild_config.get("special_leaderboard_channel_id")
+        old_message_id = guild_config.get("special_leaderboard_message_id")
 
         if old_channel_id and old_message_id:
             old_channel = interaction.client.get_channel(old_channel_id)
@@ -40,7 +40,7 @@ def register_admin_commands(bot):
                 break
             total = stats["degats"] + stats["soin"]
             prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-            lines.append(f"{prefix} **{user.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+            lines.append(f"{prefix} **{user.display_name}** → 🔪 {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
             rank += 1
 
         content = (
@@ -50,8 +50,8 @@ def register_admin_commands(bot):
         )
 
         msg = await channel.send(content=content)
-        guild_config["leaderboard_channel_id"] = channel.id
-        guild_config["leaderboard_message_id"] = msg.id
+        guild_config["special_leaderboard_channel_id"] = channel.id
+        guild_config["special_leaderboard_message_id"] = msg.id
         save_config()
 
         await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
@@ -60,8 +60,8 @@ def register_admin_commands(bot):
     @app_commands.checks.has_permissions(administrator=True)
     async def get_leaderboard_channel(interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
-        config = get_guild_config(guild_id)
-        channel_id = config.get("leaderboard_channel_id")
+        cfg = get_guild_config(guild_id)
+        channel_id = cfg.get("special_leaderboard_channel_id")
 
         if channel_id:
             channel = interaction.guild.get_channel(channel_id)
@@ -81,16 +81,17 @@ def register_admin_commands(bot):
                 ephemeral=True
             )
 
-    @bot.tree.command(name="stopleaderboard", description="Arrête le classement auto et supprime le message.")
+    @bot.tree.command(name="stopleaderboard", description="🛑 Supprime le message du classement spécial et arrête sa mise à jour automatique.")
     @app_commands.checks.has_permissions(administrator=True)
     async def stop_leaderboard(interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
         guild_config = config.get(guild_id, {})
-        channel_id = guild_config.get("leaderboard_channel_id")
-        message_id = guild_config.get("leaderboard_message_id")
+
+        channel_id = guild_config.get("special_leaderboard_channel_id")
+        message_id = guild_config.get("special_leaderboard_message_id")
 
         if not channel_id or not message_id:
-            return await interaction.response.send_message("⚠️ Aucun leaderboard actif.", ephemeral=True)
+            return await interaction.response.send_message("⚠️ Aucun leaderboard spécial actif.", ephemeral=True)
 
         channel = interaction.client.get_channel(channel_id)
         if channel:
@@ -100,10 +101,12 @@ def register_admin_commands(bot):
             except discord.NotFound:
                 pass
 
-        guild_config["leaderboard_channel_id"] = None
-        guild_config["leaderboard_message_id"] = None
+    # On efface les IDs du leaderboard spécial
+        guild_config["special_leaderboard_channel_id"] = None
+        guild_config["special_leaderboard_message_id"] = None
         save_config()
-        await interaction.response.send_message("🛑 Leaderboard désactivé et supprimé.", ephemeral=True)
+
+        await interaction.response.send_message("🛑 Leaderboard spécial désactivé et supprimé.", ephemeral=True)
 
     @bot.tree.command(name="resetall", description="Réinitialise TOUS les joueurs : inventaire, PV, classement.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -182,8 +185,8 @@ def register_admin_commands(bot):
         guild_id = str(guild.id)
         guild_config = get_guild_config(guild_id)
 
-        channel_id = guild_config.get("leaderboard_channel_id")
-        message_id = guild_config.get("leaderboard_message_id")
+        channel_id = guild_config.get("special_leaderboard_channel_id")
+        message_id = guild_config.get("special_leaderboard_message_id")
 
         if not channel_id:
             return await interaction.response.send_message("❌ Aucun salon de leaderboard configuré.", ephemeral=True)
@@ -206,7 +209,7 @@ def register_admin_commands(bot):
                 break
             total = stats["degats"] + stats["soin"]
             prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-            lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+            lines.append(f"{prefix} **{member.display_name}** → 🔪 {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
             rank += 1
 
         content = (
@@ -223,9 +226,8 @@ def register_admin_commands(bot):
                 raise discord.NotFound(response=None, message="No message ID")
         except (discord.NotFound, discord.HTTPException):
             msg = await channel.send(content=content)
-            guild_config["leaderboard_message_id"] = msg.id
+            guild_config["special_leaderboard_message_id"] = msg.id
             save_config()
 
         await interaction.response.send_message("✅ Leaderboard mis à jour manuellement.", ephemeral=True)
 
-    
