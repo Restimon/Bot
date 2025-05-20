@@ -24,7 +24,12 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
         embed.description = "📦 SomniCorp ne détecte aucun objet dans l'inventaire."
     else:
         # Affiche chaque emoji avec la quantité
-        rows = [f"{emoji} × **{count}**" for emoji, count in item_counts.items()]
+        rows = [
+            f"{emoji} × **{count}** — "
+            f"{'🗡️' if OBJETS[emoji]['type'] == 'attaque' else '💚'} {OBJETS[emoji].get('degats') or OBJETS[emoji].get('soin')} "
+            f"{'dégâts' if OBJETS[emoji]['type'] == 'attaque' else 'soins'}"
+            for emoji, count in sorted(item_counts.items(), key=lambda x: -x[1])
+        ]
         embed.description = "\n".join(rows)
 
     guild = bot.get_guild(int(guild_id))
