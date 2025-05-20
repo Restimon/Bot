@@ -8,6 +8,14 @@ DATA_FILE = "data.json"
 # Claims quotidiens (par serveur → par utilisateur)
 last_daily_claim = {}
 
+cooldowns = {
+    "attack": {},
+    "heal": {}
+}
+
+ATTACK_COOLDOWN = 15 * 60  # 15 minutes
+HEAL_COOLDOWN = 60 * 60    # 1 heure
+
 def sauvegarder():
     """Sauvegarde toutes les données SomniCorp dans un seul fichier JSON."""
     try:
