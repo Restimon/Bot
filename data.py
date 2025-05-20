@@ -51,3 +51,22 @@ def charger_daily_claims():
     if os.path.exists(LAST_CLAIM_FILE):
         with open(LAST_CLAIM_FILE, "r", encoding="utf-8") as f:
             last_daily_claim = json.load(f)
+
+COOLDOWNS_FILE = "cooldowns.json"
+from utils import cooldowns  # si ce n’est pas déjà importé
+
+def sauvegarder_cooldowns():
+    try:
+        with open(COOLDOWNS_FILE, "w", encoding="utf-8") as f:
+            json.dump(cooldowns, f, indent=4)
+    except Exception as e:
+        print(f"❌ Erreur lors de la sauvegarde des cooldowns : {e}")
+
+def charger_cooldowns():
+    global cooldowns
+    if os.path.exists(COOLDOWNS_FILE):
+        try:
+            with open(COOLDOWNS_FILE, "r", encoding="utf-8") as f:
+                cooldowns.update(json.load(f))
+        except Exception as e:
+            print(f"⚠️ Erreur lors du chargement des cooldowns : {e}")
