@@ -265,11 +265,9 @@ async def daily_restart_loop():
         print(f"⏳ Prochain redémarrage automatique prévu dans {int(wait_seconds)} secondes.")
         await asyncio.sleep(wait_seconds)
 
-        print("🔁 Redémarrage automatique quotidien en cours...")
-        sauvegarder()  # Assure-toi que toutes les données sont bien sauvegardées
-
-        # Redémarrage : relancer le script Python actuel
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        print("🔁 Redémarrage automatique quotidien en cours (Render)...")
+        sauvegarder()
+        sys.exit(0)  # ✅ Render va relancer le bot automatiquement
 
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
