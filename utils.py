@@ -43,19 +43,3 @@ cooldowns = {"attack": {}, "heal": {}}
 # Cooldowns en secondes
 ATTACK_COOLDOWN = 15 * 60
 HEAL_COOLDOWN = 60 * 60
-
-def get_user_data(guild_id, user_id):
-    gid = str(guild_id)
-    uid = str(user_id)
-
-    if gid not in DATA:
-        DATA[gid] = {}
-
-    if uid not in DATA[gid]:
-        DATA[gid][uid] = {
-            "inventory": [],
-            "hp": 100,
-            "stats": {"degats": 0, "soin": 0}
-        }
-
-    return DATA[gid][uid]
