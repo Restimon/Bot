@@ -24,8 +24,11 @@ def register_heal_command(bot):
         if OBJETS[item]["type"] != "soin":
             return await interaction.response.send_message("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
 
-        user_inv.remove(item)
-        embed = apply_item_with_cooldown(uid, tid, item, interaction)
+        embed, success = apply_item_with_cooldown(uid, tid, item, interaction)
+
+        if success:
+            user_inv.remove(item)  # On ne retire l’objet que si l'action est réussie
+
         sauvegarder()
         await interaction.response.send_message(embed=embed)
 
