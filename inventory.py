@@ -11,8 +11,7 @@ def get_random_item():
     return random.choice(pool)
 
 def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> discord.Embed:
-    user_data = get_user_data(guild_id, user_id)
-    user_items = user_data["inventory"]
+    user_items, _, _ = get_user_data(guild_id, user_id)
 
     # Compte les objets
     item_counts = {}
