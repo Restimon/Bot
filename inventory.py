@@ -16,6 +16,10 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     user_items, _, _ = get_user_data(guild_id, user_id)
     item_counts = {}
 
+    # Assurer que c'est bien une liste
+    if isinstance(user_items, str):
+        user_items = [user_items]
+
     for item in user_items:
         item_counts[item] = item_counts.get(item, 0) + 1
 
