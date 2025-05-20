@@ -173,3 +173,58 @@ def register_admin_commands(bot):
             await interaction.response.send_message("⛔ Tu dois être admin pour cette commande.", ephemeral=True)
         else:
             await interaction.response.send_message("⚠️ Une erreur est survenue.", ephemeral=True)
+            
+    @bot.tree.command(name="forcer_leaderboard", description="🔁 Met à jour manuellement le leaderboard spécial.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def force_leaderboard_update(interaction: discord.Interaction):
+        guild = interaction.guild
+        guild_id = str(guild.id)
+        guild_config = get_guild_config(guild_id)
+
+        channel_id = guild_config.get("leaderboard_channel_id")
+        message_id = guild_config.get("leaderboard_message_id")
+
+        if not channel_id:
+            return await interaction.response.send_message("❌ Aucun salon de leaderboard configuré.", ephemeral=True)
+
+        channel = guild.get_channel(channel_id)
+        if not channel:
+            return await interaction.response.send_message("❌ Salon introuvable ou inaccessible.", ephemeral=True)
+
+        medals = ["🥇", "🥈", "🥉"]
+        server_lb = leaderboard.get(guild_id, {})
+        sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
+
+        lines = []
+        rank = 0
+        for uid, stats in sorted_lb:
+            member = guild.get_member(int(uid))
+            if not member:
+                continue
+            if rank >= 10:
+                break
+            total = stats["degats"] + stats["soin"]
+            prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+            lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+            rank += 1
+
+        content = (
+            "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+            "\n".join(lines) +
+            "\n\n📌 Mise à jour manuelle effectuée par un administrateur."
+        ) if lines else "*Aucune donnée disponible.*"
+
+        try:
+            if message_id:
+                msg = await channel.fetch_message(message_id)
+                await msg.edit(content=content)
+            else:
+                raise discord.NotFound(response=None, message="No message ID")
+        except (discord.NotFound, discord.HTTPException):
+            msg = await channel.send(content=content)
+            guild_config["leaderboard_message_id"] = msg.id
+            save_config()
+
+        await interaction.response.send_message("✅ Leaderboard mis à jour manuellement.", ephemeral=True)
+
+    
