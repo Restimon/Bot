@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from storage import get_user_data, inventaire, hp, leaderboard
+from storage import get_user_data, leaderboard
 from utils import OBJETS
 
 def register_profile_command(bot):
@@ -10,18 +10,17 @@ def register_profile_command(bot):
         try:
             await interaction.response.defer(thinking=True, ephemeral=False)
         except discord.NotFound:
-            return  # Interaction expirée, plus rien à faire
+            return  # L’interaction a expiré, on ne fait rien
 
         member = user or interaction.user
         guild_id = str(interaction.guild.id)
         uid = str(member.id)
 
-        # Récupérer les données utilisateur dans ce serveur
+        # Récupération des données utilisateur
         user_inv, user_hp, user_stats = get_user_data(guild_id, uid)
         points = user_stats["degats"] + user_stats["soin"]
 
-
-        # Tri du classement pour CE serveur uniquement
+        # Classement local
         server_leaderboard = leaderboard.get(guild_id, {})
         sorted_lb = sorted(
             server_leaderboard.items(),
@@ -29,16 +28,13 @@ def register_profile_command(bot):
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
-
-        # Médaille si top 3
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         medal = medals.get(rank, "")
 
-        # Regrouper inventaire
+        # Affichage inventaire
         item_counts = {}
         for item in user_inv:
             item_counts[item] = item_counts.get(item, 0) + 1
-
         inv_display = "Aucun objet." if not item_counts else "\n".join(
             f"{emoji} × {count}" for emoji, count in item_counts.items()
         )
