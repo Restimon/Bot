@@ -67,8 +67,8 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         before = target_hp
         new_hp = min(target_hp + heal, 100)
 
-        get_user_data(guild_id, target_id)[1] = new_hp
-        user_stats["soin"] += heal
+        get_user_data(guild_id, target_id)["hp"] = new_hp
+        get_user_data(guild_id, user_id)["stats"]["soin"] += heal
         cooldowns["heal"].setdefault(guild_id, {})[user_id] = now
 
         return build_embed_from_item(item, f"{user_mention} soigne {target_mention} de {heal} PV avec {item} !\n**SomniCorp :** {target_mention} : {before} + {heal} = {new_hp} / 100 PV", user_id != target_id)
