@@ -38,3 +38,16 @@ def charger():
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
     except Exception as e:
         print(f"❌ Erreur inattendue lors du chargement : {e}")
+        
+LAST_CLAIM_FILE = "daily_claims.json"
+last_daily_claim = {}
+
+def sauvegarder_daily_claims():
+    with open(LAST_CLAIM_FILE, "w", encoding="utf-8") as f:
+        json.dump(last_daily_claim, f, indent=4)
+
+def charger_daily_claims():
+    global last_daily_claim
+    if os.path.exists(LAST_CLAIM_FILE):
+        with open(LAST_CLAIM_FILE, "r", encoding="utf-8") as f:
+            last_daily_claim = json.load(f)
