@@ -77,6 +77,7 @@ async def on_ready():
         print(f" - /{command.name}")
 
     bot.loop.create_task(update_leaderboard_loop())
+    bot.loop.create_task(yearly_reset_loop())
 
 @bot.event
 async def on_message(message):
@@ -184,6 +185,47 @@ async def update_leaderboard_loop():
                 save_config()
 
         await asyncio.sleep(300)
+
+import datetime
+import asyncio
+import logging
+
+async def yearly_reset_loop():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        now = datetime.datetime.utcnow()
+        if now.month == 12 and now.day == 31 and now.hour == 23 and now.minute == 59:
+            from storage import inventaire, hp, leaderboard
+            from data import sauvegarder
+
+            for gid in list(inventaire.keys()):
+                inventaire[gid] = {}
+            for gid in list(hp.keys()):
+                hp[gid] = {}
+            for gid in list(leaderboard.keys()):
+                leaderboard[gid] = {}
+
+            sauvegarder()
+            print("🎉 Réinitialisation annuelle effectuée pour tous les serveurs.")
+            announcement_msg = "🎊 Les statistiques ont été remises à zéro pour la nouvelle année ! Merci pour votre participation à SomniCorp."
+
+            # Envoi du message d'annonce dans chaque salon de classement configuré
+            for server_id, server_conf in config.items():
+                channel_id = server_conf.get("leaderboard_channel_id")
+                if not channel_id:
+                    continue
+                try:
+                    channel = bot.get_channel(channel_id)
+                    if channel:
+                        await channel.send(announcement_msg)
+                except Exception as e:
+                    logging.error(f"❌ Impossible d'envoyer l'annonce dans le salon {channel_id} (serveur {server_id}) : {e}")
+
+            # Attendre 60 secondes pour éviter les doublons
+            await asyncio.sleep(60)
+        else:
+            # Vérifie toutes les 30 secondes
+            await asyncio.sleep(30)
 
 
 # ===================== Run ======================
