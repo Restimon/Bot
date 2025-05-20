@@ -24,13 +24,12 @@ def register_fight_command(bot):
         embed, success = apply_item_with_cooldown(uid, tid, item, interaction)
 
         if success:
-            user_inv.remove(item)  # On ne consomme l’objet que si l’attaque a vraiment lieu
+            user_inv.remove(item)  # On consomme l'objet si attaque réussie
+            sauvegarder()
+            await interaction.response.send_message(embed=embed)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        sauvegarder()
-        await interaction.response.send_message(embed=embed)
-
-
-    # 🔽 Veille à ce que ceci soit bien indenté au même niveau que `async def fight_slash`
     @fight_slash.autocomplete("item")
     async def autocomplete_items(interaction: discord.Interaction, current: str):
         guild_id = str(interaction.guild.id)
