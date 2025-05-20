@@ -1,6 +1,7 @@
 import discord
 import time
-from utils import get_random_item, get_user_data
+from utils import get_random_item
+from storage import get_user_data
 from data import sauvegarder
 
 # Structure : {guild_id: {user_id: last_claim_timestamp}}
