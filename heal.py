@@ -14,11 +14,14 @@ def register_heal_command(bot):
 
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        if item not in user_inv:
-            return await interaction.response.send_message("❌ Tu n’as pas cet objet de soin dans ton inventaire.", ephemeral=True)
+        if not item or item not in OBJETS:
+            return await interaction.response.send_message("❌ Objet inconnu ou non spécifié.", ephemeral=True)
 
-        if item not in OBJETS or OBJETS[item]["type"] != "soin":
-            return await interaction.response.send_message("⚠️ Cet objet ne sert pas à soigner !", ephemeral=True)
+        if item not in user_inv:
+            return await interaction.response.send_message("🚫 Tu n’as pas cet objet de soin dans ton inventaire.", ephemeral=True)
+
+        if OBJETS[item]["type"] != "soin":
+            return await interaction.response.send_message("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
 
         user_inv.remove(item)
         embed = apply_item_with_cooldown(uid, tid, item, interaction)
@@ -32,7 +35,11 @@ def register_heal_command(bot):
         user_inv, _, _ = get_user_data(guild_id, uid)
 
         heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin"))
+
+        if not heal_items:
+            return [app_commands.Choice(name="Aucun objet de soin", value="")]
+
         return [
-            app_commands.Choice(name=f"{emoji}", value=emoji)
+            app_commands.Choice(name=emoji, value=emoji)
             for emoji in heal_items if current in emoji
-        ]
+        ][:25]
