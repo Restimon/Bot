@@ -5,9 +5,9 @@ from utils import (
     GIFS,
     cooldowns,
     ATTACK_COOLDOWN,
-    HEAL_COOLDOWN,
-    get_user_data
+    HEAL_COOLDOWN
 )
+from storage import get_user_data
 
 def is_on_cooldown(guild_id, user_id, action_type):
     now = time.time()
