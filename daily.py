@@ -3,6 +3,7 @@ import time
 from utils import get_random_item, get_user_data
 from data import sauvegarder
 
+# Structure : {guild_id: {user_id: last_claim_timestamp}}
 last_daily_claim = {}
 
 def register_daily_command(bot):
@@ -15,7 +16,7 @@ def register_daily_command(bot):
         last_daily_claim.setdefault(guild_id, {})
         last_claim = last_daily_claim[guild_id].get(user_id)
 
-        # ⚠️ SI déjà reçu : réponse éphémère
+        # Éphémère si déjà reçu
         if last_claim and now - last_claim < 86400:
             remaining = 86400 - (now - last_claim)
             hours = int(remaining // 3600)
@@ -25,7 +26,7 @@ def register_daily_command(bot):
                 ephemeral=True
             )
 
-        # 🎁 Sinon, accorde les récompenses
+        # Génération des récompenses
         reward1 = get_random_item()
         reward2 = get_random_item()
 
@@ -34,8 +35,15 @@ def register_daily_command(bot):
         last_daily_claim[guild_id][user_id] = now
         sauvegarder()
 
-        # ✅ Message public
-        await interaction.response.send_message(
-            f"🎁 {interaction.user.mention} a reçu : {reward1} et {reward2} !\n**SomniCorp apprécie ta loyauté.**",
-            ephemeral=False
+        # Embed visuel
+        embed = discord.Embed(
+            title="🎁 Récompense quotidienne SomniCorp",
+            description=(
+                f"{interaction.user.mention} a reçu : {reward1} et {reward2} !\n"
+                f"Merci pour ta fidélité à **SomniCorp**."
+            ),
+            color=discord.Color.green()
         )
+        embed.set_footer(text="À réutiliser dans 24h.")
+
+        await interaction.response.send_message(embed=embed, ephemeral=False)
