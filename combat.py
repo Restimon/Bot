@@ -42,29 +42,29 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     action = OBJETS[item]
 
-if action["type"] == "attaque":
-    on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
-    if on_cooldown:
+    if action["type"] == "attaque":
+        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
+        if on_cooldown:
+            return build_embed_from_item(
+                item,
+                f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer.\n**Information SomniCorp !**"
+            ), False
+
+        if target_hp <= 0:
+            return build_embed_from_item(
+                item,
+                f"⚠️ {target_mention} est déjà hors service. Attaque inutile."
+            ), False
+
+        dmg = action["degats"]
+        before = target_hp
+        new_hp = max(target_hp - dmg, 0)
+
+        hp[guild_id][target_id] = new_hp
+        user_stats["degats"] += dmg
+        cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
+
         return build_embed_from_item(
             item,
-            f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer.\n**Information SomniCorp !**"
-        ), False
-
-    if target_hp <= 0:
-        return build_embed_from_item(
-            item,
-            f"⚠️ {target_mention} est déjà hors service. Attaque inutile."
-        ), False
-
-    dmg = action["degats"]
-    before = target_hp
-    new_hp = max(target_hp - dmg, 0)
-
-    hp[guild_id][target_id] = new_hp
-    user_stats["degats"] += dmg
-    cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
-
-    return build_embed_from_item(
-        item,
-        f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV"
-    ), True
+            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV"
+        ), True
