@@ -38,5 +38,15 @@ def build_help_embed():
         value="`/leaderboard` — Consulte le classement global de ton serveur.",
         inline=False
     )
+    embed.add_field(
+        name="👤 Profil",
+        value="`/info [@membre]` — Affiche ton profil SomniCorp.",
+        inline=False
+    )
+    embed.add_field(
+        name="🛠️ Admin (modérateurs seulement)",
+        value="`/reset*` — Commandes pour réinitialiser les stats, PV, inventaires, etc.",
+        inline=False
+    )
     embed.set_footer(text="Réalisez vos rêves, tout simplement — avec SomniCorp.")
     return embed
