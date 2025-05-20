@@ -14,8 +14,8 @@ cooldowns = {
     "heal": {}
 }
 
-ATTACK_COOLDOWN = 15 * 60  # 15 minutes
-HEAL_COOLDOWN = 60 * 60    # 1 heure
+ATTACK_COOLDOWN = 3 * 60 
+HEAL_COOLDOWN = 2 * 60    
 
 def sauvegarder():
     """Sauvegarde toutes les données SomniCorp dans un seul fichier JSON."""
