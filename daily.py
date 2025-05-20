@@ -2,8 +2,7 @@ import discord
 import time
 from utils import get_random_item
 from storage import get_user_data
-from data import sauvegarder
-from data import last_daily_claim, sauvegarder_daily_claims
+from data import sauvegarder, last_daily_claim
 
 def register_daily_command(bot):
     @bot.tree.command(name="daily", description="Réclame ta récompense quotidienne SomniCorp")
@@ -31,8 +30,8 @@ def register_daily_command(bot):
         user_inv, _, _ = get_user_data(guild_id, user_id)
         user_inv.extend([reward1, reward2])
         last_daily_claim[guild_id][user_id] = now
-        sauvegarder()
-        sauvegarder_daily_claims()  # ✅ maintenant ici
+
+        sauvegarder()  # sauvegarde globale
 
         embed = discord.Embed(
             title="🎁 Récompense quotidienne de SomniCorp",
