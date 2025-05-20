@@ -7,6 +7,7 @@ from utils import (
 )
 from storage import get_user_data
 from storage import hp
+import time
 
 def is_on_cooldown(guild_id, user_id, action_type):
     now = time.time()
