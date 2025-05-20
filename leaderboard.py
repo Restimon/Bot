@@ -33,5 +33,12 @@ async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> 
         description="\n".join(lines) if lines else "*Aucun joueur valide trouvé.*",
         color=discord.Color.gold()
     )
+
+    embed.add_field(
+        name="📊 Total joueurs actifs",
+        value=f"{len(server_lb)} joueurs enregistrés",
+        inline=False
+    )
+
     embed.set_footer(text="Classement propre à ce serveur.")
     return embed
