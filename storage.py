@@ -13,6 +13,7 @@ def get_leaderboard(guild_id):
     return leaderboard.setdefault(str(guild_id), {})
 
 def get_user_data(guild_id, user_id):
+    gid = str(guild_id)
     uid = str(user_id)
     g = str(guild_id)
     inv = get_inventory(g).setdefault(uid, [])
