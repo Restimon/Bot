@@ -5,6 +5,7 @@ import os
 import atexit
 import signal
 import sys
+import datetime
 
 from dotenv import load_dotenv
 from config import load_config, config
@@ -96,6 +97,7 @@ async def on_ready():
     bot.loop.create_task(update_leaderboard_loop())
     bot.loop.create_task(yearly_reset_loop())
     bot.loop.create_task(autosave_data_loop())
+    bot.loop.create_task(daily_restart_loop())
 
 @bot.event
 async def on_message(message):
@@ -251,6 +253,23 @@ async def autosave_data_loop():
     while not bot.is_closed():
         sauvegarder()
         await asyncio.sleep(300)
+
+async def daily_restart_loop():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        now = datetime.datetime.now()
+        tomorrow = now + datetime.timedelta(days=1)
+        restart_time = datetime.datetime.combine(tomorrow.date(), datetime.time(23, 59, 59))
+
+        wait_seconds = (restart_time - now).total_seconds()
+        print(f"⏳ Prochain redémarrage automatique prévu dans {int(wait_seconds)} secondes.")
+        await asyncio.sleep(wait_seconds)
+
+        print("🔁 Redémarrage automatique quotidien en cours...")
+        sauvegarder()  # Assure-toi que toutes les données sont bien sauvegardées
+
+        # Redémarrage : relancer le script Python actuel
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
