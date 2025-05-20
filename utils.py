@@ -34,9 +34,6 @@ def get_random_item():
 
 # ====================== Données multi-serveur ======================
 
-# Données globales indexées par guild → user
-DATA = {}
-
 # Cooldowns globaux (non serveur-spécifiques pour l’instant)
 cooldowns = {"attack": {}, "heal": {}}
 
