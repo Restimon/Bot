@@ -60,12 +60,13 @@ def register_all_commands(bot):
 
 @bot.event
 async def on_ready():
-    await bot.wait_until_ready()
+    for guilde in bot.guilds:
+        await bot.tree.sync(guild=guilde)
 
     register_all_commands(bot)
 
     for guild in bot.guilds:
-    await bot.tree.sync(guild=guild)
+        await bot.tree.sync(guild=guild)  # ← ligne indentée correctement
 
     charger()
     load_config()
