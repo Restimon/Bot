@@ -34,7 +34,8 @@ GIFS = {
     "💊": "https://64.media.tumblr.com/858f7aa3c8cee743d61a5ff4d73a378f/tumblr_n2mzr2nf7C1sji00bo1_500.gifv",
     "💉": "https://media.giphy.com/media/s8oHUwsjS8w5OD7Sg7/giphy.gif?cid=ecf05e47x77gai11gsj891f8jfzuntwv0detkk5p8vci8ig3&ep=v1_gifs_search&rid=giphy.gif&ct=g",
     "🔍": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZHpjbGI0dHRueHAwemhvY2Ztd2NjdHVqdnZka2lueHM3c2E3amtmMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/1fih1TYYBONo0Dkdmx/giphy.gif",
-    "soin_autre": "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcDVwc21sMTQ5MGF2bjRrazdmdHJpMmFoNGgzeGxtazF4Mnl6MHByNyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Mxb7h4hq6mJNzWNF5W/giphy.gif"
+    "soin_autre": "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcDVwc21sMTQ5MGF2bjRrazdmdHJpMmFoNGgzeGxtazF4Mnl6MHByNyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Mxb7h4hq6mJNzWNF5W/giphy.gif",
+    "critique": "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnRsZDZzNmUxM3N4OHVqbXhmOWUxbzVjOGkyeTR2cW1tMHlzamxnbCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/o2TqK6vEzhp96/giphy.gif"
 }
 
 # Objets avec pondération (plus rare = moins probable)
