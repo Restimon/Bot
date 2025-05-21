@@ -12,13 +12,13 @@ OBJETS = {
     "🧪": {"type": "poison", "degats": 3, "intervalle": 1800, "duree": 3 * 3600, "rarete": 13},
     "🍀": {"type": "soin", "soin": 1, "rarete": 2},
     "🩸": {"type": "soin", "soin": 5, "rarete": 6},
-    "💊": {"type": "soin", "soin": 10, "rarete": 9},
-    "💉": {"type": "soin", "soin": 15, "rarete": 15},
+    "🩹": {"type": "soin", "soin": 10, "rarete": 9},
+    "💊": {"type": "soin", "soin": 15, "rarete": 15},
     "📦": {"type": "mysterybox", "rarete": 16},
-    "🔍": {"type": "vol", "rarete": 12}
+    "🔍": {"type": "vol", "rarete": 12},
+    "💉": {"type": "vaccin", "rarete": 17}
 }
 
-# Gifs associés aux objets
 GIFS = {
     "❄️": "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExY3NlcTYyZDVkMjhpY3dpbmVhaXB2OXRoZGNxMHp2d3dnMmhldWR4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/sTUe8s1481gY0/giphy.gif",
     "🪓": "https://media.giphy.com/media/oFVr84BOpjyiA/giphy.gif?cid=ecf05e47gwzwh637iu0dhwjgzh8hm1leeettft94zqx4qbxn&ep=v1_gifs_search&rid=giphy.gif&ct=g",
@@ -30,6 +30,7 @@ GIFS = {
     "🧪": "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExbHFhOG0zaTQxaDQ5a2JndWVxMm0yc3BmOGRlaXVubDdqdGJheHNhdyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/9lHsP26ijVJwylXsff/giphy.gif",
     "🍀": "https://i.makeagif.com/media/9-05-2023/UUHN2G.gif",
     "🩸": "https://media.giphy.com/media/jN07m6w9uuZAeh80z0/giphy.gif?cid=ecf05e474yl44a4sx6ndpqcajubfga6xbcy4y5w8dgclucck&ep=v1_gifs_search&rid=giphy.gif&ct=g",
+    "🩹": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGk1b205enk4MXpzcWp0MjV5YjdrNHM0ODZheWxzOGRicTZ1eTJubiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/EwKe1XdABwk2yvTyQt/giphy.gif",
     "💊": "https://64.media.tumblr.com/858f7aa3c8cee743d61a5ff4d73a378f/tumblr_n2mzr2nf7C1sji00bo1_500.gifv",
     "💉": "https://media.giphy.com/media/s8oHUwsjS8w5OD7Sg7/giphy.gif?cid=ecf05e47x77gai11gsj891f8jfzuntwv0detkk5p8vci8ig3&ep=v1_gifs_search&rid=giphy.gif&ct=g",
     "🔍": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZHpjbGI0dHRueHAwemhvY2Ztd2NjdHVqdnZka2lueHM3c2E3amtmMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/1fih1TYYBONo0Dkdmx/giphy.gif",
