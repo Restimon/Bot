@@ -10,7 +10,7 @@ def register_help_commands(bot):
     @bot.tree.command(name="help", description="📘 Affiche toutes les commandes de SomniCorp")
     async def help_slash(interaction: discord.Interaction):
         embed = build_help_embed()
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed)
 
 def build_help_embed():
     embed = discord.Embed(
