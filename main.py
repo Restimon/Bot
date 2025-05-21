@@ -112,6 +112,7 @@ async def on_ready():
     bot.loop.create_task(daily_restart_loop())
     bot.loop.create_task(virus_damage_loop())
     bot.loop.create_task(poison_damage_loop())
+    bot.loop.create_task(infection_damage_loop())
 
 @bot.event
 async def on_message(message):
