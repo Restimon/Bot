@@ -41,6 +41,11 @@ last_drop_time = 0
 
 # ===================== Slash Commands ======================
 @bot.command()
+async def check_persistent(ctx):
+    files = os.listdir("/persistent")
+    await ctx.send(f"Contenu de `/persistent` :\n" + "\n".join(files) if files else "📂 Aucun fichier trouvé.")
+
+@bot.command()
 async def sync(ctx):
     await bot.tree.sync(guild=ctx.guild)
     await ctx.send("✅ Commandes slash resynchronisées avec succès.")
