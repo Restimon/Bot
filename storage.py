@@ -1,4 +1,3 @@
-# storage.py
 inventaire = {}
 hp = {}
 leaderboard = {}
@@ -18,19 +17,22 @@ def get_user_data(guild_id, user_id):
 
     inv = inventaire.setdefault(gid, {}).setdefault(uid, [])
     pv = hp.setdefault(gid, {}).setdefault(uid, 100)
-    stats = leaderboard.setdefault(gid, {}).setdefault(uid, {"degats": 0, "soin": 0})
 
-    if not isinstance(inv, list):
-        inventaire[gid][uid] = []
-        inv = inventaire[gid][uid]
+    # Initialisation complète des stats avec degats, soin, kills, morts
+    stats = leaderboard.setdefault(gid, {}).setdefault(uid, {
+        "degats": 0,
+        "soin": 0,
+        "kills": 0,
+        "morts": 0
+    })
 
-    if not isinstance(pv, int):
-        hp[gid][uid] = 100
-        pv = hp[gid][uid]
-
-    if not isinstance(stats, dict) or "degats" not in stats or "soin" not in stats:
-        leaderboard[gid][uid] = {"degats": 0, "soin": 0}
-        stats = leaderboard[gid][uid]
+    # Correction éventuelle si stats existantes incomplètes
+    if not isinstance(stats, dict):
+        stats = {"degats": 0, "soin": 0, "kills": 0, "morts": 0}
+        leaderboard[gid][uid] = stats
+    else:
+        for key in ("degats", "soin", "kills", "morts"):
+            stats.setdefault(key, 0)
 
     return inv, pv, stats
 
