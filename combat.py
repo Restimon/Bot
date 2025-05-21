@@ -188,6 +188,14 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         before = hp[guild_id].get(target_id, 100)
         new_hp = max(before - dmg, 0)
         hp[guild_id][target_id] = new_hp
+        if new_hp == 0:
+            hp[guild_id][target_id] = 100  # Reset PV
+            leaderboard.setdefault(guild_id, {})
+            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0})
+            leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0})
+            leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
+            leaderboard[guild_id][user_id]["degats"] += 50
+
         poison_status[guild_id][target_id] = {
             "start": now,
             "duration": duration,
