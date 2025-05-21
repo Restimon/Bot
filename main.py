@@ -45,20 +45,6 @@ async def check_persistent(ctx):
     await ctx.send(f"Contenu de `/persistent` :\n" + "\n".join(files) if files else "📂 Aucun fichier trouvé.")
 
 @bot.command()
-@commands.has_permissions(administrator=True)
-async def purge_slash(ctx):
-    guild = ctx.guild
-    if not guild:
-        await ctx.send("❌ Cette commande doit être utilisée dans un serveur.")
-        return
-
-    # Supprime toutes les commandes pour cette guilde
-    bot.tree.clear_commands(guild=guild)
-    await bot.tree.sync(guild=guild)
-    await ctx.send(f"🧹 Commandes slash purgées pour `{guild.name}`. Redémarre le bot pour les recharger.")
-
-
-@bot.command()
 async def sync(ctx):
     await bot.tree.sync(guild=ctx.guild)
     await ctx.send("✅ Commandes slash resynchronisées avec succès.")
