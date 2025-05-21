@@ -3,7 +3,7 @@ import json
 from discord import app_commands
 from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
-from config import get_config, get_guild_config, save_config
+from config import get_config, save_config, get_guild_config
 from data import sauvegarder
 
 def register_admin_commands(bot):
@@ -11,10 +11,11 @@ def register_admin_commands(bot):
     @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
-        print("🚨 set_leaderboard déclenchée")  # ← ici
+        print("🚨 set_leaderboard déclenchée")
         guild_id = str(interaction.guild.id)
         await interaction.response.defer(ephemeral=True)
 
+        config = get_config() 
         guild_config = config.setdefault(guild_id, {})
         old_channel_id = guild_config.get("special_leaderboard_channel_id")
         old_message_id = guild_config.get("special_leaderboard_message_id")
@@ -92,6 +93,7 @@ def register_admin_commands(bot):
     @app_commands.checks.has_permissions(administrator=True)
     async def stop_leaderboard(interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
+        config = get_config()
         guild_config = config.get(guild_id, {})
 
         channel_id = guild_config.get("special_leaderboard_channel_id")
