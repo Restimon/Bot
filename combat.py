@@ -20,8 +20,12 @@ def is_on_cooldown(guild_id, user_id, action_type):
     remaining = duration - (now - last_used)
     return (remaining > 0), max(int(remaining), 0)
 
-def build_embed_from_item(item, description, is_heal_other=False):
-    gif_url = GIFS.get("soin_autre") if is_heal_other and OBJETS[item]["type"] == "soin" else GIFS.get(item, "")
+def build_embed_from_item(item, description, is_heal_other=False, is_crit=False):
+    if is_crit:
+        gif_url = GIFS.get("critique")  # <-- gif spécial critique
+    else:
+        gif_url = GIFS.get("soin_autre") if is_heal_other and OBJETS[item]["type"] == "soin" else GIFS.get(item, "")
+    
     color = discord.Color.green() if OBJETS[item]["type"] == "soin" else discord.Color.red()
     embed = discord.Embed(title="📢 Action SomniCorp", description=description, color=color)
     if gif_url:
