@@ -107,6 +107,24 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             description = f"💉 {user_mention} tente de vacciner {target_mention}, mais aucun virus n’était détecté."
 
         return build_embed_from_item(item, description), True
+        
+        # 🧪 Poison (nouveau système)
+    elif action["type"] == "poison":
+        poison_status.setdefault(guild_id, {})
+        if target_id in poison_status[guild_id]:
+            return build_embed_from_item(item, f"{target_mention} est déjà empoisonné !"), False
+
+        duration = action.get("duree", 3 * 3600)  # 3h par défaut
+        poison_status[guild_id][target_id] = {
+            "start": now,
+            "duration": duration,
+            "last_tick": 0  # ← nécessaire pour éviter les dégâts doublés
+        }
+
+        return build_embed_from_item(
+            item,
+            f"🧪 {target_mention} est maintenant **empoisonné** ! Il subira 3 dégâts toutes les 30 minutes pendant {duration // 3600}h."
+        ), True
 
     # ⚠️ Autres types non gérés
     else:
