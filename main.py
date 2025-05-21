@@ -322,12 +322,20 @@ async def virus_damage_loop():
                     continue
 
                 if tick_count > last_tick:
+                    dmg = 5
                     current_hp = hp[gid].get(uid, 100)
-                    new_hp = max(current_hp - 5, 0)
+                    new_hp = max(current_hp - dmg, 0)
                     hp[gid][uid] = new_hp
+
+                    # Gain de points pour le joueur à l'origine de l'effet
+                    if source_id:
+                        leaderboard.setdefault(gid, {})
+                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0})
+                        leaderboard[gid][source_id]["degats"] += dmg
+
                     virus_status[gid][uid]["last_tick"] = tick_count
 
-                    print(f"🦠 {uid} a subi 5 dégâts viraux (HP: {current_hp} → {new_hp})")
+                    print(f"🦠 {uid} a subi {dmg} dégâts viraux (HP: {current_hp} → {new_hp})")
 
                     if new_hp == 0:
                         hp[gid][uid] = 100
@@ -369,12 +377,20 @@ async def poison_damage_loop():
                     continue
 
                 if tick_count > last_tick:
+                    dmg = 3
                     current_hp = hp[gid].get(uid, 100)
-                    new_hp = max(current_hp - 3, 0)
+                    new_hp = max(current_hp - dmg, 0)
                     hp[gid][uid] = new_hp
+
+                    # Gain de points pour le joueur à l'origine de l'effet
+                    if source_id:
+                        leaderboard.setdefault(gid, {})
+                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0})
+                        leaderboard[gid][source_id]["degats"] += dmg
+
                     poison_status[gid][uid]["last_tick"] = tick_count
 
-                    print(f"🧪 {uid} a subi 3 dégâts de poison (HP: {current_hp} → {new_hp})")
+                    print(f"🧪 {uid} a subi {dmg} dégâts de poison (HP: {current_hp} → {new_hp})")
 
                     if new_hp == 0:
                         hp[gid][uid] = 100
