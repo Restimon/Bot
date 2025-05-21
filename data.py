@@ -6,9 +6,12 @@ from utils import cooldowns  # Important pour accès aux cooldowns globaux
 # ✅ Utilisation du disk persistant monté via Render
 DATA_FILE = "/persistent/data.json"
 
-# Claims quotidiens (par serveur → par utilisateur)
+# États persistants
+virus_status = {}
+poison_status = {}
 last_daily_claim = {}
 
+# Cooldowns globaux
 cooldowns = {
     "attack": {},
     "heal": {}
@@ -27,7 +30,9 @@ def sauvegarder():
                 "hp": hp,
                 "leaderboard": leaderboard,
                 "last_daily_claim": last_daily_claim,
-                "cooldowns": cooldowns
+                "cooldowns": cooldowns,
+                "virus_status": virus_status,
+                "poison_status": poison_status
             }, f, indent=4, ensure_ascii=False)
         print("💾 Données sauvegardées dans data.json.")  
     except Exception as e:
@@ -59,6 +64,11 @@ def charger():
 
         cooldowns.update(data.get("cooldowns", {"attack": {}, "heal": {}}))
 
+        virus_status.clear()
+        virus_status.update(data.get("virus_status", {}))
+
+        poison_status.clear()
+        poison_status.update(data.get("poison_status", {}))
 
         print("✅ Données chargées depuis data.json.")
 
