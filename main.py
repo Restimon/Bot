@@ -83,13 +83,18 @@ def register_all_commands(bot):
 
 @bot.event
 async def on_ready():
-    charger() 
+    charger()
     load_config()
 
     register_all_commands(bot)
 
-    for guild in bot.guilds:
-        await bot.tree.sync(guild=guild)
+    try:
+        await bot.tree.sync() 
+        for guild in bot.guilds:
+            await bot.tree.sync(guild=guild)  
+            print(f"✅ Sync slash done for {guild.name}")
+    except Exception as e:
+        print(f"❌ Sync error: {e}")
 
     print(f"✅ SomniCorp Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
@@ -100,6 +105,7 @@ async def on_ready():
     bot.loop.create_task(yearly_reset_loop())
     bot.loop.create_task(autosave_data_loop())
     bot.loop.create_task(daily_restart_loop())
+
 
 @bot.event
 async def on_message(message):
