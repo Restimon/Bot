@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from utils import OBJETS
 from storage import get_user_data
-from data import sauvegarder
+from data import sauvegarder, virus_status
 from combat import apply_item_with_cooldown
 
 def register_heal_command(bot):
@@ -21,13 +21,29 @@ def register_heal_command(bot):
         if item not in user_inv:
             return await interaction.response.send_message(f"🚫 SomniCorp ne détecte pas {item} dans ton inventaire.", ephemeral=True)
 
-        if OBJETS[item]["type"] != "soin":
+        if OBJETS[item]["type"] != "soin" and item != "💉":
             return await interaction.response.send_message("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
 
+        # Traitement spécial pour 💉 vaccin
+        if item == "💉":
+            virus_status.setdefault(guild_id, {})
+            if uid in virus_status[guild_id]:
+                del virus_status[guild_id][uid]
+                description = f"💉 {interaction.user.mention} s’est administré un vaccin.\n🦠 Le virus a été **éradiqué** avec succès !"
+            else:
+                description = f"💉 Aucun virus détecté chez {interaction.user.mention}. L’injection était inutile."
+
+            user_inv.remove("💉")
+            sauvegarder()
+
+            embed = discord.Embed(title="📢 Vaccination SomniCorp", description=description, color=discord.Color.green())
+            return await interaction.response.send_message(embed=embed)
+
+        # Traitement normal des soins
         embed, success = apply_item_with_cooldown(uid, tid, item, interaction)
 
         if success:
-            user_inv.remove(item)  # On ne retire l’objet que si l'action est réussie
+            user_inv.remove(item)
 
         sauvegarder()
         await interaction.response.send_message(embed=embed)
@@ -38,7 +54,7 @@ def register_heal_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin"))
+        heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i == "💉"))
 
         if not heal_items:
             return [app_commands.Choice(name="Aucun objet de soin", value="")]
