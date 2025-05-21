@@ -10,6 +10,7 @@ from storage import hp
 from data import virus_status, poison_status
 import time
 import discord
+import random
 
 def is_on_cooldown(guild_id, user_id, action_type):
     now = time.time()
