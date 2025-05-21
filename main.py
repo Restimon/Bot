@@ -23,6 +23,7 @@ from fight import register_fight_command
 from heal import register_heal_command
 from admin import register_admin_commands
 from profile import register_profile_command
+from status import register_status_command
 
 load_dotenv()
 
