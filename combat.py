@@ -102,37 +102,38 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         return build_embed_from_item(item, f"{user_mention} soigne {target_mention} avec {item}, restaurant {heal} PV ({before} → {new_hp})"), True
 
-    # 🦠 Virus (nouveau système)
-    elif action["type"] == "virus":
-        virus_status.setdefault(guild_id, {})
-        if target_id in virus_status[guild_id]:
-            return build_embed_from_item(item, f"{target_mention} est déjà infecté !"), False
+        # 🦠 Virus (nouveau système)
+        elif action["type"] == "virus":
+            virus_status.setdefault(guild_id, {})
+            duration = action.get("duree", 6 * 3600)
+            virus_status[guild_id][target_id] = {
+                "start": now,
+                "duration": duration,
+                "last_tick": 0  # on remet aussi à zéro les ticks
+            }
 
-        duration = action.get("duree", 6 * 3600)
-        virus_status[guild_id][target_id] = {
-            "start": now,
-            "duration": duration
-        }
+            return build_embed_from_item(
+                item,
+                f"🦠 {target_mention} est maintenant infecté par le virus ! "
+                f"La durée a été réinitialisée pour {duration // 3600}h."
+            ), True
 
-        return build_embed_from_item(item, f"🦠 {target_mention} est maintenant infecté ! Le virus fera 5 dégâts par heure pendant {duration // 3600}h."), True
+        # 🧪 Poison (nouveau système)
+        elif action["type"] == "poison":
+            poison_status.setdefault(guild_id, {})
+            duration = action.get("duree", 3 * 3600)  # 3h par défaut
+            poison_status[guild_id][target_id] = {
+                "start": now,
+                "duration": duration,
+                "last_tick": 0
+            }
 
-    # 🧪 Poison (nouveau système)
-    elif action["type"] == "poison":
-        poison_status.setdefault(guild_id, {})
-        if target_id in poison_status[guild_id]:
-            return build_embed_from_item(item, f"{target_mention} est déjà empoisonné !"), False
-
-        duration = action.get("duree", 3 * 3600)  # 3h par défaut
-        poison_status[guild_id][target_id] = {
-            "start": now,
-            "duration": duration,
-            "last_tick": 0
-        }
-
-        return build_embed_from_item(
-            item,
-            f"🧪 {target_mention} est maintenant **empoisonné** ! Il subira 3 dégâts toutes les 30 minutes pendant {duration // 3600}h."
-        ), True
+            return build_embed_from_item(
+                item,
+                f"🧪 {target_mention} est maintenant **empoisonné** ! "
+                f"La durée a été réinitialisée pour {duration // 3600}h. "
+                f"Il subira 3 dégâts toutes les 30 minutes."
+            ), True
 
     # 🔍 Vol d'objet
     elif action["type"] == "vol":
