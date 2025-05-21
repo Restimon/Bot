@@ -103,7 +103,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         return build_embed_from_item(item, f"{user_mention} soigne {target_mention} avec {item}, restaurant {heal} PV ({before} → {new_hp})"), True
 
         # 🦠 Virus (nouveau système)
-     elif action["type"] == "virus":
+    elif action["type"] == "virus":
         virus_status.setdefault(guild_id, {})
         duration = action.get("duree", 6 * 3600)
         virus_status[guild_id][target_id] = {
