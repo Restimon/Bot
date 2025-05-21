@@ -45,6 +45,14 @@ async def check_persistent(ctx):
     await ctx.send(f"Contenu de `/persistent` :\n" + "\n".join(files) if files else "📂 Aucun fichier trouvé.")
 
 @bot.command()
+async def purge_slash(ctx):
+    """❌ Supprime toutes les commandes slash enregistrées chez Discord (manuellement)."""
+    await bot.tree.sync()  # Sync globale
+    await bot.tree.clear_commands(guild=None)  # Vide les commandes locales
+    await bot.tree.sync()  # Re-sync vide pour propager la suppression
+    await ctx.send("🧹 Commandes slash purgées manuellement.")
+
+@bot.command()
 async def sync(ctx):
     await bot.tree.sync(guild=ctx.guild)
     await ctx.send("✅ Commandes slash resynchronisées avec succès.")
