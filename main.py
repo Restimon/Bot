@@ -330,7 +330,7 @@ async def virus_damage_loop():
                     # Gain de points pour le joueur à l'origine de l'effet
                     if source_id:
                         leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0})
+                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                         leaderboard[gid][source_id]["degats"] += dmg
 
                     virus_status[gid][uid]["last_tick"] = tick_count
@@ -384,7 +384,7 @@ async def poison_damage_loop():
                     # Gain de points pour le joueur à l'origine de l'effet
                     if source_id:
                         leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0})
+                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                         leaderboard[gid][source_id]["degats"] += dmg
 
                     poison_status[gid][uid]["last_tick"] = tick_count
