@@ -24,8 +24,10 @@ def load_config():
 def save_config():
     """Sauvegarde la configuration actuelle dans un fichier JSON."""
     try:
+        os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)  
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4, ensure_ascii=False)
+        print("💾 Configuration sauvegardée dans config.json")
     except Exception as e:
         print(f"❌ Erreur lors de la sauvegarde de la configuration : {e}")
 
