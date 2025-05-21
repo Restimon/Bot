@@ -18,7 +18,7 @@ def register_fight_command(bot):
         if item not in user_inv:
             return await interaction.response.send_message("❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True)
 
-        if item not in OBJETS or OBJETS[item]["type"] != "attaque":
+        if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "virus", "poison", "infection"]:
             return await interaction.response.send_message("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
 
         embed, success = apply_item_with_cooldown(uid, tid, item, interaction)
