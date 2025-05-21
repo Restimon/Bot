@@ -93,16 +93,20 @@ def register_all_commands(bot):
 @bot.event
 async def on_ready():
     charger()
-    load_config()  
-
+    load_config()
     register_all_commands(bot)
 
     try:
+        # Étape 1 : Purger toutes les commandes slash locales
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()  # Sync vide pour forcer Discord à supprimer les anciennes
+
+        # Étape 2 : Réenregistrer toutes les commandes valides
         for guild in bot.guilds:
             await bot.tree.sync(guild=guild)
-            print(f"✅ Sync slash done for {guild.name}")
+            print(f"✅ Sync final effectué pour {guild.name}")
     except Exception as e:
-        print(f"❌ Sync error: {e}")
+        print(f"❌ Erreur pendant la synchronisation des commandes : {e}")
 
     print(f"✅ SomniCorp Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
