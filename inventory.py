@@ -26,25 +26,40 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
         rows = []
         for emoji, count in sorted(item_counts.items(), key=lambda x: -x[1]):
             obj = OBJETS[emoji]
-            if obj["type"] == "attaque":
+            t = obj["type"]
+
+            if t == "attaque":
                 effet = ""
                 if emoji == "🦠":
-                    effet = " (+2🦠)"
+                    effet = " (+2🦠 si porteur)"
                 elif emoji == "🧪":
-                    effet = " (-1🧪)"
+                    effet = " (-1🧪 si porteur)"
                 rows.append(f"{emoji} × **{count}** — 🗡️ {obj['degats']} dégâts{effet}")
-            elif obj["type"] == "soin":
-                rows.append(f"{emoji} × **{count}** — 💚 {obj['soin']} soins")
-            elif obj["type"] == "virus":
-                rows.append(f"{emoji} × **{count}** — 🦠 Infecte (5 dégâts/h pendant 6h)")
-            elif obj["type"] == "poison":
-                rows.append(f"{emoji} × **{count}** — 🧪 Empoisonne (3 dégâts/30min pendant 3h)")
-            elif obj["type"] == "vol":
-                rows.append(f"{emoji} × **{count}** — 🔍 Vole un objet à un joueur")
-            elif obj["type"] == "mysterybox":
-                rows.append(f"{emoji} × **{count}** — 📦 Donne 1 à 3 objets aléatoires")
+
+            elif t == "soin":
+                rows.append(f"{emoji} × **{count}** — 💚 Restaure {obj['soin']} PV")
+
+            elif t == "virus":
+                rows.append(f"{emoji} × **{count}** — 🦠 Infection virale : 5 dégâts initiaux, puis 5 dégâts/heure pendant 6h\n💥 -2 PV par attaque + propagation automatique.")
+
+            elif t == "poison":
+                rows.append(f"{emoji} × **{count}** — 🧪 Empoisonnement : 3 dégâts initiaux, puis 3 dégâts/30min pendant 3h\n🩸 Attaques infligent -1 dégât.")
+    
+            elif t == "infection":
+                rows.append(f"{emoji} × **{count}** — 🧟 Infection : 5 dégâts initiaux, puis 2 dégâts/30min pendant 3h\n🧬 25% de chance de contaminer la cible lors d’une attaque.")
+
+            elif t == "vol":
+                rows.append(f"{emoji} × **{count}** — 🔍 Vole un objet au hasard dans l’inventaire d’un joueur.")
+
+            elif t == "mysterybox":
+                rows.append(f"{emoji} × **{count}** — 📦 Boîte surprise SomniCorp : contient 1 à 3 objets aléatoires.")
+
+            elif t == "vaccin":
+                rows.append(f"{emoji} × **{count}** — 💉 Vaccin : Immunise contre virus, poison et infection (via `/heal`).")
+
             else:
-                rows.append(f"{emoji} × **{count}** — Objet inconnu")
+                rows.append(f"{emoji} × **{count}** — ❓ Type d’objet inconnu.")
+
 
         embed.description = "\n".join(rows)
 
