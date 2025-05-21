@@ -6,7 +6,6 @@ import atexit
 import signal
 import sys
 import datetime
-import json
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
@@ -92,11 +91,6 @@ async def on_ready():
     register_all_commands(bot)
 
     try:
-        # Étape 1 : Purger toutes les commandes slash locales
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()  # Sync vide pour forcer Discord à supprimer les anciennes
-
-        # Étape 2 : Réenregistrer toutes les commandes valides
         for guild in bot.guilds:
             await bot.tree.sync(guild=guild)
             print(f"✅ Sync final effectué pour {guild.name}")
