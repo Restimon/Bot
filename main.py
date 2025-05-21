@@ -82,7 +82,8 @@ def register_all_commands(bot):
     register_heal_command(bot)
     register_admin_commands(bot)
     register_profile_command(bot)
-    
+    register_status_command(bot)
+                            
 # ===================== Events ======================
 
 @bot.event
