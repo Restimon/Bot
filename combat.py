@@ -60,6 +60,13 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer."), False
         if target_hp <= 0:
             return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service."), False
+        
+        evade_chance = 0.1
+        if random.random() < evade_chance:
+            return build_embed_from_item(
+                item,
+                f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât infligé."
+            ), True
 
         base_dmg = action["degats"]
         crit_txt = ""
