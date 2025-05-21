@@ -3,9 +3,9 @@ import random
 # Objets disponibles
 OBJETS = {
     "❄️": {"type": "attaque", "degats": 1, "rarete": 1, "crit": 0.35},
-    "🪓": {"type": "attaque", "degats": 3, "rarete": 2, "status": "poison", "duree": 3 * 3600, "crit": 0.3},
+    "🪓": {"type": "attaque", "degats": 3, "rarete": 2, "crit": 0.3},
     "🔥": {"type": "attaque", "degats": 5, "rarete": 3, "crit": 0.25},
-    "⚡": {"type": "attaque", "degats": 10, "rarete": 5, "status": "virus", "duree": 6 * 3600, "crit": 0.20},
+    "⚡": {"type": "attaque", "degats": 10, "rarete": 5, "crit": 0.20},
     "🔫": {"type": "attaque", "degats": 15, "rarete": 12, "crit": 0.15},
     "🧨": {"type": "attaque", "degats": 20, "rarete": 15, "crit": 0.10},
     "🦠": {"type": "virus", "degats": 5, "duree": 6 * 3600, "rarete": 22, "crit": 0.1},
