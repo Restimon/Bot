@@ -39,8 +39,6 @@ GIFS = {
     "esquive": "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHdzZDd6eHhyMHZqdmZnMGg5ZXoybnMwM3g5NzgwbXVuNjFqNjI4dCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/eIm624c8nnNbiG0V3g/giphy.gif"
 }
 
-}
-
 # Objets avec pondération (plus rare = moins probable)
 def get_random_item():
     pool = []
