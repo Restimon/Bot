@@ -28,38 +28,38 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
             obj = OBJETS[emoji]
             t = obj["type"]
 
-            if t == "attaque":
-                effet = ""
-                if emoji == "🦠":
-                    effet = " (+2🦠 si porteur)"
-                elif emoji == "🧪":
-                    effet = " (-1🧪 si porteur)"
-                rows.append(f"{emoji} × **{count}** — 🗡️ {obj['degats']} dégâts{effet}")
-
-            elif t == "soin":
-                rows.append(f"{emoji} × **{count}** — 💚 Restaure {obj['soin']} PV")
-
-            elif t == "virus":
-                rows.append(f"{emoji} × **{count}** — 🦠 Infection virale : 5 dégâts initiaux, puis 5 dégâts/heure pendant 6h\n💥 -2 PV par attaque + propagation automatique.")
-
-            elif t == "poison":
-                rows.append(f"{emoji} × **{count}** — 🧪 Empoisonnement : 3 dégâts initiaux, puis 3 dégâts/30min pendant 3h\n🩸 Attaques infligent -1 dégât.")
-    
-            elif t == "infection":
-                rows.append(f"{emoji} × **{count}** — 🧟 Infection : 5 dégâts initiaux, puis 2 dégâts/30min pendant 3h\n🧬 25% de chance de contaminer la cible lors d’une attaque.")
-
-            elif t == "vol":
-                rows.append(f"{emoji} × **{count}** — 🔍 Vole un objet au hasard dans l’inventaire d’un joueur.")
-
-            elif t == "mysterybox":
-                rows.append(f"{emoji} × **{count}** — 📦 Boîte surprise SomniCorp : contient 1 à 3 objets aléatoires.")
-
-            elif t == "vaccin":
-                rows.append(f"{emoji} × **{count}** — 💉 Vaccin : Immunise contre virus, poison et infection (via `/heal`).")
-
+            if obj_type == "attaque":
+                degats = obj.get("degats", "?")
+                crit = obj.get("crit", 0)
+                rows.append(f"{emoji} × **{count}** — 🗡️ {degats} dégâts (🎯 {int(crit * 100)}% crit)")
+            elif obj_type == "virus":
+                dmg = obj.get("degats", "?")
+                duree = obj.get("duree", 0)
+                crit = obj.get("crit", 0)
+                rows.append(f"{emoji} × **{count}** — 🦠 Infection virale : {dmg} dégâts initiaux + 5/h pendant {duree // 3600}h (🎯 {int(crit * 100)}%)")
+            elif obj_type == "poison":
+                dmg = obj.get("degats", "?")
+                interval = obj.get("intervalle", 1800)
+                duree = obj.get("duree", 0)
+                crit = obj.get("crit", 0)
+                rows.append(f"{emoji} × **{count}** — 🧪 Poison : {dmg} dégâts initiaux + 3 toutes les {interval // 60} min pendant {duree // 3600}h (🎯 {int(crit * 100)}%)")
+            elif obj_type == "infection":
+                dmg = obj.get("degats", "?")
+                interval = obj.get("intervalle", 1800)
+                duree = obj.get("duree", 0)
+                rows.append(f"{emoji} × **{count}** — 🧟 Infection : {dmg} dégâts initiaux + 2 toutes les {interval // 60} min pendant {duree // 3600}h. ⚠️ Peut se propager")
+            elif obj_type == "soin":
+                soin = obj.get("soin", "?")
+                crit = obj.get("crit", 0)
+                rows.append(f"{emoji} × **{count}** — 💚 {soin} PV (✨ {int(crit * 100)}% crit)")
+            elif obj_type == "vol":
+                rows.append(f"{emoji} × **{count}** — 🔍 Vole un objet aléatoire à la cible")
+            elif obj_type == "mysterybox":
+                rows.append(f"{emoji} × **{count}** — 📦 Boîte surprise : donne 1 à 3 objets aléatoires")
+            elif obj_type == "vaccin":
+                rows.append(f"{emoji} × **{count}** — 💉 Utilisable uniquement via `/heal`, soigne virus et poison")
             else:
-                rows.append(f"{emoji} × **{count}** — ❓ Type d’objet inconnu.")
-
+                rows.append(f"{emoji} × **{count}** — Objet inconnu")
 
         embed.description = "\n".join(rows)
 
