@@ -26,7 +26,9 @@ async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> 
         current_hp = hp.get(guild_id, {}).get(uid, 100)  # 🔥 récupération des PV
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
         lines.append(
-            f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points | ❤️ {current_hp} PV"
+            f"{prefix} **{member.display_name}** → "
+            f"🗡️ {stats['degats']} | 💚 {stats['soin']} | ☠️ {stats.get('kills', 0)} | 💀 {stats.get('morts', 0)} = "
+            f"**{total}** points | ❤️ {current_hp} PV"
         )
 
     embed = discord.Embed(
