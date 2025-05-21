@@ -10,7 +10,7 @@ import time
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
-from data import charger, sauvegarder, virus_status
+from data import charger, sauvegarder, virus_status, poison_status
 from utils import cooldowns, get_random_item, OBJETS  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
