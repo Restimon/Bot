@@ -49,11 +49,6 @@ async def sync(ctx):
     await bot.tree.sync(guild=ctx.guild)
     await ctx.send("✅ Commandes slash resynchronisées avec succès.")
 
-@bot.command()
-async def test_config(ctx):
-    from config import config
-    await ctx.send(f"```json\n{json.dumps(config, indent=2)}```")
-
 @bot.tree.command(name="inv", description="Voir l'inventaire d'un membre")
 async def inv_slash(interaction: discord.Interaction, user: discord.Member = None):
     try:
