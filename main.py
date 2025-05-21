@@ -350,7 +350,6 @@ async def virus_damage_loop():
 
         await asyncio.sleep(60)
 
-
 async def poison_damage_loop():
     await bot.wait_until_ready()
     print("🧪 Boucle de dégâts de poison démarrée.")
@@ -404,7 +403,62 @@ async def poison_damage_loop():
                         print(f"💀 {uid} a été vaincu par du poison et revient à 100 PV.")
 
         await asyncio.sleep(60)
-        
+
+async def infection_damage_loop():
+    await bot.wait_until_ready()
+    print("🧟 Boucle de dégâts d'infection démarrée.")
+
+    while not bot.is_closed():
+        now = time.time()
+
+        for guild in bot.guilds:
+            gid = str(guild.id)
+            if gid not in infection_status:
+                continue
+
+            for uid, status in list(infection_status[gid].items()):
+                start = status.get("start")
+                duration = status.get("duration")
+                last_tick = status.get("last_tick", 0)
+                source_id = status.get("source")
+
+                elapsed = now - start
+                tick_count = int(elapsed // 1800)  # 30 minutes
+
+                if elapsed >= duration:
+                    del infection_status[gid][uid]
+                    continue
+
+                if tick_count > last_tick:
+                    dmg = 2
+                    current_hp = hp[gid].get(uid, 100)
+                    new_hp = max(current_hp - dmg, 0)
+                    hp[gid][uid] = new_hp
+
+                    if source_id:
+                        leaderboard.setdefault(gid, {})
+                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard[gid][source_id]["degats"] += dmg
+
+                    infection_status[gid][uid]["last_tick"] = tick_count
+
+                    print(f"🧟 {uid} a subi {dmg} dégâts d'infection (HP: {current_hp} → {new_hp})")
+
+                    if new_hp == 0:
+                        hp[gid][uid] = 100
+                        leaderboard.setdefault(gid, {})
+                        leaderboard[gid].setdefault(uid, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard[gid][uid]["degats"] = max(0, leaderboard[gid][uid]["degats"] - 25)
+                        leaderboard[gid][uid]["morts"] += 1
+
+                        if source_id:
+                            leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                            leaderboard[gid][source_id]["degats"] += 50
+                            leaderboard[gid][source_id]["kills"] += 1
+                        print(f"💀 {uid} a été vaincu par une infection et revient à 100 PV.")
+
+        await asyncio.sleep(60)
+
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
     sauvegarder()
