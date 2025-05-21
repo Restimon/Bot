@@ -202,14 +202,12 @@ async def update_leaderboard_loop():
             rank = 0
 
             for uid, stats in sorted_lb:
-                member = guild.get_member(int(uid))
-                if not member:
+                user = interaction.client.get_user(int(uid))
+                if not user:
                     continue
                 if rank >= 10:
                     break
-
-                total = stats['degats'] + stats['soin']
-                current_hp = server_hp.get(uid, 100)
+                total = stats["degats"] + stats["soin"]
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
                 lines.append(
                     f"{prefix} **{user.display_name}** → "
