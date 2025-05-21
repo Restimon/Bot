@@ -29,6 +29,7 @@ def register_temp_commands(bot: commands.Bot):
         # Message d’annonce
         announcement_msg = "🧹 **Réinitialisation forcée des données effectuée.** Toutes les statistiques ont été remises à zéro."
 
+        config = get_config()
         for server_id, server_conf in config.items():
             channel_id = server_conf.get("leaderboard_channel_id")
             if not channel_id:
