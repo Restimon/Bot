@@ -68,33 +68,3 @@ def register_profile_command(bot):
 
         await interaction.followup.send(embed=embed)
         
-def register_status_command(bot):
-    @bot.tree.command(name="status", description="Voir si un membre est infecté par un virus SomniCorp")
-    @app_commands.describe(user="Membre à inspecter (optionnel)")
-    async def status_command(interaction: discord.Interaction, user: discord.Member = None):
-        member = user or interaction.user
-        guild_id = str(interaction.guild.id)
-        user_id = str(member.id)
-
-        status = virus_status.get(guild_id, {}).get(user_id)
-
-        if not status:
-            return await interaction.response.send_message(
-                f"✅ {member.mention} n’est pas infecté par un virus.", ephemeral=True
-            )
-
-        now = time.time()
-        elapsed = now - status["start"]
-        remaining = max(0, status["duration"] - elapsed)
-        hours = int(remaining // 3600)
-        minutes = int((remaining % 3600) // 60)
-
-        embed = discord.Embed(
-            title="🦠 Statut viral SomniCorp",
-            description=f"{member.mention} est **infecté** !",
-            color=discord.Color.red()
-        )
-        embed.add_field(name="⏳ Temps restant", value=f"{hours}h {minutes}min", inline=True)
-        embed.set_footer(text="Un vaccin 💉 peut éradiquer ce virus.")
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
