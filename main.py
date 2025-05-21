@@ -215,16 +215,18 @@ async def update_leaderboard_loop():
                 "\n\n📌 Mise à jour automatique toutes les 5 minutes."
             ) if lines else "*Aucune donnée disponible.*"
 
-            try:
+           try:
                 if message_id:
                     print(f"✏️ Modification du message {message_id} dans {channel.name}")
                     msg = await channel.fetch_message(message_id)
                     await msg.edit(content=text)
                 else:
-                    print(f"📤 Envoi d’un nouveau message dans {channel.name}")
-                    msg = await channel.send(content=text)
-                    guild_config["special_leaderboard_message_id"] = msg.id
-                    save_config()
+                    raise discord.NotFound(response=None, message="No message ID")
+            except (discord.NotFound, discord.HTTPException):
+                print(f"📤 Envoi d’un nouveau message dans {channel.name}")
+                msg = await channel.send(content=text)
+                guild_config["special_leaderboard_message_id"] = msg.id
+                save_config()
 
         await asyncio.sleep(60)
         
