@@ -23,13 +23,29 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     if not item_counts:
         embed.description = "📦 SomniCorp ne détecte aucun objet dans l'inventaire."
     else:
-        # Affiche chaque emoji avec la quantité
-        rows = [
-            f"{emoji} × **{count}** — "
-            f"{'🗡️' if OBJETS[emoji]['type'] == 'attaque' else '💚'} {OBJETS[emoji].get('degats') or OBJETS[emoji].get('soin')} "
-            f"{'dégâts' if OBJETS[emoji]['type'] == 'attaque' else 'soins'}"
-            for emoji, count in sorted(item_counts.items(), key=lambda x: -x[1])
-        ]
+        rows = []
+        for emoji, count in sorted(item_counts.items(), key=lambda x: -x[1]):
+            obj = OBJETS[emoji]
+            if obj["type"] == "attaque":
+                effet = ""
+                if emoji == "🦠":
+                    effet = " (+2🦠)"
+                elif emoji == "🧪":
+                    effet = " (-1🧪)"
+                rows.append(f"{emoji} × **{count}** — 🗡️ {obj['degats']} dégâts{effet}")
+            elif obj["type"] == "soin":
+                rows.append(f"{emoji} × **{count}** — 💚 {obj['soin']} soins")
+            elif obj["type"] == "virus":
+                rows.append(f"{emoji} × **{count}** — 🦠 Infecte (5 dégâts/h pendant 6h)")
+            elif obj["type"] == "poison":
+                rows.append(f"{emoji} × **{count}** — 🧪 Empoisonne (3 dégâts/30min pendant 3h)")
+            elif obj["type"] == "vol":
+                rows.append(f"{emoji} × **{count}** — 🔍 Vole un objet à un joueur")
+            elif obj["type"] == "mysterybox":
+                rows.append(f"{emoji} × **{count}** — 📦 Donne 1 à 3 objets aléatoires")
+            else:
+                rows.append(f"{emoji} × **{count}** — Objet inconnu")
+
         embed.description = "\n".join(rows)
 
     guild = bot.get_guild(int(guild_id))
@@ -38,4 +54,3 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     embed.set_author(name=f"Inventaire SomniCorp de {name}")
 
     return embed
-
