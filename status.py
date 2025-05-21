@@ -95,4 +95,4 @@ def register_status_command(bot):
             embed.add_field(name="🧟 Infection", value="✅ Aucun agent infectieux détecté", inline=False)
 
         embed.set_footer(text="📡 Données scannées et transmises par les serveurs de SomniCorp.")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed)
