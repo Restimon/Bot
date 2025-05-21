@@ -232,6 +232,37 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             item,
             f"⚠️ Le vaccin 💉 ne peut être utilisé que via la commande `/heal`."
         ), False
+        
+    elif action["type"] == "infection":
+        infection_status.setdefault(guild_id, {})
+        dmg = action.get("degats", 5)
+        duration = action.get("duree", 3 * 3600)
+
+        before = hp[guild_id].get(target_id, 100)
+        new_hp = max(before - dmg, 0)
+        hp[guild_id][target_id] = new_hp
+
+        if new_hp == 0:
+            hp[guild_id][target_id] = 100
+            leaderboard.setdefault(guild_id, {})
+            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+            leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+            leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
+            leaderboard[guild_id][user_id]["degats"] += 50
+            leaderboard[guild_id][user_id]["kills"] += 1
+            leaderboard[guild_id][target_id]["morts"] += 1
+
+        infection_status[guild_id][target_id] = {
+            "start": now,
+            "duration": duration,
+            "last_tick": 0,
+            "source": user_id
+        } 
+
+    return build_embed_from_item(
+        item,
+        f"🧟 {target_mention} est maintenant infecté ! Il subit {dmg} dégâts immédiats, et 2 toutes les 30 minutes pendant {duration // 3600}h."
+    ), True
 
     else:
         return build_embed_from_item(item, f"⚠️ L'objet {item} est de type inconnu ou non pris en charge."), False
