@@ -221,7 +221,7 @@ async def update_leaderboard_loop():
             text = (
                 "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
                 "\n".join(lines) +
-                "\n\n📌 Mise à jour automatique toutes les 5 minutes."
+                "\n\n📌 Classement mis à jour automatiquement par SomniCorp."
             ) if lines else "*Aucune donnée disponible.*"
 
             try:
