@@ -21,8 +21,10 @@ def is_on_cooldown(guild_id, user_id, action_type):
     return (remaining > 0), max(int(remaining), 0)
 
 def build_embed_from_item(item, description, is_heal_other=False, is_crit=False):
-    if is_crit:
-        gif_url = GIFS.get("critique")  # <-- gif spécial critique
+    if "esquive" in description.lower():
+        gif_url = GIFS.get("esquive")
+    elif is_crit:
+        gif_url = GIFS.get("critique")
     else:
         gif_url = GIFS.get("soin_autre") if is_heal_other and OBJETS[item]["type"] == "soin" else GIFS.get(item, "")
     
@@ -31,6 +33,7 @@ def build_embed_from_item(item, description, is_heal_other=False, is_crit=False)
     if gif_url:
         embed.set_image(url=gif_url)
     return embed
+
 
 def check_crit(chance):
     return random.random() < chance
