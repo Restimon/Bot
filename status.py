@@ -1,7 +1,7 @@
 import discord
 import time
 from discord import app_commands
-from data import virus_status, poison_status
+from data import virus_status, poison_status, infection_status
 
 def register_status_command(bot):
     @bot.tree.command(name="status", description="Voir si un membre est affecté par un virus ou un poison SomniCorp")
