@@ -24,6 +24,7 @@ from heal import register_heal_command
 from admin import register_admin_commands
 from profile import register_profile_command
 from status import register_status_command
+from box import register_box_command
 
 load_dotenv()
 
@@ -84,7 +85,8 @@ def register_all_commands(bot):
     register_admin_commands(bot)
     register_profile_command(bot)
     register_status_command(bot)
-                            
+    register_box_command(bot)                     
+    
 # ===================== Events ======================
 
 @bot.event
