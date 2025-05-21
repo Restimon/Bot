@@ -2,7 +2,13 @@ import json
 import os
 
 CONFIG_FILE = "/persistent/config.json"
-config = {}  # Structure attendue : {guild_id: {"leaderboard_channel_id": int, "leaderboard_message_id": int}}
+config = None 
+
+def get_config():
+    global config
+    if config is None:
+        load_config()
+    return config
 
 def load_config():
     """Charge la configuration depuis le fichier JSON. Initialise si absent ou invalide."""
@@ -36,5 +42,6 @@ def get_guild_config(guild_id: str) -> dict:
     Récupère la configuration spécifique à un serveur Discord.
     Initialise l'entrée si elle n'existe pas.
     """
-    config.setdefault(guild_id, {})
-    return config[guild_id]
+    cfg = get_config()
+    cfg.setdefault(guild_id, {})
+    return cfg[guild_id]
