@@ -4,7 +4,7 @@ from discord import app_commands
 from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
 from config import get_config, save_config, get_guild_config
-from data import sauvegarder
+from data import sauvegarder, virus_status, poison_status
 
 def register_admin_commands(bot):
     print("📦 Enregistrement des commandes admin...")
@@ -243,3 +243,19 @@ def register_admin_commands(bot):
             save_config()
 
         await interaction.response.send_message("✅ Leaderboard mis à jour manuellement.", ephemeral=True)
+
+    @bot.tree.command(name="purge_status", description="(Admin) Supprime tous les effets de virus/poison d’un membre.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(user="Le membre à purifier")
+    async def purge_status_command(interaction: discord.Interaction, user: discord.Member):
+        guild_id = str(interaction.guild.id)
+        user_id = str(user.id)
+
+        virus_status.get(guild_id, {}).pop(user_id, None)
+        poison_status.get(guild_id, {}).pop(user_id, None)
+
+        await interaction.response.send_message(
+            f"🧼 Tous les effets négatifs ont été supprimés de {user.mention}. SomniCorp confirme la purification.",
+            ephemeral=True
+    )
+    
