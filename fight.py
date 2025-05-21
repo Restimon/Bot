@@ -36,7 +36,9 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        attack_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "attaque"))
+        attack_items = sorted(set(
+            i for i in user_inv if OBJETS.get(i, {}).get("type") in ["attaque", "virus", "poison", "infection"]
+        ))
         if not attack_items:
             return [app_commands.Choice(name="Aucune arme disponible", value="")]
 
