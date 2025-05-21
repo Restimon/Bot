@@ -25,9 +25,9 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     else:
         rows = []
         for emoji, count in sorted(item_counts.items(), key=lambda x: -x[1]):
-            obj = OBJETS[emoji]
-            t = obj["type"]
-
+            obj = OBJETS.get(emoji, {})
+            obj_type = obj.get("type", "inconnu")  
+            
             if obj_type == "attaque":
                 degats = obj.get("degats", "?")
                 crit = obj.get("crit", 0)
