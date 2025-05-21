@@ -60,6 +60,47 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         emoji_modif = ""
         modif_txt = ""
 
+        # Malus poison
+        if user_id in poison_status.get(guild_id, {}):
+            base_dmg -= 1
+            emoji_modif = "🧪"
+            modif_txt = f"(-1 {emoji_modif})"
+
+        # Bonus virus
+        elif user_id in virus_status.get(guild_id, {}):
+            base_dmg += 2
+            emoji_modif = "🦠"
+            modif_txt = f"(+2 {emoji_modif})"
+
+        dmg = max(0, base_dmg)
+        before = target_hp
+        new_hp = max(target_hp - dmg, 0)
+        hp[guild_id][target_id] = new_hp
+        user_stats["degats"] += dmg
+        cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
+
+        # Si arme a effet poison ou virus
+        status_type = action.get("status")
+        if status_type == "virus":
+            virus_status.setdefault(guild_id, {})
+            virus_status[guild_id][target_id] = {
+                "start": now,
+                "duration": action.get("duree", 6 * 3600)
+            }
+        elif status_type == "poison":
+            poison_status.setdefault(guild_id, {})
+            poison_status[guild_id][target_id] = {
+                "start": now,
+                "duration": action.get("duree", 3 * 3600),
+                "last_tick": 0
+            }
+
+        return build_embed_from_item(
+            item,
+            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
+            f"**SomniCorp :** {target_mention} : {before} - {action['degats']}{modif_txt} = {new_hp} / 100 PV"
+        ), True
+
         # 💉 Modificateurs
         if user_id in poison_status.get(guild_id, {}):
             base_dmg -= 1
