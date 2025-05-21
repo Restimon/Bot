@@ -192,6 +192,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "duration": action.get("duree", 6 * 3600),
             "last_tick": 0,
             "source": user_id
+            "channel": ctx.channel.id
         }
 
         return build_embed_from_item(
@@ -225,6 +226,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "duration": action.get("duree", 3 * 3600),
             "last_tick": 0,
             "source": user_id
+            "channel": ctx.channel.id
         }
 
         return build_embed_from_item(
@@ -272,6 +274,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "duration": duration,
             "last_tick": 0,
             "source": user_id
+            "channel": ctx.channel.id
         } 
 
     return build_embed_from_item(
