@@ -9,7 +9,7 @@ import datetime
 import json
 
 from dotenv import load_dotenv
-from config import load_config, config
+from config import config, save_config, get_guild_config
 from data import charger, sauvegarder
 from utils import cooldowns, get_random_item, OBJETS  
 from storage import get_user_data  
