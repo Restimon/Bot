@@ -76,7 +76,10 @@ def register_profile_command(bot):
             v_tick_m = int(next_tick // 60)
             v_tick_s = int(next_tick % 60)
             status_lines.append(
-                f"🦠 Virus : **{v_remain_m} min restantes** | prochain dégât dans **{v_tick_m}m {v_tick_s}s**{warning}"
+                f"🦠 **Virus actif**\n"
+                f"• Temps restant : **{v_remain_m} min**\n"
+                f"• Prochain dégât : **dans {v_tick_m}m {v_tick_s}s**{warning}\n"
+                f"• ⚔️ Lors d’une attaque : -2 PV pour vous + propagation du virus."
             )
 
         p = poison_status.get(guild_id, {}).get(uid)
@@ -89,12 +92,15 @@ def register_profile_command(bot):
             p_tick_m = int(next_tick // 60)
             p_tick_s = int(next_tick % 60)
             status_lines.append(
-                f"🧪 Poison : **{p_remain_m} min restantes** | prochain dégât dans **{p_tick_m}m {p_tick_s}s**{warning}"
+                f"🧪 **Empoisonnement actif**\n"
+                f"• Temps restant : **{p_remain_m} min**\n"
+                f"• Prochain dégât : **dans {p_tick_m}m {p_tick_s}s**{warning}\n"
+                f"• ⚔️ Vos attaques infligent **1 dégât en moins**."
             )
 
         embed.add_field(
-            name="☣️ Effets actifs",
-            value="\n".join(status_lines) if status_lines else "✅ Aucun effet détecté par SomniCorp.",
+            name="☣️ État pathologique",
+            value="\n\n".join(status_lines) if status_lines else "✅ Aucun effet négatif détecté.",
             inline=False
         )
 
