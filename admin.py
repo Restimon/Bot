@@ -11,6 +11,7 @@ def register_admin_commands(bot):
     @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
+        print("🚨 set_leaderboard déclenchée")  # ← ici
         guild_id = str(interaction.guild.id)
         await interaction.response.defer(ephemeral=True)
 
