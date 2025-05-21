@@ -28,8 +28,10 @@ def build_embed_from_item(item, description, is_heal_other=False):
         embed.set_image(url=gif_url)
     return embed
 
+def check_crit(chance):
+    return random.random() < chance
+
 def apply_item_with_cooldown(user_id, target_id, item, ctx):
-    import time
     guild_id = str(ctx.guild.id)
     user_id = str(user_id)
     target_id = str(target_id)
@@ -48,7 +50,6 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     action = OBJETS[item]
 
-    # 🗡️ Attaque
     if action["type"] == "attaque":
         on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
         if on_cooldown:
@@ -57,20 +58,25 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service."), False
 
         base_dmg = action["degats"]
+        crit_txt = ""
+        if check_crit(action.get("crit", 0)):
+            base_dmg *= 2
+            crit_txt = " **(Coup critique ! 💥)**"
+
         emoji_modif = ""
         modif_txt = ""
 
-        # Malus poison
         if user_id in poison_status.get(guild_id, {}):
             base_dmg -= 1
             emoji_modif = "🧪"
             modif_txt = f"(-1 {emoji_modif})"
 
-        # Bonus virus
-        elif user_id in virus_status.get(guild_id, {}):
+        if user_id in virus_status.get(guild_id, {}):
             base_dmg += 2
             emoji_modif = "🦠"
             modif_txt = f"(+2 {emoji_modif})"
+            hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
+            virus_status[guild_id][target_id] = virus_status[guild_id][user_id].copy()
 
         dmg = max(0, base_dmg)
         before = target_hp
@@ -79,17 +85,15 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         user_stats["degats"] += dmg
         cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
 
-        # Si arme a effet poison ou virus
         status_type = action.get("status")
         if status_type == "virus":
-            virus_status.setdefault(guild_id, {})
-            virus_status[guild_id][target_id] = {
+            virus_status.setdefault(guild_id, {})[target_id] = {
                 "start": now,
-                "duration": action.get("duree", 6 * 3600)
+                "duration": action.get("duree", 6 * 3600),
+                "last_tick": 0
             }
         elif status_type == "poison":
-            poison_status.setdefault(guild_id, {})
-            poison_status[guild_id][target_id] = {
+            poison_status.setdefault(guild_id, {})[target_id] = {
                 "start": now,
                 "duration": action.get("duree", 3 * 3600),
                 "last_tick": 0
@@ -98,106 +102,85 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         return build_embed_from_item(
             item,
             f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
-            f"**SomniCorp :** {target_mention} : {before} - {action['degats']}{modif_txt} = {new_hp} / 100 PV"
+            f"**SomniCorp :** {target_mention} : {before} - {dmg}{modif_txt} = {new_hp} / 100 PV{crit_txt}"
         ), True
 
-        # 💉 Modificateurs
-        if user_id in poison_status.get(guild_id, {}):
-            base_dmg -= 1
-            emoji_modif = "🧪"
-            modif_txt = f"(-1 {emoji_modif})"
-        elif user_id in virus_status.get(guild_id, {}):
-            base_dmg += 2
-            emoji_modif = "🦠"
-            modif_txt = f"(+2 {emoji_modif})"
-
-        dmg = max(0, base_dmg)
-        before = target_hp
-        new_hp = max(target_hp - dmg, 0)
-        hp[guild_id][target_id] = new_hp
-        user_stats["degats"] += dmg
-        cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
-
-        # 🦠 Transfert du virus si infecté
-        if user_id in virus_status.get(guild_id, {}):
-            virus_status.setdefault(guild_id, {})[target_id] = virus_status[guild_id][user_id].copy()
-
-        return build_embed_from_item(
-            item,
-            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
-            f"**SomniCorp :** {target_mention} : {before} - {action['degats']}{modif_txt} = {new_hp} / 100 PV"
-        ), True
-
-    # 💚 Soin
     elif action["type"] == "soin":
         on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
         if on_cooldown:
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min pour se soigner."), False
 
         heal = action["soin"]
+        crit_txt = ""
+        if check_crit(action.get("crit", 0)):
+            heal *= 2
+            crit_txt = " **(Soin critique ! ✨)**"
+
         before = target_hp
         new_hp = min(target_hp + heal, 100)
         hp[guild_id][target_id] = new_hp
         user_stats["soin"] += heal
         cooldowns["heal"].setdefault(guild_id, {})[user_id] = now
 
-        return build_embed_from_item(item, f"{user_mention} soigne {target_mention} avec {item}, restaurant {heal} PV ({before} → {new_hp})"), True
+        return build_embed_from_item(item, f"{user_mention} soigne {target_mention} avec {item}, restaurant {heal} PV ({before} → {new_hp}){crit_txt}"), True
 
-    # 🦠 Virus (nouveau système)
     elif action["type"] == "virus":
         virus_status.setdefault(guild_id, {})
         duration = action.get("duree", 6 * 3600)
-
+        dmg = action.get("degats", 5)
+        crit_txt = ""
+        if check_crit(action.get("crit", 0)):
+            dmg *= 2
+            crit_txt = " **(Coup critique viral ! 🧬)**"
+        before = hp[guild_id].get(target_id, 100)
+        new_hp = max(before - dmg, 0)
+        hp[guild_id][target_id] = new_hp
         virus_status[guild_id][target_id] = {
             "start": now,
             "duration": duration,
             "last_tick": 0
         }
-
         return build_embed_from_item(
             item,
-            f"🦠 {target_mention} est maintenant infecté par le virus ! "
-            f"Le virus fera 5 dégâts par heure pendant {duration // 3600}h (durée remise à zéro)."
+            f"🦠 {target_mention} est maintenant infecté par le virus ! Il subit {dmg} dégâts immédiats, puis 5 par heure pendant {duration // 3600}h.{crit_txt}"
         ), True
 
-    # 🧪 Poison (nouveau système)
     elif action["type"] == "poison":
         poison_status.setdefault(guild_id, {})
         duration = action.get("duree", 3 * 3600)
-
+        dmg = action.get("degats", 3)
+        crit_txt = ""
+        if check_crit(action.get("crit", 0)):
+            dmg *= 2
+            crit_txt = " **(Poison critique ! ☠️)**"
+        before = hp[guild_id].get(target_id, 100)
+        new_hp = max(before - dmg, 0)
+        hp[guild_id][target_id] = new_hp
         poison_status[guild_id][target_id] = {
             "start": now,
             "duration": duration,
             "last_tick": 0
         }
-
         return build_embed_from_item(
             item,
-            f"🧪 {target_mention} est maintenant empoisonné ! "
-            f"Il subira 3 dégâts toutes les 30 minutes pendant {duration // 3600}h (durée remise à zéro)."
+            f"🧪 {target_mention} est maintenant empoisonné ! Il subit {dmg} dégâts immédiats, puis 3 toutes les 30 minutes pendant {duration // 3600}h.{crit_txt}"
         ), True
 
-    # 🔍 Vol d'objet
     elif action["type"] == "vol":
         target_inv, _, _ = get_user_data(guild_id, target_id)
         volables = [i for i in target_inv if i != "🔍"]
-
         if not volables:
             return build_embed_from_item(item, f"🔍 {target_mention} n’a rien à voler !"), False
-
         stolen = random.choice(volables)
         target_inv.remove(stolen)
         user_inv.append(stolen)
-
         return build_embed_from_item(item, f"🔍 {user_mention} a volé **{stolen}** à {target_mention} !"), True
-        
-    # 💉 Vaccin (protection : uniquement via /heal)
+
     elif action["type"] == "vaccin":
         return build_embed_from_item(
             item,
             f"⚠️ Le vaccin 💉 ne peut être utilisé que via la commande `/heal`."
         ), False
 
-    # ⚠️ Autres types non gérés
     else:
         return build_embed_from_item(item, f"⚠️ L'objet {item} est de type inconnu ou non pris en charge."), False
