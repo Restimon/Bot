@@ -129,6 +129,13 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         user_inv.append(stolen)
 
         return build_embed_from_item(item, f"🔍 {user_mention} a volé **{stolen}** à {target_mention} !"), True
+        
+    # 💉 Vaccin (protection : uniquement via /heal)
+    elif action["type"] == "vaccin":
+        return build_embed_from_item(
+            item,
+            f"⚠️ Le vaccin 💉 ne peut être utilisé que via la commande `/heal`."
+        ), False
 
     # ⚠️ Autres types non gérés
     else:
