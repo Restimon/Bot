@@ -212,7 +212,10 @@ async def update_leaderboard_loop():
                 current_hp = server_hp.get(uid, 100)
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
                 lines.append(
-                    f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points | ❤️ {current_hp} PV"
+                    f"{prefix} **{user.display_name}** → "
+                    f"🔪 {stats['degats']} | 💚 {stats['soin']} | "
+                    f"☠️ {stats.get('kills', 0)} | 💀 {stats.get('morts', 0)} = "
+                    f"**{total}** points"
                 )
                 rank += 1
 
