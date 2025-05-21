@@ -10,7 +10,7 @@ OBJETS = {
     "🧨": {"type": "attaque", "degats": 20, "rarete": 15, "crit": 0.10},
     "🦠": {"type": "virus", "degats": 5, "duree": 6 * 3600, "rarete": 22, "crit": 0.1},
     "🧪": {"type": "poison", "degats": 3, "intervalle": 1800, "duree": 3 * 3600, "rarete": 13, "crit": 0.1},
-    "🧟"] {"type": "infection", "degats": 5, "intervalle": 1800, "duree": 3 * 3600, "rarete": 25},
+    "🧟": {"type": "infection", "degats": 5, "intervalle": 1800, "duree": 3 * 3600, "rarete": 25},
     "🍀": {"type": "soin", "soin": 1, "rarete": 2, "crit": 0.35},
     "🩸": {"type": "soin", "soin": 5, "rarete": 6, "crit": 0.3},
     "🩹": {"type": "soin", "soin": 10, "rarete": 9, "crit": 0.2},
