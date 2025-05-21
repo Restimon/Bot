@@ -65,7 +65,9 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         if random.random() < evade_chance:
             return build_embed_from_item(
                 item,
-                f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât infligé."
+                f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât infligé.",
+                is_heal_other=False,
+                is_crit=False
             ), True
 
         base_dmg = action["degats"]
