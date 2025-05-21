@@ -333,6 +333,17 @@ async def virus_damage_loop():
                     new_hp = max(current_hp - dmg, 0)
                     hp[gid][uid] = new_hp
 
+                    channel_id = status.get("channel_id")
+                    if channel_id:
+                        channel = bot.get_channel(channel_id)
+                        if channel:
+                            embed = discord.Embed(
+                                title="🧟 Dégâts d'infection",
+                                description=f"<@{uid}> subit **{dmg} dégâts** d'infection ! (PV: {current_hp} → {new_hp})",
+                                color=discord.Color.dark_green()
+                            )
+                            await channel.send(embed=embed)
+
                     # Gain de points pour le joueur à l'origine de l'effet
                     if source_id:
                         leaderboard.setdefault(gid, {})
@@ -387,6 +398,17 @@ async def poison_damage_loop():
                     new_hp = max(current_hp - dmg, 0)
                     hp[gid][uid] = new_hp
 
+                    channel_id = status.get("channel_id")
+                    if channel_id:
+                        channel = bot.get_channel(channel_id)
+                        if channel:
+                            embed = discord.Embed(
+                                title="🧟 Dégâts d'infection",
+                                description=f"<@{uid}> subit **{dmg} dégâts** d'infection ! (PV: {current_hp} → {new_hp})",
+                                color=discord.Color.dark_green()
+                            )
+                            await channel.send(embed=embed)
+
                     # Gain de points pour le joueur à l'origine de l'effet
                     if source_id:
                         leaderboard.setdefault(gid, {})
@@ -440,6 +462,17 @@ async def infection_damage_loop():
                     current_hp = hp[gid].get(uid, 100)
                     new_hp = max(current_hp - dmg, 0)
                     hp[gid][uid] = new_hp
+
+                    channel_id = status.get("channel_id")
+                    if channel_id:
+                        channel = bot.get_channel(channel_id)
+                        if channel:
+                            embed = discord.Embed(
+                                title="🧟 Dégâts d'infection",
+                                description=f"<@{uid}> subit **{dmg} dégâts** d'infection ! (PV: {current_hp} → {new_hp})",
+                                color=discord.Color.dark_green()
+                            )
+                            await channel.send(embed=embed)
 
                     if source_id:
                         leaderboard.setdefault(gid, {})
