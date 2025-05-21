@@ -47,8 +47,10 @@ async def check_persistent(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def purge_slash(ctx):
-    bot.tree.clear_commands(guild=None)  # Ce n'est PAS une coroutine, donc pas de 'await'
-    await bot.tree.sync()  # Sync vide
+    # Vide toutes les commandes locales enregistrées
+    bot.tree.clear_commands()
+    # Envoie la synchro vide à Discord
+    await bot.tree.sync()
     await ctx.send("🧹 Commandes slash purgées manuellement. Redémarre le bot pour les recharger.")
 
 @bot.command()
