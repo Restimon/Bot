@@ -48,7 +48,7 @@ def register_admin_commands(bot):
             prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
             lines.append(
                 f"{prefix} **{user.display_name}** → "
-                f"🗡️ {stats['degats']} | 💚 {stats['soin']} | ☠️ {stats.get('kills', 0)} | 💀 {stats.get('morts', 0)} = **{total}** points"
+                f"🗡️ {stats['degats']} | 💚 {stats['soin']} | 🎽 {stats.get('kills', 0)} | 💀 {stats.get('morts', 0)} = **{total}** points"
             )
             rank += 1
 
