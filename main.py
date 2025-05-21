@@ -39,6 +39,10 @@ random_threshold = 5
 last_drop_time = 0 
 
 # ===================== Slash Commands ======================
+@bot.command()
+async def sync(ctx):
+    await bot.tree.sync(guild=ctx.guild)
+    await ctx.send("✅ Commandes slash resynchronisées avec succès.")
 
 @bot.tree.command(name="inv", description="Voir l'inventaire d'un membre")
 async def inv_slash(interaction: discord.Interaction, user: discord.Member = None):
