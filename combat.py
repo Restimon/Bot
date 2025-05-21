@@ -102,10 +102,11 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         return build_embed_from_item(item, f"{user_mention} soigne {target_mention} avec {item}, restaurant {heal} PV ({before} → {new_hp})"), True
 
-        # 🦠 Virus (nouveau système)
+    # 🦠 Virus (nouveau système)
     elif action["type"] == "virus":
         virus_status.setdefault(guild_id, {})
         duration = action.get("duree", 6 * 3600)
+
         virus_status[guild_id][target_id] = {
             "start": now,
             "duration": duration,
@@ -115,30 +116,31 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         return build_embed_from_item(
             item,
             f"🦠 {target_mention} est maintenant infecté par le virus ! "
-            f"La durée a été réinitialisée pour {duration // 3600}h."
+            f"Le virus fera 5 dégâts par heure pendant {duration // 3600}h (durée remise à zéro)."
         ), True
 
+    # 🧪 Poison (nouveau système)
     elif action["type"] == "poison":
         poison_status.setdefault(guild_id, {})
         duration = action.get("duree", 3 * 3600)
+
         poison_status[guild_id][target_id] = {
             "start": now,
             "duration": duration,
             "last_tick": 0
         }
 
-    return build_embed_from_item(
-        item,
-        f"🧪 {target_mention} est maintenant **empoisonné** ! "
-        f"La durée a été réinitialisée pour {duration // 3600}h. "
-        f"Il subira 3 dégâts toutes les 30 minutes."
-    ), True
+        return build_embed_from_item(
+            item,
+            f"🧪 {target_mention} est maintenant empoisonné ! "
+            f"Il subira 3 dégâts toutes les 30 minutes pendant {duration // 3600}h (durée remise à zéro)."
+        ), True
 
     # 🔍 Vol d'objet
     elif action["type"] == "vol":
         target_inv, _, _ = get_user_data(guild_id, target_id)
-        
-        volables = [item for item in target_inv if item != "🔍"]
+        volables = [i for i in target_inv if i != "🔍"]
+
         if not volables:
             return build_embed_from_item(item, f"🔍 {target_mention} n’a rien à voler !"), False
 
