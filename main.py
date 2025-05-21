@@ -212,7 +212,7 @@ async def update_leaderboard_loop():
                 soin = stats.get("soin", 0)
                 kills = stats.get("kills", 0)
                 morts = stats.get("morts", 0)
-                total = degats + soin + kills * 50 - morts * 25
+                total = stats["degats"] + stats["soin"] + stats.get("kills", 0) * 50 - stats.get("morts", 0) * 25
 
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
                 lines.append(
