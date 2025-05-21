@@ -7,7 +7,7 @@ import logging
 
 from storage import inventaire, hp, leaderboard
 from data import sauvegarder
-from config import config
+from config import get_config, get_guild_config, save_config
 
 def register_temp_commands(bot: commands.Bot):
     @bot.tree.command(name="forcereset", description="(Temporaire) Forcer le reset annuel des stats.")
