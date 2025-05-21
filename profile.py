@@ -3,7 +3,7 @@ import time
 
 from discord import app_commands
 from storage import get_user_data, leaderboard
-from data import virus_status, poison_status
+from data import virus_status, poison_status, infection_status
 from utils import OBJETS
 
 def register_profile_command(bot):
@@ -100,7 +100,23 @@ def register_profile_command(bot):
                 f"• Prochain dégât : **dans {p_tick_m}m {p_tick_s}s**{warning}\n"
                 f"• ⚔️ Vos attaques infligent **1 dégât en moins**."
             )
-
+            
+        i = infection_status.get(guild_id, {}).get(uid)
+        if i:
+            elapsed = now - i["start"]
+            remaining = max(0, i["duration"] - elapsed)
+            next_tick = 1800 - (elapsed % 1800)
+            warning = " ⚠️" if next_tick < 300 else ""
+            i_remain_m = int(remaining // 60)
+            i_tick_m = int(next_tick // 60)
+            i_tick_s = int(next_tick % 60)
+            status_lines.append(
+                f"🧟 **Infection active**\n"
+                f"• Temps restant : **{i_remain_m} min**\n"
+                f"• Prochain dégât : **dans {i_tick_m}m {i_tick_s}s**{warning}\n"
+                f"• ⚔️ 25% de chance d’infecter votre cible en attaquant."
+            )
+            
         embed.add_field(
             name="☣️ État pathologique",
             value="\n\n".join(status_lines) if status_lines else "✅ Aucun effet négatif détecté.",
