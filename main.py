@@ -202,7 +202,7 @@ async def update_leaderboard_loop():
             rank = 0
 
             for uid, stats in sorted_lb:
-                user = interaction.client.get_user(int(uid))
+                user = bot.get_user(int(uid))
                 if not user:
                     continue
                 if rank >= 10:
