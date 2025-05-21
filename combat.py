@@ -99,14 +99,29 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         new_hp = max(target_hp - dmg, 0)
         hp[guild_id][target_id] = new_hp
         reset_txt = ""
+
+        # 💀 KO → reset HP + points
         if new_hp == 0:
             hp[guild_id][target_id] = 100
             leaderboard.setdefault(guild_id, {})
-            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0})
-            leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0})
+            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+            leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
             leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
             leaderboard[guild_id][user_id]["degats"] += 50
+            leaderboard[guild_id][user_id]["kills"] += 1
+            leaderboard[guild_id][target_id]["morts"] += 1
             reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
+
+        # 🧟 Propagation de l'infection
+        if user_id in infection_status.get(guild_id, {}):
+            if random.random() < 0.25:
+                infection_status.setdefault(guild_id, {})
+                infection_status[guild_id][target_id] = {
+                    "start": now,
+                    "duration": 3 * 3600,
+                    "last_tick": 0,
+                    "source": infection_status[guild_id][user_id]["source"]
+                }
 
         user_stats["degats"] += dmg
         cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
