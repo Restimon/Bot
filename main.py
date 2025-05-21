@@ -108,6 +108,7 @@ async def on_ready():
     bot.loop.create_task(autosave_data_loop())
     bot.loop.create_task(daily_restart_loop())
     bot.loop.create_task(virus_damage_loop())
+    bot.loop.create_task(poison_damage_loop())
 
 @bot.event
 async def on_message(message):
@@ -326,6 +327,33 @@ async def virus_damage_loop():
 
                     # Log (optionnel)
                     print(f"🦠 {uid} a subi 5 dégâts à cause du virus (HP: {current_hp} → {new_hp})")
+
+        await asyncio.sleep(60)
+        
+async def poison_damage_loop():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        now = time.time()
+        for guild in bot.guilds:
+            gid = str(guild.id)
+            if gid not in poison_status:
+                continue
+            for uid, status in list(poison_status[gid].items()):
+                start = status.get("start")
+                duration = status.get("duration")
+                last_tick = status.get("last_tick", 0)
+
+                elapsed = now - start
+                tick_count = int(elapsed // 1800)
+
+                if elapsed >= duration:
+                    del poison_status[gid][uid]
+                    continue
+
+                if tick_count > last_tick:
+                    hp[gid][uid] = max(hp[gid].get(uid, 100) - 3, 0)
+                    poison_status[gid][uid]["last_tick"] = tick_count
+                    print(f"🧪 {uid} a subi 3 dégâts à cause du poison.")
 
         await asyncio.sleep(60)
         
