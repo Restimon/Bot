@@ -49,25 +49,46 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
     action = OBJETS[item]
 
     # 🗡️ Attaque
-    if action["type"] == "attaque":
-        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
-        if on_cooldown:
-            return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer."), False
-        if target_hp <= 0:
-            return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service."), False
+   if action["type"] == "attaque":
+    on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
+    if on_cooldown:
+        return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer."), False
+    if target_hp <= 0:
+        return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service."), False
 
-        dmg = action["degats"]
-        before = target_hp
-        new_hp = max(target_hp - dmg, 0)
-        hp[guild_id][target_id] = new_hp
-        user_stats["degats"] += dmg
-        cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
+    base_dmg = action["degats"]
+    emoji_modif = ""
+    modif_txt = ""
 
-        # 🦠 Si l'attaquant est infecté, il contamine sa cible
-        if user_id in virus_status.get(guild_id, {}):
-            virus_status.setdefault(guild_id, {})[target_id] = virus_status[guild_id][user_id].copy()
+    # Malus poison : -1 dégât
+    if user_id in poison_status.get(guild_id, {}):
+        base_dmg -= 1
+        emoji_modif = "🧪"
+        modif_txt = f"(-1 {emoji_modif})"
 
-        return build_embed_from_item(item, f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n{target_mention} : {before} → {new_hp} PV"), True
+    # Bonus virus : +2 dégâts
+    elif user_id in virus_status.get(guild_id, {}):
+        base_dmg += 2
+        emoji_modif = "🦠"
+        modif_txt = f"(+2 {emoji_modif})"
+
+    dmg = max(0, base_dmg)  # évite que ça passe en négatif
+    before = target_hp
+    new_hp = max(target_hp - dmg, 0)
+    hp[guild_id][target_id] = new_hp
+    user_stats["degats"] += dmg
+    cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
+
+    # Transfert du virus si attaquant infecté
+    if user_id in virus_status.get(guild_id, {}):
+        virus_status.setdefault(guild_id, {})[target_id] = virus_status[guild_id][user_id].copy()
+
+    return build_embed_from_item(
+        item,
+        f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
+        f"**SomniCorp :** {target_mention} : {before} - {action['degats']}{modif_txt} = {new_hp} / 100 PV"
+    ), True
+
 
     # 💚 Soin
     elif action["type"] == "soin":
