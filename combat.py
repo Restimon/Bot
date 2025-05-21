@@ -7,6 +7,7 @@ from utils import (
 )
 from storage import get_user_data
 from storage import hp
+from data import virus_status, poison_status
 import time
 import discord
 
