@@ -52,10 +52,13 @@ def register_profile_command(bot):
             value=(
                 f"• 🗡️ Dégâts infligés : **{user_stats['degats']}**\n"
                 f"• ✨ Soins prodigués : **{user_stats['soin']}**\n"
+                f"• ☠️ Kills : **{user_stats.get('kills', 0)}**\n"
+                f"• 💀 Morts : **{user_stats.get('morts', 0)}**\n"
                 f"• 🎯 Points totaux : **{points}**"
             ),
             inline=False
         )
+
         embed.add_field(
             name="🏆 Classement général",
             value=f"{medal} Rang {rank}" if rank else "Non classé",
