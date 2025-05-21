@@ -27,7 +27,7 @@ async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> 
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
         lines.append(
             f"{prefix} **{member.display_name}** → "
-            f"🗡️ {stats['degats']} | 💚 {stats['soin']} | ☠️ {stats.get('kills', 0)} | 💀 {stats.get('morts', 0)} = "
+            f"🗡️ {stats['degats']} | 💚 {stats['soin']} | ☠️ {stats.get('kills', 0) * 50} | 💀 {stats.get('morts', 0) * 25} = "
             f"**{total}** points | ❤️ {current_hp} PV"
         )
 
