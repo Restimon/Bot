@@ -69,5 +69,30 @@ def register_status_command(bot):
         else:
             embed.add_field(name="🧪 Empoisonnement", value="✅ Aucun poison détecté par SomniCorp", inline=False)
 
+        # 🧟 Infection
+        i_stat = infection_status.get(guild_id, {}).get(user_id)
+        if i_stat:
+            i_elapsed = now - i_stat["start"]
+            i_remaining = max(0, i_stat["duration"] - i_elapsed)
+            i_next_tick = 1800 - (i_elapsed % 1800)
+            i_hours = int(i_remaining // 3600)
+            i_minutes = int((i_remaining % 3600) // 60)
+            i_tick_m = int(i_next_tick // 60)
+            i_tick_s = int(i_next_tick % 60)
+            warning = " ⚠️" if i_tick_m < 5 else ""
+
+            embed.add_field(
+                name="🧟 Infection détectée",
+                value=(
+                    f"• Temps restant : **{i_hours}h {i_minutes}min**\n"
+                    f"• Prochain dégât : **dans {i_tick_m}min {i_tick_s}s**{warning}\n"
+                    f"• ⚔️ Attaquer donne **25% de chance** d’infecter votre cible.\n"
+                    f"• 😵 Vous subissez **2 dégâts toutes les 30 min.**"
+                ),
+                inline=False
+            )
+        else:
+            embed.add_field(name="🧟 Infection", value="✅ Aucun agent infectieux détecté", inline=False)
+
         embed.set_footer(text="📡 Données scannées et transmises par les serveurs de SomniCorp.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
