@@ -152,6 +152,7 @@ async def on_message(message):
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
     from config import get_guild_config, save_config
+    from storage import hp  # 🩺 Pour récupérer les PV
 
     while not bot.is_closed():
         for guild in bot.guilds:
@@ -181,8 +182,11 @@ async def update_leaderboard_loop():
                 if rank >= 10:
                     break
                 total = stats['degats'] + stats['soin']
+                current_hp = hp.get(guild_id, {}).get(uid, 100)  # 🔥 Récupère les PV actuels
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-                lines.append(f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+                lines.append(
+                    f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points | ❤️ {current_hp} PV"
+                )
                 rank += 1
 
             text = (
