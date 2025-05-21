@@ -178,7 +178,7 @@ def register_admin_commands(bot):
         else:
             await interaction.response.send_message("⚠️ Une erreur est survenue.", ephemeral=True)
             
-    @bot.tree.command(name="forcer_leaderboard", description="🔁 Met à jour manuellement le leaderboard spécial.")
+    @bot.tree.command(name="forcer_lb_temp", description="🔁 Mise à jour manuelle du leaderboard spécial (test).")
     @app_commands.checks.has_permissions(administrator=True)
     async def force_leaderboard_update(interaction: discord.Interaction):
         guild = interaction.guild
