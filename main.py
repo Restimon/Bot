@@ -162,9 +162,11 @@ async def on_message(message):
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
     from config import get_guild_config, save_config
-    from storage import hp  # Assure-toi que c’est bien importé
+    from storage import hp
 
     while not bot.is_closed():
+        print("⏳ [LOOP] Tentative de mise à jour des leaderboards spéciaux...")
+
         for guild in bot.guilds:
             guild_id = str(guild.id)
             guild_config = get_guild_config(guild_id)
@@ -172,11 +174,16 @@ async def update_leaderboard_loop():
             channel_id = guild_config.get("special_leaderboard_channel_id")
             message_id = guild_config.get("special_leaderboard_message_id")
 
+            print(f"🔍 [{guild.name}] Config trouvée : {guild_config}")
+            print(f" → Channel ID : {channel_id} | Message ID : {message_id}")
+
             if not channel_id:
+                print(f"⚠️ Aucun salon configuré pour {guild.name}")
                 continue
 
             channel = bot.get_channel(channel_id)
             if not channel:
+                print(f"❌ Salon introuvable : {channel_id}")
                 continue
 
             medals = ["🥇", "🥈", "🥉"]
@@ -210,17 +217,17 @@ async def update_leaderboard_loop():
 
             try:
                 if message_id:
+                    print(f"✏️ Modification du message {message_id} dans {channel.name}")
                     msg = await channel.fetch_message(message_id)
                     await msg.edit(content=text)
                 else:
-                    raise discord.NotFound(response=None, message="No message ID")
-            except (discord.NotFound, discord.HTTPException):
-                msg = await channel.send(content=text)
-                guild_config["special_leaderboard_message_id"] = msg.id
-                save_config()
+                    print(f"📤 Envoi d’un nouveau message dans {channel.name}")
+                    msg = await channel.send(content=text)
+                    guild_config["special_leaderboard_message_id"] = msg.id
+                    save_config()
 
         await asyncio.sleep(60)
-
+        
 import datetime
 import asyncio
 import logging
