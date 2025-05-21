@@ -209,7 +209,7 @@ async def update_leaderboard_loop():
                 guild_config["special_leaderboard_message_id"] = msg.id
                 save_config()
 
-        await asyncio.sleep(300)
+        await asyncio.sleep(60)
 
 import datetime
 import asyncio
