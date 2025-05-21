@@ -91,11 +91,10 @@ async def on_ready():
     register_all_commands(bot)
 
     try:
-        for guild in bot.guilds:
-            await bot.tree.sync(guild=guild)
-            print(f"✅ Sync final effectué pour {guild.name}")
+        await bot.tree.sync()
+        print("✅ Commandes slash synchronisées globalement.")
     except Exception as e:
-        print(f"❌ Erreur pendant la synchronisation des commandes : {e}")
+        print(f"❌ Erreur pendant la synchronisation des slash commands : {e}")
 
     print(f"✅ SomniCorp Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
