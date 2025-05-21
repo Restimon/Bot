@@ -1,4 +1,5 @@
 import discord
+import json
 from discord import app_commands
 from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
