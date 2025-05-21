@@ -246,7 +246,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         return build_embed_from_item(
             item,
             f"⚠️ Le vaccin 💉 ne peut être utilisé que via la commande `/heal`."
-        ), False
+        ), False   
         
     elif action["type"] == "infection":
         infection_status.setdefault(guild_id, {})
@@ -278,6 +278,3 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
         item,
         f"🧟 {target_mention} est maintenant infecté ! Il subit {dmg} dégâts immédiats, et 2 toutes les 30 minutes pendant {duration // 3600}h."
     ), True
-
-    else:
-        return build_embed_from_item(item, f"⚠️ L'objet {item} est de type inconnu ou non pris en charge."), False
