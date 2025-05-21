@@ -152,7 +152,7 @@ async def on_message(message):
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
     from config import get_guild_config, save_config
-    from storage import hp  # 🩺 Pour récupérer les PV
+    from storage import hp  # Assure-toi que c’est bien importé
 
     while not bot.is_closed():
         for guild in bot.guilds:
@@ -171,7 +171,9 @@ async def update_leaderboard_loop():
 
             medals = ["🥇", "🥈", "🥉"]
             server_lb = leaderboard.get(guild_id, {})
+            server_hp = hp.get(guild_id, {})
             sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
+
             lines = []
             rank = 0
 
@@ -181,8 +183,9 @@ async def update_leaderboard_loop():
                     continue
                 if rank >= 10:
                     break
+
                 total = stats['degats'] + stats['soin']
-                current_hp = hp.get(guild_id, {}).get(uid, 100)  # 🔥 Récupère les PV actuels
+                current_hp = server_hp.get(uid, 100)
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
                 lines.append(
                     f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points | ❤️ {current_hp} PV"
