@@ -84,21 +84,13 @@ def register_all_commands(bot):
 @bot.event
 async def on_ready():
     charger()
-    load_config()  # ✅ Charge bien la config AVANT de lancer les loops
+    load_config()  
 
     register_all_commands(bot)
 
-    # Optionnel mais bon à garder
-    await bot.tree.sync()
-    for guild in bot.guilds:
-        await bot.tree.sync(guild=guild)
-
-    print(f"✅ SomniCorp Bot prêt. Connecté en tant que {bot.user}")
-
     try:
-        await bot.tree.sync() 
         for guild in bot.guilds:
-            await bot.tree.sync(guild=guild)  
+            await bot.tree.sync(guild=guild)
             print(f"✅ Sync slash done for {guild.name}")
     except Exception as e:
         print(f"❌ Sync error: {e}")
