@@ -17,6 +17,8 @@ def register_status_command(bot):
             color=discord.Color.orange()
         )
 
+        # ... [début inchangé]
+
         # 🦠 Virus
         v_stat = virus_status.get(guild_id, {}).get(user_id)
         if v_stat:
@@ -34,6 +36,7 @@ def register_status_command(bot):
                 value=(
                     f"• Temps restant : **{v_hours}h {v_minutes}min**\n"
                     f"• Prochain dégât : **dans {v_tick_m}min {v_tick_s}s**{warning}\n"
+                    f"• ⚔️ En attaquant, vous perdez **2 PV** et **propagez le virus** à votre cible.\n"
                     f"💉 Utilisez un vaccin via `/heal` pour éradiquer le virus."
                 ),
                 inline=False
@@ -58,6 +61,7 @@ def register_status_command(bot):
                 value=(
                     f"• Temps restant : **{p_hours}h {p_minutes}min**\n"
                     f"• Prochain dégât : **dans {p_tick_m}min {p_tick_s}s**{warning}\n"
+                    f"• ⚔️ Vos attaques infligent **1 dégât en moins** tant que vous êtes empoisonné.\n"
                     f"🧼 Aucun antidote connu. Survivez."
                 ),
                 inline=False
