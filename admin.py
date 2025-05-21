@@ -3,7 +3,7 @@ import json
 from discord import app_commands
 from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
-from config import config, save_config, get_guild_config
+from config import get_config, get_guild_config, save_config
 from data import sauvegarder
 
 def register_admin_commands(bot):
