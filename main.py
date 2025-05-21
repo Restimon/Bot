@@ -6,10 +6,11 @@ import atexit
 import signal
 import sys
 import datetime
+import time
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
-from data import charger, sauvegarder
+from data import charger, sauvegarder, virus_status
 from utils import cooldowns, get_random_item, OBJETS  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
@@ -105,6 +106,7 @@ async def on_ready():
     bot.loop.create_task(yearly_reset_loop())
     bot.loop.create_task(autosave_data_loop())
     bot.loop.create_task(daily_restart_loop())
+    bot.loop.create_task(virus_damage_loop())
 
 @bot.event
 async def on_message(message):
@@ -252,7 +254,6 @@ async def yearly_reset_loop():
             print("🎉 Réinitialisation annuelle effectuée pour tous les serveurs.")
             announcement_msg = "🎊 Les statistiques ont été remises à zéro pour la nouvelle année ! Merci pour votre participation à SomniCorp."
 
-            # Envoi du message d'annonce dans chaque salon de classement configuré
             for server_id, server_conf in config.items():
                 channel_id = server_conf.get("leaderboard_channel_id")
                 if not channel_id:
@@ -264,10 +265,8 @@ async def yearly_reset_loop():
                 except Exception as e:
                     logging.error(f"❌ Impossible d'envoyer l'annonce dans le salon {channel_id} (serveur {server_id}) : {e}")
 
-            # Attendre 60 secondes pour éviter les doublons
             await asyncio.sleep(60)
         else:
-            # Vérifie toutes les 30 secondes
             await asyncio.sleep(30)
 
 async def autosave_data_loop():
@@ -290,8 +289,45 @@ async def daily_restart_loop():
 
         print("🔁 Redémarrage automatique quotidien en cours (Render)...")
         sauvegarder()
-        sys.exit(0)  # ✅ Render va relancer le bot automatiquement
+        sys.exit(0)  
+        
+async def virus_damage_loop():
+    await bot.wait_until_ready()
+    print("🦠 Boucle de dégâts viraux démarrée.")
 
+    while not bot.is_closed():
+        now = time.time()
+
+        for guild in bot.guilds:
+            gid = str(guild.id)
+            if gid not in virus_status:
+                continue
+
+            for uid, status in list(virus_status[gid].items()):
+                start = status.get("start")
+                duration = status.get("duration")
+                last_tick = status.get("last_tick", 0)
+
+                elapsed = now - start
+                tick_count = int(elapsed // 3600)  # 1 tick par heure
+
+                if elapsed >= duration:
+                    del virus_status[gid][uid]
+                    continue
+
+                if tick_count > last_tick:
+                    # Appliquer 5 dégâts
+                    current_hp = hp[gid].get(uid, 100)
+                    new_hp = max(current_hp - 5, 0)
+                    hp[gid][uid] = new_hp
+
+                    virus_status[gid][uid]["last_tick"] = tick_count
+
+                    # Log (optionnel)
+                    print(f"🦠 {uid} a subi 5 dégâts à cause du virus (HP: {current_hp} → {new_hp})")
+
+        await asyncio.sleep(60)
+        
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
     sauvegarder()
