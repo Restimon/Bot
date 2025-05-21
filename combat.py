@@ -126,6 +126,20 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             f"🧪 {target_mention} est maintenant **empoisonné** ! Il subira 3 dégâts toutes les 30 minutes pendant {duration // 3600}h."
         ), True
 
+    # 🔍 Vol d'objet
+    elif action["type"] == "vol":
+        target_inv, _, _ = get_user_data(guild_id, target_id)
+        
+        volables = [item for item in target_inv if item != "🔍"]
+        if not volables:
+            return build_embed_from_item(item, f"🔍 {target_mention} n’a rien à voler !"), False
+
+        stolen = random.choice(volables)
+        target_inv.remove(stolen)
+        user_inv.append(stolen)
+
+        return build_embed_from_item(item, f"🔍 {user_mention} a volé **{stolen}** à {target_mention} !"), True
+
     # ⚠️ Autres types non gérés
     else:
         return build_embed_from_item(item, f"⚠️ L'objet {item} est de type inconnu ou non pris en charge."), False
