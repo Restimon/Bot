@@ -43,8 +43,12 @@ def register_admin_commands(bot):
                 break
             total = stats["degats"] + stats["soin"]
             prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-            lines.append(f"{prefix} **{user.display_name}** → 🔪 {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
-            rank += 1
+            lines.append(
+            f"{prefix} **{user.display_name}** → "
+            f"🔪 {stats['degats']} | 💚 {stats['soin']} | "
+            f"☠️ {stats.get('kills', 0)} | 💀 {stats.get('morts', 0)} = "
+            f"**{total}** points"
+        )
 
         content = (
             "🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
@@ -59,8 +63,6 @@ def register_admin_commands(bot):
         print("📌 Avant save_config()")  # ← AJOUTE ÇA
         save_config()
         print("💾 Après save_config()")  # ← ET ÇA
-
-
 
         await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
 
