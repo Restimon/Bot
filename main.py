@@ -84,9 +84,16 @@ def register_all_commands(bot):
 @bot.event
 async def on_ready():
     charger()
-    load_config()
+    load_config()  # ✅ Charge bien la config AVANT de lancer les loops
 
     register_all_commands(bot)
+
+    # Optionnel mais bon à garder
+    await bot.tree.sync()
+    for guild in bot.guilds:
+        await bot.tree.sync(guild=guild)
+
+    print(f"✅ SomniCorp Bot prêt. Connecté en tant que {bot.user}")
 
     try:
         await bot.tree.sync() 
@@ -105,7 +112,6 @@ async def on_ready():
     bot.loop.create_task(yearly_reset_loop())
     bot.loop.create_task(autosave_data_loop())
     bot.loop.create_task(daily_restart_loop())
-
 
 @bot.event
 async def on_message(message):
