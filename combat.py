@@ -10,8 +10,6 @@ from storage import hp
 import time
 import discord
 
-virus_status = {}
-
 def is_on_cooldown(guild_id, user_id, action_type):
     now = time.time()
     guild_cooldowns = cooldowns[action_type].setdefault(str(guild_id), {})
