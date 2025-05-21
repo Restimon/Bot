@@ -13,17 +13,15 @@ def register_profile_command(bot):
         try:
             await interaction.response.defer(thinking=True, ephemeral=False)
         except discord.NotFound:
-            return  # L’interaction a expiré, on ne fait rien
+            return
 
         member = user or interaction.user
         guild_id = str(interaction.guild.id)
         uid = str(member.id)
 
-        # Récupération des données utilisateur
         user_inv, user_hp, user_stats = get_user_data(guild_id, uid)
         points = user_stats["degats"] + user_stats["soin"]
 
-        # Classement local
         server_leaderboard = leaderboard.get(guild_id, {})
         sorted_lb = sorted(
             server_leaderboard.items(),
@@ -34,7 +32,6 @@ def register_profile_command(bot):
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         medal = medals.get(rank, "")
 
-        # Affichage inventaire
         item_counts = {}
         for item in user_inv:
             item_counts[item] = item_counts.get(item, 0) + 1
@@ -44,7 +41,7 @@ def register_profile_command(bot):
 
         embed = discord.Embed(
             title=f"📄 Profil SomniCorp de {member.display_name}",
-            description="Voici les informations enregistrées pour ce membre.",
+            description="Analyse médicale et opérationnelle en cours...",
             color=discord.Color.purple()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
@@ -65,29 +62,41 @@ def register_profile_command(bot):
             inline=False
         )
 
-        # ☣️ Ajout des effets Poison / Virus
+        # ☣️ Virus et Poison
         now = time.time()
         status_lines = []
 
-        virus = virus_status.get(guild_id, {}).get(uid)
-        if virus:
-            elapsed = now - virus["start"]
-            remaining = max(0, virus["duration"] - elapsed)
+        v = virus_status.get(guild_id, {}).get(uid)
+        if v:
+            elapsed = now - v["start"]
+            remaining = max(0, v["duration"] - elapsed)
             next_tick = 3600 - (elapsed % 3600)
-            status_lines.append(f"🦠 Virus — {int(remaining // 60)} min restantes | prochain dégât dans {int(next_tick // 60)} min")
+            warning = " ⚠️" if next_tick < 300 else ""
+            v_remain_m = int(remaining // 60)
+            v_tick_m = int(next_tick // 60)
+            v_tick_s = int(next_tick % 60)
+            status_lines.append(
+                f"🦠 Virus : **{v_remain_m} min restantes** | prochain dégât dans **{v_tick_m}m {v_tick_s}s**{warning}"
+            )
 
-        poison = poison_status.get(guild_id, {}).get(uid)
-        if poison:
-            elapsed = now - poison["start"]
-            remaining = max(0, poison["duration"] - elapsed)
+        p = poison_status.get(guild_id, {}).get(uid)
+        if p:
+            elapsed = now - p["start"]
+            remaining = max(0, p["duration"] - elapsed)
             next_tick = 1800 - (elapsed % 1800)
-            status_lines.append(f"🧪 Poison — {int(remaining // 60)} min restantes | prochain dégât dans {int(next_tick // 60)} min")
+            warning = " ⚠️" if next_tick < 300 else ""
+            p_remain_m = int(remaining // 60)
+            p_tick_m = int(next_tick // 60)
+            p_tick_s = int(next_tick % 60)
+            status_lines.append(
+                f"🧪 Poison : **{p_remain_m} min restantes** | prochain dégât dans **{p_tick_m}m {p_tick_s}s**{warning}"
+            )
 
         embed.add_field(
             name="☣️ Effets actifs",
-            value="\n".join(status_lines) if status_lines else "Aucun effet négatif actif.",
+            value="\n".join(status_lines) if status_lines else "✅ Aucun effet détecté par SomniCorp.",
             inline=False
         )
 
-        embed.set_footer(text="Analyse générée par les serveurs de SomniCorp.")
+        embed.set_footer(text="📡 Rapport généré par les serveurs SomniCorp.")
         await interaction.followup.send(embed=embed)
