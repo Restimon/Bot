@@ -197,6 +197,7 @@ def register_admin_commands(bot):
 
         medals = ["🥇", "🥈", "🥉"]
         server_lb = leaderboard.get(guild_id, {})
+        from storage import hp  # 🩺 Pour récupérer les PV
         sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
 
         lines = []
@@ -208,8 +209,11 @@ def register_admin_commands(bot):
             if rank >= 10:
                 break
             total = stats["degats"] + stats["soin"]
+            current_hp = hp.get(guild_id, {}).get(uid, 100)  # 🔥 Ajout des PV
             prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-            lines.append(f"{prefix} **{member.display_name}** → 🔪 {stats['degats']} | 💚 {stats['soin']} = **{total}** points")
+            lines.append(
+                f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points | ❤️ {current_hp} PV"
+            )
             rank += 1
 
         content = (
@@ -230,4 +234,3 @@ def register_admin_commands(bot):
             save_config()
 
         await interaction.response.send_message("✅ Leaderboard mis à jour manuellement.", ephemeral=True)
-
