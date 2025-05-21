@@ -312,39 +312,54 @@ async def virus_damage_loop():
                 start = status.get("start")
                 duration = status.get("duration")
                 last_tick = status.get("last_tick", 0)
+                source_id = status.get("source")
 
                 elapsed = now - start
-                tick_count = int(elapsed // 3600)  # 1 tick par heure
+                tick_count = int(elapsed // 3600)
 
                 if elapsed >= duration:
                     del virus_status[gid][uid]
                     continue
 
                 if tick_count > last_tick:
-                    # Appliquer 5 dégâts
                     current_hp = hp[gid].get(uid, 100)
                     new_hp = max(current_hp - 5, 0)
                     hp[gid][uid] = new_hp
-
                     virus_status[gid][uid]["last_tick"] = tick_count
 
-                    # Log (optionnel)
-                    print(f"🦠 {uid} a subi 5 dégâts à cause du virus (HP: {current_hp} → {new_hp})")
+                    print(f"🦠 {uid} a subi 5 dégâts viraux (HP: {current_hp} → {new_hp})")
+
+                    if new_hp == 0:
+                        hp[gid][uid] = 100
+                        leaderboard.setdefault(gid, {})
+                        leaderboard[gid].setdefault(uid, {"degats": 0, "soin": 0})
+                        leaderboard[gid][uid]["degats"] = max(0, leaderboard[gid][uid]["degats"] - 25)
+
+                        if source_id:
+                            leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0})
+                            leaderboard[gid][source_id]["degats"] += 50
+                        print(f"💀 {uid} a été vaincu par un virus et revient à 100 PV.")
 
         await asyncio.sleep(60)
-        
+
+
 async def poison_damage_loop():
     await bot.wait_until_ready()
+    print("🧪 Boucle de dégâts de poison démarrée.")
+
     while not bot.is_closed():
         now = time.time()
+
         for guild in bot.guilds:
             gid = str(guild.id)
             if gid not in poison_status:
                 continue
+
             for uid, status in list(poison_status[gid].items()):
                 start = status.get("start")
                 duration = status.get("duration")
                 last_tick = status.get("last_tick", 0)
+                source_id = status.get("source")
 
                 elapsed = now - start
                 tick_count = int(elapsed // 1800)
@@ -354,9 +369,23 @@ async def poison_damage_loop():
                     continue
 
                 if tick_count > last_tick:
-                    hp[gid][uid] = max(hp[gid].get(uid, 100) - 3, 0)
+                    current_hp = hp[gid].get(uid, 100)
+                    new_hp = max(current_hp - 3, 0)
+                    hp[gid][uid] = new_hp
                     poison_status[gid][uid]["last_tick"] = tick_count
-                    print(f"🧪 {uid} a subi 3 dégâts à cause du poison.")
+
+                    print(f"🧪 {uid} a subi 3 dégâts de poison (HP: {current_hp} → {new_hp})")
+
+                    if new_hp == 0:
+                        hp[gid][uid] = 100
+                        leaderboard.setdefault(gid, {})
+                        leaderboard[gid].setdefault(uid, {"degats": 0, "soin": 0})
+                        leaderboard[gid][uid]["degats"] = max(0, leaderboard[gid][uid]["degats"] - 25)
+
+                        if source_id:
+                            leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0})
+                            leaderboard[gid][source_id]["degats"] += 50
+                        print(f"💀 {uid} a été vaincu par du poison et revient à 100 PV.")
 
         await asyncio.sleep(60)
         
