@@ -215,7 +215,7 @@ async def update_leaderboard_loop():
                 "\n\n📌 Mise à jour automatique toutes les 5 minutes."
             ) if lines else "*Aucune donnée disponible.*"
 
-           try:
+            try:
                 if message_id:
                     print(f"✏️ Modification du message {message_id} dans {channel.name}")
                     msg = await channel.fetch_message(message_id)
