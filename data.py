@@ -7,6 +7,7 @@ from utils import cooldowns  # Important pour accès aux cooldowns globaux
 DATA_FILE = "/persistent/data.json"
 
 # États persistants
+infection_status = {} 
 virus_status = {}
 poison_status = {}
 last_daily_claim = {}
