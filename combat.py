@@ -98,16 +98,6 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         return build_embed_from_item(item, f"🦠 {target_mention} est maintenant infecté ! Le virus fera 5 dégâts par heure pendant {duration // 3600}h."), True
 
-        # 💉 Vaccin
-    elif action["type"] == "vaccin":
-        virus_status.setdefault(guild_id, {})
-        if target_id in virus_status[guild_id]:
-            del virus_status[guild_id][target_id]
-            description = f"💉 {user_mention} administre un vaccin à {target_mention}.\n🦠 Le virus a été **éradiqué** avec succès !"
-        else:
-            description = f"💉 {user_mention} tente de vacciner {target_mention}, mais aucun virus n’était détecté."
-        return build_embed_from_item(item, description), True
-
     # 🧪 Poison (nouveau système)
     elif action["type"] == "poison":
         poison_status.setdefault(guild_id, {})
