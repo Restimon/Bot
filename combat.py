@@ -171,11 +171,14 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             leaderboard[guild_id][user_id]["degats"] += 50
             reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
+        virus_status.setdefault(guild_id, {})
         virus_status[guild_id][target_id] = {
             "start": now,
-            "duration": duration,
-            "last_tick": 0
+            "duration": action.get("duree", 6 * 3600),
+            "last_tick": 0,
+            "source": user_id
         }
+
         return build_embed_from_item(
             item,
             f"🦠 {target_mention} est maintenant infecté par le virus ! Il subit {dmg} dégâts immédiats, puis 5 par heure pendant {duration // 3600}h.{crit_txt}"
@@ -204,9 +207,11 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         poison_status[guild_id][target_id] = {
             "start": now,
-            "duration": duration,
-            "last_tick": 0
+            "duration": action.get("duree", 3 * 3600),
+            "last_tick": 0,
+            "source": user_id
         }
+
         return build_embed_from_item(
             item,
             f"🧪 {target_mention} est maintenant empoisonné ! Il subit {dmg} dégâts immédiats, puis 3 toutes les 30 minutes pendant {duration // 3600}h.{crit_txt}"
