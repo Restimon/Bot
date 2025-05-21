@@ -53,6 +53,8 @@ def register_admin_commands(bot):
         guild_config["special_leaderboard_channel_id"] = channel.id
         guild_config["special_leaderboard_message_id"] = msg.id
         save_config()
+        print(f"💾 Config mise à jour pour {guild_id}:")
+        print(json.dumps(guild_config, indent=2))
 
         await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
 
