@@ -29,7 +29,6 @@ def build_embed_from_item(item, description, is_heal_other=False, is_crit=False)
         embed.set_image(url=gif_url)
     return embed
 
-
 def check_crit(chance):
     return random.random() < chance
 
@@ -54,7 +53,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     
     # Vérifie le cooldown si l'action est une attaque (et non un soin)
     if action["type"] in ["attaque", "virus", "poison", "infection"]:
-        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
+        on_cooldown, remaining = is_on_cooldown(guild_id, (user_id, target_id), "attack")
         if on_cooldown:
             return build_embed_from_item(
                 item,
