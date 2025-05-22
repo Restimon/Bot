@@ -11,14 +11,16 @@ from storage import get_user_data, hp, leaderboard
 from data import virus_status, poison_status, infection_status, regeneration_status
 
 # Variables globales
-load_supply_data()
 last_supply_time = 0
-save_supply_data()
 supply_daily_counter = {}  # {guild_id: (date, count)}
 last_active_channel = {}   # {guild_id: channel_id}
 SUPPLY_MIN_DELAY = 2 * 3600
 SUPPLY_MAX_DELAY = 8 * 3600
 SUPPLY_DATA_FILE = "supply_data.json"
+
+# Charger les données sauvegardées au démarrage
+load_supply_data()
+
 
 def save_supply_data():
     with open(SUPPLY_DATA_FILE, "w") as f:
@@ -191,6 +193,7 @@ async def send_special_supply(bot, force=False):
 
         supply_daily_counter[gid] = (today, supply_daily_counter[gid][1] + 1)
         last_supply_time = now
+        save_supply_data()
 
 def update_last_active_channel(message):
     if message.guild and not message.author.bot:  # Ignorer les messages de bots
