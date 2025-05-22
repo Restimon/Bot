@@ -71,6 +71,16 @@ def describe_item(emoji):
     if typ == "immunite":
         return "⭐️ Immunité : ignore tous les dégâts pendant 2h."
     return "❓ Effet inconnu."
+    elif reward_type == "regen":
+        regeneration_status.setdefault(gid, {})[uid] = {
+            "start": now,
+            "duration": 3 * 3600,
+            "intervalle": 1800,
+            "valeur": 3,
+            "source": None,
+            "channel_id": channel.id
+        }
+        results.append(f"💕 {user.mention} bénéficie d'une **régénération** pendant 3h !")
 
 def choose_reward(user_id, guild_id):
     roll = random.random()
@@ -82,6 +92,8 @@ def choose_reward(user_id, guild_id):
         return "degats", random.randint(1, 15)
     else:
         return "soin", random.randint(1, 10)
+    elif roll <= 0.95:
+        return "regen", True
 
 async def send_special_supply(bot, force=False):
     global last_supply_time, supply_daily_counter
