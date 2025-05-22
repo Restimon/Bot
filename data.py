@@ -13,6 +13,7 @@ poison_status = {}
 last_daily_claim = {}
 shields = {}
 esquive_bonus = {}  
+casque_bonus = {}
 
 # Cooldowns globaux
 cooldowns = {
