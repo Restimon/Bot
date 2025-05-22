@@ -161,11 +161,11 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         leaderboard[guild_id][target_id]["morts"] += 1
         reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
-    return build_embed_from_item(
-        item,
-        f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
-        f"**SomniCorp :** {target_mention} : {before} - {dmg}{modif_txt} = {new_hp} / 100 PV{crit_txt}{reset_txt}"
-    ), True
+        return build_embed_from_item(
+            item,
+            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
+            f"**SomniCorp :** {target_mention} : {before} - {dmg}{modif_txt} = {new_hp} / 100 PV{crit_txt}{reset_txt}"
+        ), True
     
         # 💀 KO → reset HP + points
         if new_hp == 0:
