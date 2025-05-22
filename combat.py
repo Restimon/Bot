@@ -401,28 +401,30 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         before = hp[guild_id].get(target_id, 100)
         new_hp = max(before - dmg, 0)
         hp[guild_id][target_id] = new_hp
+    
         reset_txt = ""
         if new_hp == 0:
-            hp[guild_id][target_id] = 100
-            leaderboard.setdefault(guild_id, {})
-            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0})
-            leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0})
-            leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
-            leaderboard[guild_id][user_id]["degats"] += 50
+            handle_death(guild_id, target_id, user_id)
             reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
-        virus_status.setdefault(guild_id, {})
         virus_status[guild_id][target_id] = {
             "start": now,
-            "duration": action.get("duree", 6 * 3600),
+            "duration": duration,
             "last_tick": 0,
             "source": user_id,
-            "channel": ctx.channel.id
+            "channel_id": ctx.channel.id
         }
+
+        effect_txt = (
+            "\n🦠 Vous êtes **infecté par un virus** durant 6h | 5 dégâts toutes les heures."
+            "\n⚔️ Lors d’une attaque : **vous perdez 2 PV** et **vous transmettez** le virus."
+        )
 
         return build_embed_from_item(
             item,
-            f"🦠 {target_mention} est maintenant infecté par le virus ! Il subit {dmg} dégâts immédiats, puis 5 par heure pendant {duration // 3600}h.{crit_txt}"
+            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
+            f"**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV"
+            f"{crit_txt}{reset_txt}{effect_txt}"
         ), True
 
     elif action["type"] == "poison":
@@ -436,27 +438,27 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         before = hp[guild_id].get(target_id, 100)
         new_hp = max(before - dmg, 0)
         hp[guild_id][target_id] = new_hp
+
         reset_txt = ""
         if new_hp == 0:
-            hp[guild_id][target_id] = 100
-            leaderboard.setdefault(guild_id, {})
-            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0})
-            leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0})
-            leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
-            leaderboard[guild_id][user_id]["degats"] += 50
+            handle_death(guild_id, target_id, user_id)
             reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
         poison_status[guild_id][target_id] = {
             "start": now,
-            "duration": action.get("duree", 3 * 3600),
+            "duration": duration,
             "last_tick": 0,
             "source": user_id,
-            "channel": ctx.channel.id
+            "channel_id": ctx.channel.id
         }
+
+        effect_txt = "\n🧪 Vous êtes **empoisonné** durant 3h | 3 dégâts toutes les 30 minutes."
 
         return build_embed_from_item(
             item,
-            f"🧪 {target_mention} est maintenant empoisonné ! Il subit {dmg} dégâts immédiats, puis 3 toutes les 30 minutes pendant {duration // 3600}h.{crit_txt}"
+            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
+            f"**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV{crit_txt}"
+            f"{reset_txt}{effect_txt}"
         ), True
 
     elif action["type"] == "vol":
@@ -490,14 +492,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         leaderboard[guild_id].setdefault(infecteur_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
         leaderboard[guild_id][infecteur_id]["degats"] += dmg
 
+        reset_txt = ""
         if new_hp == 0:
-            hp[guild_id][target_id] = 100
-            leaderboard.setdefault(guild_id, {})
-            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-            leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
-            leaderboard[guild_id][infecteur_id]["degats"] += 50
-            leaderboard[guild_id][infecteur_id]["kills"] += 1
-            leaderboard[guild_id][target_id]["morts"] += 1
+            handle_death(guild_id, target_id, infecteur_id)
+            reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
         infection_status[guild_id][target_id] = {
             "start": now,
@@ -507,8 +505,14 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "channel_id": ctx.channel.id
         }
 
+        effect_txt = (
+            "\n🧟 Vous êtes **infecté** durant 3h | 2 dégâts toutes les 30 minutes."
+            "\n⚠️ En attaquant, vous avez **25% de chance** d’infecter votre cible."
+        )
+
         return build_embed_from_item(
             item,
-            f"🧟 {target_mention} est maintenant infecté ! Il subit {dmg} dégâts immédiats, "
-            f"et 2 toutes les 30 minutes pendant {duration // 3600}h."
+            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
+            f"**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV"
+            f"{reset_txt}{effect_txt}"
         ), True
