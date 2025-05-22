@@ -5,9 +5,10 @@ leaderboard = {}
 def get_inventory(guild_id):
     return inventaire.setdefault(str(guild_id), {})
 
-def get_hp(guild_id):
-    return hp.setdefault(str(guild_id), {})
-
+def set_hp(guild_id, user_id, value):
+    hp.setdefault(guild_id, {})
+    hp[guild_id][user_id] = value
+    
 def get_leaderboard(guild_id):
     return leaderboard.setdefault(str(guild_id), {})
 
