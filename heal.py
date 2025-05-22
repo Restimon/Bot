@@ -26,7 +26,25 @@ def register_heal_command(bot):
 
         if OBJETS[item]["type"] != "soin" and item != "💉" and item != "🛡":
             return await interaction.response.send_message("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
+        # ⭐️ Immunité : invulnérabilité pendant 2 heures
+        if item == "⭐️":
+            from data import immunite_status  # assure-toi que ce soit bien importé
 
+            immunite_status.setdefault(guild_id, {})
+            immunite_status[guild_id][uid] = {
+                "start": time.time(),
+                "duration": 2 * 3600
+            }
+
+            user_inv.remove("⭐️")
+            sauvegarder()
+
+            embed = discord.Embed(
+                title="⭐️ Immunité activée",
+                description=f"{interaction.user.mention} est maintenant **invulnérable à tout dégât pendant 2 heures**.",
+                color=discord.Color.gold()
+            )
+            return await interaction.response.send_message(embed=embed)
         # 💉 Vaccin
         if item == "💉":
             virus_status.setdefault(guild_id, {})
