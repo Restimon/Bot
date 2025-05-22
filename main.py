@@ -113,7 +113,8 @@ async def on_ready():
     bot.loop.create_task(virus_damage_loop())
     bot.loop.create_task(poison_damage_loop())
     bot.loop.create_task(infection_damage_loop())
-
+    bot.loop.create_task(regeneration_loop_start())
+    
 @bot.event
 async def on_message(message):
     global message_counter, random_threshold, last_drop_time
@@ -440,7 +441,6 @@ async def poison_damage_loop():
 
         await asyncio.sleep(60)
 
-
 async def infection_damage_loop():
     await bot.wait_until_ready()
     print("🧟 Boucle de dégâts d'infection démarrée.")
@@ -508,6 +508,40 @@ async def infection_damage_loop():
                         print(f"💀 {uid} a été vaincu par une infection et revient à 100 PV.")
 
         await asyncio.sleep(60)
+        
+@tasks.loop(minutes=30)
+async def regeneration_loop():
+    now = time.time()
+    for guild_id, users in list(regeneration_status.items()):
+        for user_id, stat in list(users.items()):
+            if now - stat["start"] > stat["duration"]:
+                del regeneration_status[guild_id][user_id]
+                continue
+
+            if now - stat["last_tick"] < 1800:
+                continue
+
+            stat["last_tick"] = now
+            hp.setdefault(guild_id, {})
+            leaderboard.setdefault(guild_id, {})
+            leaderboard[guild_id].setdefault(stat["source"], {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+            hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 100) + 3, 100)
+            leaderboard[guild_id][stat["source"]]["soin"] += 3
+
+            # Annonce dans le salon d'origine
+            try:
+                channel = bot.get_channel(stat.get("channel_id", 0))
+                if channel:
+                    member = await bot.fetch_user(int(user_id))
+                    await channel.send(
+                        embed=discord.Embed(
+                            title="💕 Régénération SomniCorp",
+                            description=f"{member.mention} récupère **+3 PV** grâce à l'effet de régénération.",
+                            color=discord.Color.green()
+                        )
+                    )
+            except Exception as e:
+                print(f"[regeneration_loop] Erreur: {e}")
 
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
