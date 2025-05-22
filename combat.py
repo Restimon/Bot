@@ -283,11 +283,12 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         infecteur_id = user_id  # L'infecteur initial
 
-        # Attribution des dégâts à l'infecteur
+        # Attribution des dégâts initiaux à l'infecteur
         leaderboard.setdefault(guild_id, {})
         leaderboard[guild_id].setdefault(infecteur_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
         leaderboard[guild_id][infecteur_id]["degats"] += dmg
 
+        # KO et points si cible tombe à 0 PV
         if new_hp == 0:
             hp[guild_id][target_id] = 100
             leaderboard.setdefault(guild_id, {})
@@ -297,6 +298,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             leaderboard[guild_id][infecteur_id]["kills"] += 1
             leaderboard[guild_id][target_id]["morts"] += 1
 
+        # Application du statut d'infection
         infection_status[guild_id][target_id] = {
             "start": now,
             "duration": duration,
@@ -307,5 +309,6 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     return build_embed_from_item(
         item,
-        f"🧟 {target_mention} est maintenant infecté ! Il subit {dmg} dégâts immédiats, et 2 toutes les 30 minutes pendant {duration // 3600}h."
+        f"🧟 {target_mention} est maintenant infecté ! Il subit {dmg} dégâts immédiats, "
+        f"et 2 toutes les 30 minutes pendant {duration // 3600}h."
     ), True
