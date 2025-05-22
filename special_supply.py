@@ -33,6 +33,7 @@ def load_supply_data():
             supply_daily_counter = data.get("supply_daily_counter", {})
             last_supply_time = data.get("last_supply_time", 0)
 
+load_supply_data()
 
 def get_random_item():
     pool = []
