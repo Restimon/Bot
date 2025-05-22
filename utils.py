@@ -76,5 +76,5 @@ cooldowns = {
 }
 
 # Cooldowns en secondes
-ATTACK_COOLDOWN = 15 * 60  # 15 minutes
-HEAL_COOLDOWN = 60 * 60    # 1 heure
+ATTACK_COOLDOWN = 3 * 60  # 15 minutes
+HEAL_COOLDOWN = 2 * 60    # 1 heure
