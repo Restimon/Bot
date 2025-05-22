@@ -88,7 +88,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     base_dmg = action["degats"]
     crit_txt = ""
     modif_txt = ""
-
+    
     # 🧪 Poison : -1 dégât
     if user_id in poison_status.get(guild_id, {}):
         base_dmg -= 1
@@ -148,7 +148,133 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 leaderboard[guild_id][infect_source]["kills"] += 1
                 leaderboard[guild_id][target_id]["morts"] += 1
             modif_txt += " +5🧟 (infection transmise)"
+    # ☠️ Attaque en chaîne
+    if item == "☠️":
+        from data import shields, casque_bonus, immunite_status, esquive_bonus
 
+        # Liste des cibles secondaires
+        others = [m for m in ctx.guild.members if m.id != int(user_id) and not m.bot]
+        random.shuffle(others)
+        secondaries = [m for m in others if str(m.id) != target_id][:2]
+
+        results = []
+
+        async def process_attack(victim_id, base, is_main):
+            dmg = base
+            modif = ""
+            now = time.time()
+
+            # Poison : -1
+            if user_id in poison_status.get(guild_id, {}):
+                dmg -= 1
+                modif += " 🧪(-1)"
+
+            # Virus : +2
+            if user_id in virus_status.get(guild_id, {}):
+                dmg += 2
+                modif += " 🦠(+2)"
+                hp[guild_id][user_id] = max(hp[guild_id][user_id] - 2, 0)
+                virus_src = virus_status[guild_id][user_id].get("source")
+                if virus_src:
+                    leaderboard[guild_id].setdefault(virus_src, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                    leaderboard[guild_id][virus_src]["degats"] += 2
+                if is_main:
+                    virus_status[guild_id][victim_id] = virus_status[guild_id][user_id].copy()
+                    del virus_status[guild_id][user_id]
+                    await ctx.channel.send(
+                        f"💉 {ctx.user.mention} a **transmis le virus** à <@{victim_id}>.\n"
+                        f"🦠 Le statut viral a été **supprimé** de {ctx.user.mention}."
+                    )
+
+            # Infection
+            infect_stat = infection_status.get(guild_id, {}).get(user_id)
+            if infect_stat and victim_id not in infection_status.get(guild_id, {}):
+                source_inf = infect_stat.get("source", user_id)
+                dmg += 2
+                modif += " 🧟(+2)"
+                leaderboard[guild_id].setdefault(source_inf, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[guild_id][source_inf]["degats"] += 2
+
+                if random.random() < 0.25:
+                    infection_status[guild_id][victim_id] = {
+                        "start": now,
+                        "duration": 3 * 3600,
+                        "last_tick": 0,
+                        "source": source_inf,
+                        "channel_id": ctx.channel.id
+                    }
+                    dmg += 5
+                    modif += " +5🧟 (infection transmise)"
+                    leaderboard[guild_id][source_inf]["degats"] += 5
+
+            # Esquive
+            esquive_data = esquive_bonus.get(guild_id, {}).get(victim_id)
+            evade_chance = 0.1
+            if esquive_data and now - esquive_data["start"] < esquive_data["duration"]:
+                evade_chance += 0.2
+            elif esquive_data:
+                del esquive_bonus[guild_id][victim_id]
+            if random.random() < evade_chance:
+                return f"💨 <@{victim_id}> esquive l’attaque de {item} !"
+
+            # Immunité
+            if victim_id in immunite_status.get(guild_id, {}):
+                if time.time() - immunite_status[guild_id][victim_id]["start"] < immunite_status[guild_id][victim_id]["duration"]:
+                    return f"⭐️ <@{victim_id}> est **invulnérable**. Aucun dégât pris."
+                else:
+                    del immunite_status[guild_id][victim_id]
+
+            # Casque : réduction x0.5 arrondi sup
+            casque_data = casque_bonus.get(guild_id, {}).get(victim_id)
+            if casque_data and now - casque_data["start"] < casque_data["duration"]:
+                dmg = int(dmg * 0.5) if dmg * 0.5 == int(dmg * 0.5) else int(dmg * 0.5) + 1
+                modif += " 🪖(x0.5)"
+            elif casque_data:
+                del casque_bonus[guild_id][victim_id]
+
+            # Bouclier
+            shield = shields.get(guild_id, {}).get(victim_id, 0)
+            if shield > 0:
+                if dmg <= shield:
+                    shields[guild_id][victim_id] -= dmg
+                    return f"🛡 <@{victim_id}> est protégé ! Aucun PV perdu ({dmg} absorbés)."
+                else:
+                    dmg -= shield
+                    shields[guild_id][victim_id] = 0
+
+            before = hp[guild_id].get(victim_id, 100)
+            after = max(before - dmg, 0)
+            hp[guild_id][victim_id] = after
+            leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+            leaderboard[guild_id][user_id]["degats"] += dmg
+
+            reset = ""
+            if after == 0:
+                hp[guild_id][victim_id] = 100
+                leaderboard[guild_id][victim_id]["degats"] = max(0, leaderboard[guild_id][victim_id].get("degats", 0) - 25)
+                leaderboard[guild_id][user_id]["degats"] += 50
+                leaderboard[guild_id][user_id]["kills"] += 1
+                leaderboard[guild_id][victim_id]["morts"] += 1
+                reset = " 💀 (remis à 100 PV)"
+
+            return f"☠️ {item} inflige {dmg} dégâts à <@{victim_id}> ({before} → {after}){modif}{reset}"
+
+        # Attaque principale
+        result_main = await process_attack(target_id, 24, is_main=True)
+        results.append(result_main)
+
+        # Cibles secondaires
+        for sc in secondaries:
+            result = await process_attack(str(sc.id), 12, is_main=False)
+            results.append(result)
+
+        # Embed final
+        embed = discord.Embed(
+            title="☠️ Attaque en chaîne",
+            description="\n".join(results),
+            color=discord.Color.red()
+        )
+        return embed, True
     # Appliquer le coup critique
     if check_crit(action.get("crit", 0)):
         base_dmg *= 2
@@ -193,6 +319,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         else:
             dmg -= shield_amt
             shields[guild_id][target_id] = 0
+        
     new_hp = max(before - dmg, 0)
     hp[guild_id][target_id] = new_hp
     user_stats["degats"] += dmg
