@@ -474,7 +474,7 @@ async def infection_damage_loop():
                     hp[gid][uid] = new_hp
                     infection_status[gid][uid]["last_tick"] = tick_count
 
-                    # Embed de dégâts envoyés dans le salon d’origine
+                    # Embed de dégâts dans le salon d’origine
                     if channel_id:
                         channel = bot.get_channel(channel_id)
                         if channel:
@@ -493,18 +493,9 @@ async def infection_damage_loop():
 
                     print(f"🧟 {uid} a subi {dmg} dégâts d'infection (HP: {current_hp} → {new_hp})")
 
+                    # Si le joueur meurt
                     if new_hp == 0:
-                        hp[gid][uid] = 100
-                        leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(uid, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][uid]["degats"] = max(0, leaderboard[gid][uid]["degats"] - 25)
-                        leaderboard[gid][uid]["morts"] += 1
-
-                        if source_id:
-                            leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                            leaderboard[gid][source_id]["degats"] += 50
-                            leaderboard[gid][source_id]["kills"] += 1
-
+                        handle_death(gid, uid, source_id)
                         print(f"💀 {uid} a été vaincu par une infection et revient à 100 PV.")
 
         await asyncio.sleep(60)
