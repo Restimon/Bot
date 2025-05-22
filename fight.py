@@ -40,7 +40,7 @@ def register_fight_command(bot):
         else:
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
-   @fight_slash.autocomplete("item")
+@fight_slash.autocomplete("item")
 async def autocomplete_items(interaction: discord.Interaction, current: str):
     guild_id = str(interaction.guild.id)
     uid = str(interaction.user.id)
