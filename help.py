@@ -40,7 +40,7 @@ def build_help_embed():
         name="🧪 Statuts et effets SomniCorp",
         value=(
             "• **🧪 Poison** : -3 PV toutes les 30min pendant 3h.\n"
-            "• **🦠 Virus** : -5 PV immédiats, puis -5 PV par heure pendant 3h. Se propage à chaque attaque.\n"
+            "• **🦠 Virus** : -5 PV immédiats, puis -5 PV par heure pendant 6h. Se transfert à chaque attaque mais l'attaquant subit 2 dégats.\n"
             "• **🧟 Infection** : -5 PV immédiats, -2 PV toutes les 30min pendant 3h. 25% de chance de se propager lors des attaques."
         ),
         inline=False
@@ -51,7 +51,8 @@ def build_help_embed():
         value=(
             "`/leaderboard` — Classement global (avec kills et morts).\n"
             "`/info [@membre]` — Voir les PV, stats, statuts et classement personnel.\n"
-            "`/setleaderboardchannel #salon` *(admin)* — Définit le salon du classement **spécial** mis à jour automatiquement."
+            "`/setleaderboardchannel #salon` *(admin)* — Définit le salon du classement **spécial** mis à jour automatiquement.\n"
+            "/status [@membre]` — Voir les effets persistants d’un joueur (virus, poison, etc.)."
         ),
         inline=False
     )
