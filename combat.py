@@ -4,7 +4,8 @@ from utils import (
     cooldowns,
     ATTACK_COOLDOWN,
     HEAL_COOLDOWN,
-    handle_death
+    handle_death,
+    is_on_cooldown
 )
 from storage import get_user_data
 from storage import hp, leaderboard
@@ -13,14 +14,6 @@ import time
 import discord
 import random
 import math
-
-def is_on_cooldown(guild_id, user_id, action_type):
-    now = time.time()
-    guild_cooldowns = cooldowns[action_type].setdefault(str(guild_id), {})
-    last_used = guild_cooldowns.get(user_id, 0)
-    duration = ATTACK_COOLDOWN if action_type == "attack" else HEAL_COOLDOWN
-    remaining = duration - (now - last_used)
-    return (remaining > 0), max(int(remaining), 0)
 
 def build_embed_from_item(item, description, is_heal_other=False, is_crit=False):
     if "esquive" in description.lower():
@@ -58,12 +51,26 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         return None
 
     action = OBJETS[item]
-
-    # Vérification de cooldown uniquement pour les actions offensives
+    
+    # Vérifie le cooldown si l'action est une attaque (et non un soin)
     if action["type"] in ["attaque", "virus", "poison", "infection"]:
         on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
         if on_cooldown:
-            return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer."), False
+            return build_embed_from_item(
+                item,
+                f"🕒 {user_mention}, vous devez patienter encore **{remaining} secondes** avant d'attaquer.",
+            ), False
+    elif action["type"] == "soin":
+        on_cooldown, remaining = is_on_cooldown(guild_id, (user_id, target_id), "heal")
+        if on_cooldown:
+            return build_embed_from_item(
+                item,
+                f"🕒 {user_mention}, vous devez patienter encore **{remaining} secondes** avant de soigner {target_mention}.",
+                is_heal_other=(user_id != target_id)
+            ), False
+
+
+    # Vérification de cooldown uniquement pour les actions offensives
 
     # Cible morte
     if target_hp <= 0 and action["type"] != "soin":
@@ -384,11 +391,6 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
                 f"**SomniCorp :** {target_mention} : {before} - {dmg}{modif_txt} = {new_hp} / 100 PV{crit_txt}"
             ), True
-
-    elif action["type"] == "soin":
-        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
-        if on_cooldown:
-            return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min pour se soigner."), False
 
         heal = action["soin"]
         crit_txt = ""
