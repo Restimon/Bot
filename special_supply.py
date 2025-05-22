@@ -6,12 +6,7 @@ from discord.ext import tasks
 
 from utils import OBJETS
 from storage import get_user_data, hp, leaderboard
-from data import (
-    virus_status,
-    poison_status,
-    infection_status,
-    regeneration_status,
-)
+from data import virus_status, poison_status, infection_status, regeneration_status
 
 # Variables globales
 last_supply_time = 0
@@ -37,7 +32,7 @@ def choose_reward(user_id, guild_id):
     else:
         return "soin", random.randint(1, 10)
 
-async def send_special_supply(bot):
+async def send_special_supply(bot, force=False):
     global last_supply_time, supply_daily_counter
 
     now = time.time()
@@ -45,19 +40,23 @@ async def send_special_supply(bot):
 
     for guild in bot.guilds:
         gid = str(guild.id)
-        last_time = supply_daily_counter.get(gid, (None, 0))
 
-        # Reset du compteur quotidien
-        if last_time[0] != today:
+        if not force:
+            # Vérifie l'activité récente
+            channel_id = last_active_channel.get(gid)
+            if not channel_id:
+                continue
+        else:
+            # Force le salon actif même si pas d'activité
+            channel_id = last_active_channel.get(gid)
+            if not channel_id:
+                continue
+
+        # Limite quotidienne
+        date, count = supply_daily_counter.get(gid, (None, 0))
+        if date != today:
             supply_daily_counter[gid] = (today, 0)
-
-        # Pas d'envoi si limite atteinte
-        if supply_daily_counter[gid][1] >= 3:
-            continue
-
-        # Pas de nouvelle activité
-        channel_id = last_active_channel.get(gid)
-        if not channel_id:
+        elif count >= 3 and not force:
             continue
 
         channel = bot.get_channel(channel_id)
@@ -105,47 +104,30 @@ async def send_special_supply(bot):
                 inv.append(reward)
                 results.append(f"🎁 {user.mention} a obtenu **{reward}**")
             elif reward_type == "status":
-                if reward == "poison":
-                    poison_status.setdefault(gid, {})[uid] = {
-                        "start": now,
-                        "duration": 3 * 3600,
-                        "last_tick": 0,
-                        "source": None,
-                        "channel_id": channel.id
-                    }
-                    results.append(f"🧪 {user.mention} a été **empoisonné** !")
-                elif reward == "virus":
-                    virus_status.setdefault(gid, {})[uid] = {
-                        "start": now,
-                        "duration": 6 * 3600,
-                        "last_tick": 0,
-                        "source": None,
-                        "channel_id": channel.id
-                    }
-                    results.append(f"🦠 {user.mention} a attrapé un **virus** !")
-                elif reward == "infection":
-                    infection_status.setdefault(gid, {})[uid] = {
-                        "start": now,
-                        "duration": 3 * 3600,
-                        "last_tick": 0,
-                        "source": None,
-                        "channel_id": channel.id
-                    }
-                    results.append(f"🧟 {user.mention} a été **infecté** !")
+                status_map = {
+                    "poison": (poison_status, "🧪", "empoisonné", 3 * 3600),
+                    "virus": (virus_status, "🦠", "infecté par un virus", 6 * 3600),
+                    "infection": (infection_status, "🧟", "infecté", 3 * 3600),
+                }
+                status_dict, emoji, label, dur = status_map[reward]
+                status_dict.setdefault(gid, {})[uid] = {
+                    "start": now,
+                    "duration": dur,
+                    "last_tick": 0,
+                    "source": None,
+                    "channel_id": channel.id
+                }
+                results.append(f"{emoji} {user.mention} a été **{label}** !")
             elif reward_type == "degats":
-                dmg = reward
-                hp.setdefault(gid, {})
                 before = hp[gid].get(uid, 100)
-                after = max(before - dmg, 0)
+                after = max(before - reward, 0)
                 hp[gid][uid] = after
-                results.append(f"💥 {user.mention} a pris **{dmg} dégâts** (PV: {after})")
+                results.append(f"💥 {user.mention} a pris **{reward} dégâts** (PV: {after})")
             elif reward_type == "soin":
-                heal = reward
-                hp.setdefault(gid, {})
                 before = hp[gid].get(uid, 100)
-                after = min(before + heal, 100)
+                after = min(before + reward, 100)
                 hp[gid][uid] = after
-                results.append(f"💚 {user.mention} a récupéré **{heal} PV** (PV: {after})")
+                results.append(f"💚 {user.mention} a récupéré **{reward} PV** (PV: {after})")
 
         if results:
             await channel.send(
@@ -158,18 +140,16 @@ async def send_special_supply(bot):
         else:
             await channel.send("💥 Le ravitaillement spécial SomniCorp s’est auto-détruit. 💣")
 
-        # Mise à jour du cooldown
         supply_daily_counter[gid] = (today, supply_daily_counter[gid][1] + 1)
         last_supply_time = now
 
-# Mise à jour automatique de l'activité
 def update_last_active_channel(message):
     if message.guild:
         last_active_channel[str(message.guild.id)] = message.channel.id
 
-# Démarre la boucle automatique
 @tasks.loop(minutes=5)
 async def special_supply_loop(bot):
     now = time.time()
-    if now - last_supply_time >= random.randint(SUPPLY_MIN_DELAY, SUPPLY_MAX_DELAY):
+    delay = random.randint(SUPPLY_MIN_DELAY, SUPPLY_MAX_DELAY)
+    if now - last_supply_time >= delay:
         await send_special_supply(bot)
