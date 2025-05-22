@@ -78,6 +78,9 @@ def charger():
         poison_status.clear()
         poison_status.update(data.get("poison_status", {}))
 
+        regeneration_status.clear()
+        regeneration_status.update(data.get("regeneration_status", {}))
+
         print("✅ Données chargées depuis data.json.")
 
     except json.JSONDecodeError:
