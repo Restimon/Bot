@@ -63,7 +63,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer."), False
         if target_hp <= 0:
             return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service."), False
-        
+
         evade_chance = 0.1
         if random.random() < evade_chance:
             return build_embed_from_item(
@@ -72,39 +72,38 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 is_heal_other=False,
                 is_crit=False
             ), True
-            
+
         base_dmg = action["degats"]
         crit_txt = ""
+        modif_txt = ""
 
-modif_txt = ""
+        # 🧪 Poison : -1 dégât
+        if user_id in poison_status.get(guild_id, {}):
+            base_dmg -= 1
+            emoji_modif = "🧪"
+            modif_txt = f"(-1 {emoji_modif})"
 
-# 🧪 Poison : -1 dégât
-if user_id in poison_status.get(guild_id, {}):
-    base_dmg -= 1
-    emoji_modif = "🧪"
-    modif_txt = f"(-1 {emoji_modif})"
+        # 🦠 Virus : +2 dégâts et -2 PV
+        if user_id in virus_status.get(guild_id, {}):
+            base_dmg += 2
+            emoji_modif = "🦠"
+            modif_txt = f"(+2 {emoji_modif})"
 
-# 🦠 Virus : +2 dégâts et -2 PV
-if user_id in virus_status.get(guild_id, {}):
-    base_dmg += 2
-    emoji_modif = "🦠"
-    modif_txt = f"(+2 {emoji_modif})"
+            hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
 
-    hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
+            virus_src = virus_status[guild_id][user_id].get("source")
+            if virus_src:
+                leaderboard.setdefault(guild_id, {})
+                leaderboard[guild_id].setdefault(virus_src, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[guild_id][virus_src]["degats"] += 2
 
-    virus_src = virus_status[guild_id][user_id].get("source")
-    if virus_src:
-        leaderboard.setdefault(guild_id, {})
-        leaderboard[guild_id].setdefault(virus_src, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-        leaderboard[guild_id][virus_src]["degats"] += 2
+            virus_status[guild_id][target_id] = virus_status[guild_id][user_id].copy()
+            del virus_status[guild_id][user_id]
 
-    virus_status[guild_id][target_id] = virus_status[guild_id][user_id].copy()
-    del virus_status[guild_id][user_id]
-
-    await ctx.channel.send(
-        f"💉 {ctx.user.mention} a **transmis le virus** à {target_mention}.\n"
-        f"🦠 Le statut viral a été **supprimé** de {ctx.user.mention}."
-    )
+            await ctx.channel.send(
+                f"💉 {ctx.user.mention} a **transmis le virus** à {target_mention}.\n"
+                f"🦠 Le statut viral a été **supprimé** de {ctx.user.mention}."
+            )
 
 # 🧟 Infection : +2 dégâts bonus + 25% de propagation
 infect_stat = infection_status.get(guild_id, {}).get(user_id)
