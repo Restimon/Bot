@@ -5,7 +5,6 @@ from utils import OBJETS
 from storage import get_user_data
 from data import sauvegarder, virus_status
 
-# ✅ Objets utilisables via /heal en plus des objets de soin classiques
 SPECIAL_HEAL_ITEMS = ["💉", "🛡", "👟", "🪖", "💕", "⭐️"]
 
 def register_heal_command(bot):
@@ -14,12 +13,14 @@ def register_heal_command(bot):
     async def heal_slash(interaction: discord.Interaction, target: discord.Member = None, item: str = None):
         await interaction.response.defer(thinking=True)
 
+        member = interaction.user
         guild_id = str(interaction.guild.id)
-        uid = str(interaction.user.id)
-        tid = str(target.id) if target else uid
+        uid = str(member.id)
+        target = target or member
+        tid = str(target.id)
 
-        if target and target.bot:
-            return await interaction.followup.send("🚫 Tu ne peux pas soigner un bot.", ephemeral=True)
+        if target.bot:
+            return await interaction.followup.send("❌ Tu ne peux pas soigner un bot.", ephemeral=True)
 
         user_inv, _, _ = get_user_data(guild_id, uid)
 
@@ -32,76 +33,60 @@ def register_heal_command(bot):
         if OBJETS[item]["type"] != "soin" and item not in SPECIAL_HEAL_ITEMS:
             return await interaction.followup.send("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
 
-        # 💉 Vaccin — utilisable uniquement sur soi-même
+        # 💉 Vaccin
         if item == "💉":
             if tid != uid:
                 return await interaction.followup.send("💉 Le vaccin ne peut être utilisé que **sur toi-même**.", ephemeral=True)
-
             virus_status.setdefault(guild_id, {})
             if uid in virus_status[guild_id]:
                 del virus_status[guild_id][uid]
-                description = f"💉 {interaction.user.mention} s’est administré un vaccin.\n🦠 Le virus a été **éradiqué** avec succès !"
+                description = f"💉 {member.mention} s’est administré un vaccin.\n🦠 Le virus a été **éradiqué** avec succès !"
             else:
-                description = f"💉 Aucun virus détecté chez {interaction.user.mention}. L’injection était inutile."
-
+                description = f"💉 Aucun virus détecté chez {member.mention}. L’injection était inutile."
             user_inv.remove("💉")
             sauvegarder()
-            embed = discord.Embed(title="📢 Vaccination SomniCorp", description=description, color=discord.Color.green())
-            return await interaction.followup.send(embed=embed)
+            return await interaction.followup.send(embed=discord.Embed(title="📢 Vaccination SomniCorp", description=description, color=discord.Color.green()))
 
         # ⭐️ Immunité
         if item == "⭐️":
             from data import immunite_status
-            immunite_status.setdefault(guild_id, {})
-            immunite_status[guild_id][uid] = {
-                "start": time.time(),
-                "duration": 2 * 3600
-            }
+            immunite_status.setdefault(guild_id, {})[uid] = {"start": time.time(), "duration": 2 * 3600}
             user_inv.remove("⭐️")
             sauvegarder()
-            embed = discord.Embed(
+            return await interaction.followup.send(embed=discord.Embed(
                 title="⭐️ Immunité activée",
-                description=f"{interaction.user.mention} est maintenant **invulnérable à tout dégât pendant 2 heures**.",
+                description=f"{member.mention} est maintenant **invulnérable à tout dégât pendant 2 heures**.",
                 color=discord.Color.gold()
-            )
-            return await interaction.followup.send(embed=embed)
+            ))
 
         # 🛡 Bouclier
         if item == "🛡":
             from data import shields
-            shields.setdefault(guild_id, {})
-            shields[guild_id][tid] = 20
+            shields.setdefault(guild_id, {})[tid] = 20
             user_inv.remove("🛡")
             sauvegarder()
-            embed = discord.Embed(
+            return await interaction.followup.send(embed=discord.Embed(
                 title="🛡 Bouclier activé",
-                description=f"{interaction.user.mention} a activé un **bouclier de 20 points** pour {interaction.guild.get_member(int(tid)).mention} !",
+                description=f"{member.mention} a activé un **bouclier de 20 points** pour {target.mention} !",
                 color=discord.Color.blue()
-            )
-            return await interaction.followup.send(embed=embed)
+            ))
 
         # 🪖 Casque
         if item == "🪖":
             from data import casque_bonus
-            casque_bonus.setdefault(guild_id, {})
-            casque_bonus[guild_id][uid] = {
-                "start": time.time(),
-                "duration": 4 * 3600
-            }
+            casque_bonus.setdefault(guild_id, {})[uid] = {"start": time.time(), "duration": 4 * 3600}
             user_inv.remove("🪖")
             sauvegarder()
-            embed = discord.Embed(
+            return await interaction.followup.send(embed=discord.Embed(
                 title="🪖 Casque équipé",
-                description=f"{interaction.user.mention} a équipé un **casque** qui réduit les dégâts reçus de 50% pendant 4 heures.",
+                description=f"{member.mention} a équipé un **casque** réduisant les dégâts reçus de 50% pendant 4 heures.",
                 color=discord.Color.orange()
-            )
-            return await interaction.followup.send(embed=embed)
+            ))
 
         # 💕 Régénération
         if item == "💕":
             from data import regeneration_status
-            regeneration_status.setdefault(guild_id, {})
-            regeneration_status[guild_id][tid] = {
+            regeneration_status.setdefault(guild_id, {})[tid] = {
                 "start": time.time(),
                 "duration": 3 * 3600,
                 "last_tick": 0,
@@ -110,33 +95,24 @@ def register_heal_command(bot):
             }
             user_inv.remove("💕")
             sauvegarder()
-            target_mention = interaction.guild.get_member(int(tid)).mention
-            embed = discord.Embed(
+            await interaction.channel.send(f"✨ {member.mention} a déclenché une régénération pour {target.mention} ! 💕")
+            return await interaction.followup.send(embed=discord.Embed(
                 title="💕 Régénération activée",
-                description=f"{target_mention} bénéficie d'une **régénération** de 3 PV toutes les 30 min pendant 3 heures.",
+                description=f"{target.mention} récupère **3 PV toutes les 30 minutes pendant 3 heures.**",
                 color=discord.Color.green()
-            )
-            await interaction.channel.send(
-                f"✨ {interaction.user.mention} a déclenché une régénération pour {target_mention} ! 💕"
-            )
-            return await interaction.followup.send(embed=embed)
+            ))
 
         # 👟 Esquive
         if item == "👟":
             from data import esquive_bonus
-            esquive_bonus.setdefault(guild_id, {})
-            esquive_bonus[guild_id][uid] = {
-                "start": time.time(),
-                "duration": 3 * 3600
-            }
+            esquive_bonus.setdefault(guild_id, {})[uid] = {"start": time.time(), "duration": 3 * 3600}
             user_inv.remove("👟")
             sauvegarder()
-            embed = discord.Embed(
-                title="👟 Esquive améliorée !",
-                description=f"{interaction.user.mention} bénéficie maintenant d’un **bonus d’esquive de 20%** pendant 3 heures.",
+            return await interaction.followup.send(embed=discord.Embed(
+                title="👟 Esquive améliorée",
+                description=f"{member.mention} bénéficie maintenant d’un **bonus d’esquive de 20% pendant 3 heures.**",
                 color=discord.Color.green()
-            )
-            return await interaction.followup.send(embed=embed)
+            ))
 
         # ✅ Objets de soin classiques
         from combat import apply_item_with_cooldown
@@ -156,13 +132,20 @@ def register_heal_command(bot):
             i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i in SPECIAL_HEAL_ITEMS
         ))
 
-        if not options:
-            return [app_commands.Choice(name="Aucun objet de soin", value="")]
+        def format_label(emoji):
+            o = OBJETS.get(emoji, {})
+            typ = o.get("type", "inconnu")
+            if typ == "soin":
+                return f"{emoji} {o.get('soin')} PV (🎯 {int(o.get('crit',0)*100)}%)"
+            if emoji == "💉": return f"{emoji} Vaccin : soigne les virus (🦠)"
+            if emoji == "🛡": return f"{emoji} Bouclier : +20 PV absorbants"
+            if emoji == "👟": return f"{emoji} Esquive : +20% pendant 3h"
+            if emoji == "🪖": return f"{emoji} Casque : dégâts ÷2 pendant 4h"
+            if emoji == "💕": return f"{emoji} Régénère 3 PV / 30min pendant 3h"
+            if emoji == "⭐️": return f"{emoji} Immunité : invulnérable 2h"
+            return f"{emoji}"
 
         return [
-            app_commands.Choice(
-                name=f"{emoji} — {OBJETS[emoji].get('type', '?')}",
-                value=emoji
-            )
-            for emoji in options if current in emoji
+            app_commands.Choice(name=format_label(e), value=e)
+            for e in options if current in e
         ][:25]
