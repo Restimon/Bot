@@ -21,6 +21,37 @@ def get_random_item():
         pool.extend([emoji] * (26 - data["rarete"]))
     return random.choice(pool)
 
+def describe_item(emoji):
+    obj = OBJETS.get(emoji, {})
+    typ = obj.get("type")
+    if typ == "attaque":
+        return f"🗡️ Inflige {obj.get('degats')} dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
+    if typ == "virus":
+        return "🦠 Virus : 5 dégâts initiaux + 5/h pendant 6h."
+    if typ == "poison":
+        return "🧪 Poison : 3 dégâts initiaux + 3/30min pendant 3h."
+    if typ == "infection":
+        return "🧟 Infection : 5 dégâts initiaux + 2/30min pendant 3h. 25% de propagation."
+    if typ == "soin":
+        return f"💚 Restaure {obj.get('soin')} PV. (Crit {int(obj.get('crit', 0)*100)}%)"
+    if typ == "regen":
+        return "✨ Régénère 3 PV toutes les 30min pendant 3h."
+    if typ == "mysterybox":
+        return "📦 Boîte surprise : 1 à 3 objets aléatoires."
+    if typ == "vol":
+        return "🔍 Vole un objet aléatoire à un autre joueur."
+    if typ == "vaccin":
+        return "💉 Utilisable via /heal pour soigner virus/poison."
+    if typ == "bouclier":
+        return "🛡 Ajoute un bouclier de 20 PV."
+    if typ == "esquive+":
+        return "👟 Augmente les chances d’esquive pendant 3h."
+    if typ == "reduction":
+        return "🪖 Réduit les dégâts subis de moitié pendant 4h."
+    if typ == "immunite":
+        return "⭐️ Immunité : ignore tous les dégâts pendant 2h."
+    return "❓ Effet inconnu."
+
 def choose_reward(user_id, guild_id):
     roll = random.random()
     if roll <= 0.75:
@@ -42,17 +73,14 @@ async def send_special_supply(bot, force=False):
         gid = str(guild.id)
 
         if not force:
-            # Vérifie l'activité récente
             channel_id = last_active_channel.get(gid)
             if not channel_id:
                 continue
         else:
-            # Force le salon actif même si pas d'activité
             channel_id = last_active_channel.get(gid)
             if not channel_id:
                 continue
 
-        # Limite quotidienne
         date, count = supply_daily_counter.get(gid, (None, 0))
         if date != today:
             supply_daily_counter[gid] = (today, 0)
@@ -63,7 +91,6 @@ async def send_special_supply(bot, force=False):
         if not channel:
             continue
 
-        # Envoi du ravitaillement
         embed = discord.Embed(
             title="📦 Ravitaillement spécial SomniCorp",
             description="Réagissez avec 📦 pour récupérer une récompense surprise !\n"
@@ -83,7 +110,7 @@ async def send_special_supply(bot, force=False):
                 and user.id not in [u.id for u in collected_users]
             )
 
-        end_time = time.time() + 300  # 5 minutes
+        end_time = time.time() + 300
         while len(collected_users) < 5 and time.time() < end_time:
             try:
                 reaction, user = await asyncio.wait_for(
@@ -102,7 +129,8 @@ async def send_special_supply(bot, force=False):
             if reward_type == "objet":
                 inv, _, _ = get_user_data(gid, uid)
                 inv.append(reward)
-                results.append(f"🎁 {user.mention} a obtenu **{reward}**")
+                desc = describe_item(reward)
+                results.append(f"🎁 {user.mention} a obtenu **{reward}** — {desc}")
             elif reward_type == "status":
                 status_map = {
                     "poison": (poison_status, "🧪", "empoisonné", 3 * 3600),
