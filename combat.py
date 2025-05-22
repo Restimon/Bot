@@ -153,6 +153,20 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     if check_crit(action.get("crit", 0)):
         base_dmg *= 2
         crit_txt = " **(Coup critique ! 💥)**"
+    # ⭐️ Immunité : aucun dégât
+    from data import immunite_status
+
+    immune = immunite_status.get(guild_id, {}).get(target_id)
+    if immune:
+        elapsed = now - immune["start"]
+        if elapsed < immune["duration"]:
+            return build_embed_from_item(
+                item,
+                f"⭐️ {target_mention} est **invulnérable** grâce à l’immunité ! Aucun dégât infligé.",
+                is_heal_other=False
+            ), True
+        else:
+            del immunite_status[guild_id][target_id]
 
     dmg = max(0, base_dmg)
     # 🪖 Réduction de 50% avec arrondi supérieur si la cible porte un casque
