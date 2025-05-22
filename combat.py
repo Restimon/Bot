@@ -191,7 +191,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "start": now,
             "duration": action.get("duree", 6 * 3600),
             "last_tick": 0,
-            "source": user_id
+            "source": user_id,
             "channel": ctx.channel.id
         }
 
@@ -225,7 +225,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "start": now,
             "duration": action.get("duree", 3 * 3600),
             "last_tick": 0,
-            "source": user_id
+            "source": user_id,
             "channel": ctx.channel.id
         }
 
@@ -273,7 +273,7 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "start": now,
             "duration": duration,
             "last_tick": 0,
-            "source": user_id
+            "source": user_id,
             "channel": ctx.channel.id
         } 
 
