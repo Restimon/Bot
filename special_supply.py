@@ -1,3 +1,4 @@
+
 import random
 import time
 import asyncio
@@ -71,28 +72,18 @@ def describe_item(emoji):
     if typ == "immunite":
         return "⭐️ Immunité : ignore tous les dégâts pendant 2h."
     return "❓ Effet inconnu."
-    elif reward_type == "regen":
-        regeneration_status.setdefault(gid, {})[uid] = {
-            "start": now,
-            "duration": 3 * 3600,
-            "intervalle": 1800,
-            "valeur": 3,
-            "source": None,
-            "channel_id": channel.id
-        }
-        results.append(f"💕 {user.mention} bénéficie d'une **régénération** pendant 3h !")
 
 def choose_reward(user_id, guild_id):
     roll = random.random()
-    if roll <= 0.75:
+    if roll <= 0.70:
         return "objet", get_random_item()
     elif roll <= 0.80:
         return "status", random.choice(["poison", "virus", "infection"])
     elif roll <= 0.90:
         return "degats", random.randint(1, 15)
-    else:
+    elif roll <= 0.97:
         return "soin", random.randint(1, 10)
-    elif roll <= 0.95:
+    else:
         return "regen", True
 
 async def send_special_supply(bot, force=False):
@@ -188,6 +179,15 @@ async def send_special_supply(bot, force=False):
                 after = min(before + reward, 100)
                 hp[gid][uid] = after
                 results.append(f"💚 {user.mention} a récupéré **{reward} PV** (PV: {after})")
+            elif reward_type == "regen":
+                regeneration_status.setdefault(gid, {})[uid] = {
+                    "start": now,
+                    "duration": 3 * 3600,
+                    "last_tick": 0,
+                    "source": None,
+                    "channel_id": channel.id
+                }
+                results.append(f"💕 {user.mention} bénéficie d'une **régénération** pendant 3h !")
 
         if results:
             await channel.send(
@@ -205,7 +205,7 @@ async def send_special_supply(bot, force=False):
         save_supply_data()
 
 def update_last_active_channel(message):
-    if message.guild and not message.author.bot:  # Ignorer les messages de bots
+    if message.guild and not message.author.bot:
         last_active_channel[str(message.guild.id)] = message.channel.id
 
 @tasks.loop(minutes=5)
