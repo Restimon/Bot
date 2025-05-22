@@ -59,14 +59,35 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     action = OBJETS[item]
 
+    # Vérification de cooldown uniquement pour les actions offensives
     if action["type"] in ["attaque", "virus", "poison", "infection"]:
         on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
         if on_cooldown:
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer."), False
-    if target_hp <= 0:
+
+    # Cible morte
+    if target_hp <= 0 and action["type"] != "soin":
         return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service."), False
 
-     # Gestion de l'esquive
+    # Gestion de l'esquive uniquement pour les objets offensifs
+    if action["type"] in ["attaque", "virus", "poison", "infection"]:
+        evade_chance = 0.1
+        esquive_data = esquive_bonus.get(guild_id, {}).get(target_id)
+        if esquive_data:
+            elapsed = now - esquive_data["start"]
+            if elapsed < esquive_data["duration"]:
+                evade_chance += 0.2
+            else:
+                del esquive_bonus[guild_id][target_id]
+    
+        if random.random() < evade_chance:
+            return build_embed_from_item(
+                item,
+                f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât infligé."
+            ), True
+
+    # Dégâts initiaux uniquement pour les objets qui en ont besoin
+    base_dmg = action.get("degats", 0) if "degats" in action else 0
     evade_chance = 0.1
     esquive_data = esquive_bonus.get(guild_id, {}).get(target_id)
     if esquive_data:
