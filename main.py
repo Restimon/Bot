@@ -519,21 +519,22 @@ async def regeneration_loop():
 
             stat["last_tick"] = now
             hp.setdefault(guild_id, {})
-            leaderboard.setdefault(guild_id, {})
-            leaderboard[guild_id].setdefault(stat["source"], {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-
             before = hp[guild_id].get(user_id, 100)
             healed = min(3, 100 - before)
-            hp[guild_id][user_id] = min(before + healed, 100)
-            after = hp[guild_id][user_id]
-            leaderboard[guild_id][stat["source"]]["soin"] += healed
+            after = min(before + healed, 100)
+            hp[guild_id][user_id] = after
+
+            # Ajout dans le leaderboard uniquement si la source est définie
+            if "source" in stat and stat["source"]:
+                leaderboard.setdefault(guild_id, {})
+                leaderboard[guild_id].setdefault(stat["source"], {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[guild_id][stat["source"]]["soin"] += healed
 
             # Calcul du temps restant
             elapsed = now - stat["start"]
             remaining = max(0, stat["duration"] - elapsed)
             remaining_mn = int(remaining // 60)
 
-            # Envoi dans le salon d'origine
             try:
                 channel = bot.get_channel(stat.get("channel_id", 0))
                 if channel:
@@ -548,6 +549,7 @@ async def regeneration_loop():
                     await channel.send(embed=embed)
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
+
 
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
