@@ -3,7 +3,8 @@ from utils import (
     GIFS,
     cooldowns,
     ATTACK_COOLDOWN,
-    HEAL_COOLDOWN
+    HEAL_COOLDOWN,
+    handle_death
 )
 from storage import get_user_data
 from storage import hp, leaderboard
@@ -319,7 +320,8 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         else:
             dmg -= shield_amt
             shields[guild_id][target_id] = 0
-        
+
+    before = hp[guild_id].get(target_id, 100)
     new_hp = max(before - dmg, 0)
     hp[guild_id][target_id] = new_hp
     user_stats["degats"] += dmg
@@ -327,33 +329,8 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     reset_txt = ""
     if new_hp == 0:
-        hp[guild_id][target_id] = 100
-        leaderboard.setdefault(guild_id, {})
-        leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-        leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-        leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
-        leaderboard[guild_id][user_id]["degats"] += 50
-        leaderboard[guild_id][user_id]["kills"] += 1
-        leaderboard[guild_id][target_id]["morts"] += 1
+        handle_death(guild_id, target_id, user_id)
         reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
-
-        return build_embed_from_item(
-            item,
-            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
-            f"**SomniCorp :** {target_mention} : {before} - {dmg}{modif_txt} = {new_hp} / 100 PV{crit_txt}{reset_txt}"
-        ), True
-    
-        # 💀 KO → reset HP + points
-        if new_hp == 0:
-            hp[guild_id][target_id] = 100
-            leaderboard.setdefault(guild_id, {})
-            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-            leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-            leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
-            leaderboard[guild_id][user_id]["degats"] += 50
-            leaderboard[guild_id][user_id]["kills"] += 1
-            leaderboard[guild_id][target_id]["morts"] += 1
-            reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
         # 🧟 Propagation de l'infection
         if user_id in infection_status.get(guild_id, {}):
