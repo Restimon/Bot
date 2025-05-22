@@ -7,7 +7,7 @@ from utils import (
 )
 from storage import get_user_data
 from storage import hp, leaderboard
-from data import virus_status, poison_status, infection_status, shields, vaccin
+from data import virus_status, poison_status, infection_status, shields, vaccin, esquive_bonus
 import time
 import discord
 import random
@@ -64,7 +64,18 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     if target_hp <= 0:
         return build_embed_from_item(item, f"⚠️ {target_mention} est déjà hors service."), False
 
+     # Gestion de l'esquive
     evade_chance = 0.1
+    esquive_data = esquive_bonus.get(guild_id, {}).get(target_id)
+    if esquive_data:
+        # Vérifie si le bonus est encore actif
+        elapsed = now - esquive_data["start"]
+        if elapsed < esquive_data["duration"]:
+            evade_chance += 0.2  # +20%
+        else:
+            # Bonus expiré
+            del esquive_bonus[guild_id][target_id]
+
     if random.random() < evade_chance:
         return build_embed_from_item(
             item,
