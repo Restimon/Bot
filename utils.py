@@ -75,6 +75,11 @@ cooldowns = {
     "heal": {}
 }
 
-# Cooldowns en secondes
-ATTACK_COOLDOWN = 3 * 60  # 15 minutes
-HEAL_COOLDOWN = 2 * 60    # 1 heure
+def is_on_cooldown(guild_id, user_id, target_id, action_type):
+    now = time.time()
+    key = (user_id, target_id)
+    guild_cooldowns = cooldowns[action_type].setdefault(str(guild_id), {})
+    last_used = guild_cooldowns.get(key, 0)
+    duration = ATTACK_COOLDOWN if action_type == "attack" else HEAL_COOLDOWN
+    remaining = duration - (now - last_used)
+    return (remaining > 0), max(int(remaining), 0)
