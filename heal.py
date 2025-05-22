@@ -4,6 +4,7 @@ from utils import OBJETS
 from storage import get_user_data
 from data import sauvegarder, virus_status
 from combat import apply_item_with_cooldown
+import time
 
 # Stockage temporaire des boucliers
 shields = {}
@@ -24,27 +25,27 @@ def register_heal_command(bot):
         if item not in user_inv:
             return await interaction.response.send_message(f"🚫 SomniCorp ne détecte pas {item} dans ton inventaire.", ephemeral=True)
 
-        if OBJETS[item]["type"] != "soin" and item != "💉" and item != "🛡":
+        SPECIAL_HEAL_ITEMS = ["💉", "🛡", "👟", "🪖", "💕", "⭐️"]
+        if OBJETS[item]["type"] != "soin" and item not in SPECIAL_HEAL_ITEMS:
             return await interaction.response.send_message("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
+
         # ⭐️ Immunité : invulnérabilité pendant 2 heures
         if item == "⭐️":
-            from data import immunite_status  # assure-toi que ce soit bien importé
-
+            from data import immunite_status
             immunite_status.setdefault(guild_id, {})
             immunite_status[guild_id][uid] = {
                 "start": time.time(),
                 "duration": 2 * 3600
             }
-
             user_inv.remove("⭐️")
             sauvegarder()
-
             embed = discord.Embed(
                 title="⭐️ Immunité activée",
                 description=f"{interaction.user.mention} est maintenant **invulnérable à tout dégât pendant 2 heures**.",
                 color=discord.Color.gold()
             )
             return await interaction.response.send_message(embed=embed)
+
         # 💉 Vaccin
         if item == "💉":
             virus_status.setdefault(guild_id, {})
@@ -53,18 +54,16 @@ def register_heal_command(bot):
                 description = f"💉 {interaction.user.mention} s’est administré un vaccin.\n🦠 Le virus a été **éradiqué** avec succès !"
             else:
                 description = f"💉 Aucun virus détecté chez {interaction.user.mention}. L’injection était inutile."
-
             user_inv.remove("💉")
             sauvegarder()
             embed = discord.Embed(title="📢 Vaccination SomniCorp", description=description, color=discord.Color.green())
             return await interaction.response.send_message(embed=embed)
 
-        # 🛡 Bouclier : uniquement utilisable ici
+        # 🛡 Bouclier
         if item == "🛡":
-            from data import shields as global_shields  # Pour conserver l'effet globalement
+            from data import shields as global_shields
             global_shields.setdefault(guild_id, {})
             global_shields[guild_id][tid] = 20
-
             user_inv.remove("🛡")
             sauvegarder()
             embed = discord.Embed(
@@ -73,72 +72,58 @@ def register_heal_command(bot):
                 color=discord.Color.blue()
             )
             return await interaction.response.send_message(embed=embed)
-            
-        # 🪖 Casque : réduit les dégâts reçus de 50% pendant 4 heures
-        if item == "🪖":
-            from data import casque_bonus  # assure-toi que cette structure existe dans data.py
 
+        # 🪖 Casque
+        if item == "🪖":
+            from data import casque_bonus
             casque_bonus.setdefault(guild_id, {})
             casque_bonus[guild_id][uid] = {
                 "start": time.time(),
                 "duration": 4 * 3600
             }
-
             user_inv.remove("🪖")
             sauvegarder()
-
             embed = discord.Embed(
                 title="🪖 Casque équipé",
                 description=f"{interaction.user.mention} a équipé un **casque** qui réduit les dégâts reçus de 50% pendant 4 heures.",
                 color=discord.Color.orange()
             )
             return await interaction.response.send_message(embed=embed)
-            
-        # 💕 Régénération : soigne 3 PV toutes les 30 min pendant 3h
-        if item == "💕":
-            from data import regeneration_status  # Assure-toi que ce dict est bien importé
 
+        # 💕 Régénération
+        if item == "💕":
+            from data import regeneration_status
             regeneration_status.setdefault(guild_id, {})
             regeneration_status[guild_id][tid] = {
                 "start": time.time(),
                 "duration": 3 * 3600,
                 "last_tick": 0,
                 "source": uid,
-                "channel_id": interaction.channel.id  # ✅ indispensable pour afficher les tics au bon endroit
+                "channel_id": interaction.channel.id
             }
-
             user_inv.remove("💕")
             sauvegarder()
-
             target_mention = interaction.guild.get_member(int(tid)).mention
-
             embed = discord.Embed(
                 title="💕 Régénération activée",
                 description=f"{target_mention} bénéficie d'une **régénération** de 3 PV toutes les 30 min pendant 3 heures.",
                 color=discord.Color.green()
             )
-
-            # ✨ Annonce publique dans le salon
             await interaction.channel.send(
                 f"✨ {interaction.user.mention} a déclenché une régénération pour {target_mention} ! 💕"
             )
-
             return await interaction.response.send_message(embed=embed)
 
-        # Traitement spécial pour 👟 esquive
+        # 👟 Esquive
         if item == "👟":
-            esquive_duration = 3 * 3600  # 3 heures
-            from data import esquive_bonus  # assure-toi que cette structure existe dans data.py
-
+            from data import esquive_bonus
             esquive_bonus.setdefault(guild_id, {})
             esquive_bonus[guild_id][uid] = {
                 "start": time.time(),
-                "duration": esquive_duration
+                "duration": 3 * 3600
             }
-
             user_inv.remove("👟")
             sauvegarder()
-
             embed = discord.Embed(
                 title="👟 Esquive améliorée !",
                 description=f"{interaction.user.mention} bénéficie maintenant d’un **bonus d’esquive de 20%** pendant 3 heures.",
@@ -148,10 +133,8 @@ def register_heal_command(bot):
 
         # Objets classiques de soin
         embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
-
         if success:
             user_inv.remove(item)
-
         sauvegarder()
         await interaction.response.send_message(embed=embed)
 
@@ -161,7 +144,7 @@ def register_heal_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        SPECIAL_HEAL_ITEMS = ["💉", "🛡", "👟", "🪖", "💕"]
+        SPECIAL_HEAL_ITEMS = ["💉", "🛡", "👟", "🪖", "💕", "⭐️"]
         heal_items = sorted(set(
             i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i in SPECIAL_HEAL_ITEMS
         ))
