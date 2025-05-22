@@ -19,11 +19,11 @@ OBJETS = {
     "💕": {"type": "regen", "valeur": 3, "intervalle": 1800, "duree": 3 * 3600, "rarete": 20, "crit": 0.10},
     "📦": {"type": "mysterybox", "rarete": 16},
     "🔍": {"type": "vol", "rarete": 12},
-    "💉": {"type": "vaccin", "rarete": 17}
+    "💉": {"type": "vaccin", "rarete": 17},
     "🛡": {"type": "bouclier", "valeur": 20, "rarete": 18},
     "👟": {"type": "esquive+", "valeur": 0.2, "duree": 3 * 3600, "rarete": 14},
     "🪖": {"type": "reduction", "valeur": 0.5, "duree": 4 * 3600, "rarete": 16},
-    "⭐️": {"type": "immunite", "duree": 2 * 3600, "rarete": 22},
+    "⭐️": {"type": "immunite", "duree": 2 * 3600, "rarete": 22}
 }
 
 GIFS = {
