@@ -7,10 +7,11 @@ from utils import (
 )
 from storage import get_user_data
 from storage import hp, leaderboard
-from data import virus_status, poison_status, infection_status, shields, vaccin, esquive_bonus
+from data import virus_status, poison_status, infection_status, shields, vaccin, esquive_bonus, casque_bonus
 import time
 import discord
 import random
+import math
 
 def is_on_cooldown(guild_id, user_id, action_type):
     now = time.time()
@@ -154,6 +155,17 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         crit_txt = " **(Coup critique ! 💥)**"
 
     dmg = max(0, base_dmg)
+    # 🪖 Réduction de 50% avec arrondi supérieur si la cible porte un casque
+    casque_data = casque_bonus.get(guild_id, {}).get(target_id)
+    if casque_data:
+        elapsed = now - casque_data["start"]
+        if elapsed < casque_data["duration"]:
+            reduced = dmg * 0.5
+            dmg = math.ceil(reduced)  # Arrondi supérieur
+            modif_txt += " 🪖(x0.5)"
+        else:
+            del casque_bonus[guild_id][target_id]
+
     before = target_hp
     # 💥 Gestion du bouclier
     shield_amt = shields.get(guild_id, {}).get(target_id, 0)
