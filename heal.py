@@ -1,18 +1,19 @@
 import discord
+import time
 from discord import app_commands
 from utils import OBJETS
 from storage import get_user_data
 from data import sauvegarder, virus_status
-from combat import apply_item_with_cooldown
-import time
 
-# Stockage temporaire des boucliers
-shields = {}
+# ✅ Objets utilisables via /heal en plus des objets de soin classiques
+SPECIAL_HEAL_ITEMS = ["💉", "🛡", "👟", "🪖", "💕", "⭐️"]
 
 def register_heal_command(bot):
     @bot.tree.command(name="heal", description="Soigne toi ou un autre membre avec un objet de soin")
     @app_commands.describe(target="Membre à soigner (ou toi-même)", item="Objet de soin à utiliser (emoji)")
     async def heal_slash(interaction: discord.Interaction, target: discord.Member = None, item: str = None):
+        await interaction.response.defer(thinking=True)
+
         guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
         tid = str(target.id) if target else uid
@@ -20,16 +21,32 @@ def register_heal_command(bot):
         user_inv, _, _ = get_user_data(guild_id, uid)
 
         if not item or item not in OBJETS:
-            return await interaction.response.send_message("❌ Objet inconnu ou non spécifié.", ephemeral=True)
+            return await interaction.followup.send("❌ Objet inconnu ou non spécifié.", ephemeral=True)
 
         if item not in user_inv:
-            return await interaction.response.send_message(f"🚫 SomniCorp ne détecte pas {item} dans ton inventaire.", ephemeral=True)
+            return await interaction.followup.send(f"🚫 SomniCorp ne détecte pas {item} dans ton inventaire.", ephemeral=True)
 
-        SPECIAL_HEAL_ITEMS = ["💉", "🛡", "👟", "🪖", "💕", "⭐️"]
         if OBJETS[item]["type"] != "soin" and item not in SPECIAL_HEAL_ITEMS:
-            return await interaction.response.send_message("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
+            return await interaction.followup.send("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
 
-        # ⭐️ Immunité : invulnérabilité pendant 2 heures
+        # 💉 Vaccin — utilisable uniquement sur soi-même
+        if item == "💉":
+            if tid != uid:
+                return await interaction.followup.send("💉 Le vaccin ne peut être utilisé que **sur toi-même**.", ephemeral=True)
+
+            virus_status.setdefault(guild_id, {})
+            if uid in virus_status[guild_id]:
+                del virus_status[guild_id][uid]
+                description = f"💉 {interaction.user.mention} s’est administré un vaccin.\n🦠 Le virus a été **éradiqué** avec succès !"
+            else:
+                description = f"💉 Aucun virus détecté chez {interaction.user.mention}. L’injection était inutile."
+
+            user_inv.remove("💉")
+            sauvegarder()
+            embed = discord.Embed(title="📢 Vaccination SomniCorp", description=description, color=discord.Color.green())
+            return await interaction.followup.send(embed=embed)
+
+        # ⭐️ Immunité
         if item == "⭐️":
             from data import immunite_status
             immunite_status.setdefault(guild_id, {})
@@ -44,26 +61,13 @@ def register_heal_command(bot):
                 description=f"{interaction.user.mention} est maintenant **invulnérable à tout dégât pendant 2 heures**.",
                 color=discord.Color.gold()
             )
-            return await interaction.response.send_message(embed=embed)
-
-        # 💉 Vaccin
-        if item == "💉":
-            virus_status.setdefault(guild_id, {})
-            if uid in virus_status[guild_id]:
-                del virus_status[guild_id][uid]
-                description = f"💉 {interaction.user.mention} s’est administré un vaccin.\n🦠 Le virus a été **éradiqué** avec succès !"
-            else:
-                description = f"💉 Aucun virus détecté chez {interaction.user.mention}. L’injection était inutile."
-            user_inv.remove("💉")
-            sauvegarder()
-            embed = discord.Embed(title="📢 Vaccination SomniCorp", description=description, color=discord.Color.green())
-            return await interaction.response.send_message(embed=embed)
+            return await interaction.followup.send(embed=embed)
 
         # 🛡 Bouclier
         if item == "🛡":
-            from data import shields as global_shields
-            global_shields.setdefault(guild_id, {})
-            global_shields[guild_id][tid] = 20
+            from data import shields
+            shields.setdefault(guild_id, {})
+            shields[guild_id][tid] = 20
             user_inv.remove("🛡")
             sauvegarder()
             embed = discord.Embed(
@@ -71,7 +75,7 @@ def register_heal_command(bot):
                 description=f"{interaction.user.mention} a activé un **bouclier de 20 points** pour {interaction.guild.get_member(int(tid)).mention} !",
                 color=discord.Color.blue()
             )
-            return await interaction.response.send_message(embed=embed)
+            return await interaction.followup.send(embed=embed)
 
         # 🪖 Casque
         if item == "🪖":
@@ -88,7 +92,7 @@ def register_heal_command(bot):
                 description=f"{interaction.user.mention} a équipé un **casque** qui réduit les dégâts reçus de 50% pendant 4 heures.",
                 color=discord.Color.orange()
             )
-            return await interaction.response.send_message(embed=embed)
+            return await interaction.followup.send(embed=embed)
 
         # 💕 Régénération
         if item == "💕":
@@ -112,7 +116,7 @@ def register_heal_command(bot):
             await interaction.channel.send(
                 f"✨ {interaction.user.mention} a déclenché une régénération pour {target_mention} ! 💕"
             )
-            return await interaction.response.send_message(embed=embed)
+            return await interaction.followup.send(embed=embed)
 
         # 👟 Esquive
         if item == "👟":
@@ -129,14 +133,15 @@ def register_heal_command(bot):
                 description=f"{interaction.user.mention} bénéficie maintenant d’un **bonus d’esquive de 20%** pendant 3 heures.",
                 color=discord.Color.green()
             )
-            return await interaction.response.send_message(embed=embed)
+            return await interaction.followup.send(embed=embed)
 
-        # Objets classiques de soin
+        # ✅ Objets de soin classiques
+        from combat import apply_item_with_cooldown
         embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
         if success:
             user_inv.remove(item)
         sauvegarder()
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @heal_slash.autocomplete("item")
     async def autocomplete_items(interaction: discord.Interaction, current: str):
@@ -144,15 +149,14 @@ def register_heal_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        SPECIAL_HEAL_ITEMS = ["💉", "🛡", "👟", "🪖", "💕", "⭐️"]
-        heal_items = sorted(set(
+        options = sorted(set(
             i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i in SPECIAL_HEAL_ITEMS
         ))
 
-        if not heal_items:
+        if not options:
             return [app_commands.Choice(name="Aucun objet de soin", value="")]
 
         return [
             app_commands.Choice(name=emoji, value=emoji)
-            for emoji in heal_items if current in emoji
+            for emoji in options if current in emoji
         ][:25]
