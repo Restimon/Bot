@@ -107,7 +107,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             is_crit=False
         ), True
 
-    base_dmg = action["degats"]
+    base_dmg = action.get("degats", 0)
     crit_txt = ""
     modif_txt = ""
     
