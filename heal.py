@@ -55,6 +55,27 @@ def register_heal_command(bot):
                 color=discord.Color.blue()
             )
             return await interaction.response.send_message(embed=embed)
+            
+        # Traitement spécial pour 👟 esquive
+        if item == "👟":
+            esquive_duration = 3 * 3600  # 3 heures
+            from data import esquive_bonus  # assure-toi que cette structure existe dans data.py
+
+            esquive_bonus.setdefault(guild_id, {})
+            esquive_bonus[guild_id][uid] = {
+                "start": time.time(),
+                "duration": esquive_duration
+            }
+
+            user_inv.remove("👟")
+            sauvegarder()
+
+            embed = discord.Embed(
+                title="👟 Esquive améliorée !",
+                description=f"{interaction.user.mention} bénéficie maintenant d’un **bonus d’esquive de 20%** pendant 3 heures.",
+                color=discord.Color.green()
+            )
+            return await interaction.response.send_message(embed=embed)
 
         # Objets classiques de soin
         embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
