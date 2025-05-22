@@ -3,7 +3,11 @@ import discord
 import time
 from discord import app_commands
 from storage import get_user_data, leaderboard
-from data import virus_status, poison_status, infection_status, shields, esquive_bonus, casque_bonus, immunite_status
+from data import (
+    virus_status, poison_status, infection_status,
+    shields, esquive_bonus, casque_bonus, immunite_status,
+    regeneration_status  # ✅ Ajout ici
+)
 
 def register_profile_command(bot):
     @bot.tree.command(name="info", description="Affiche le profil SomniCorp d’un membre.")
@@ -102,6 +106,12 @@ def register_profile_command(bot):
             if data and now - data["start"] < data["duration"]:
                 remaining = int((data["duration"] - (now - data["start"])) // 60)
                 bonus_lines.append(f"{emoji} **{label}** — {remaining} min restants {extra}")
+
+        # ✅ Régénération ajoutée ici
+        regen_data = regeneration_status.get(guild_id, {}).get(uid)
+        if regen_data and now - regen_data["start"] < regen_data["duration"]:
+            remaining = int((regen_data["duration"] - (now - regen_data["start"])) // 60)
+            bonus_lines.append(f"💕 **Régénération** — {remaining} min restantes (+3 PV / 30 min)")
 
         if bonus_lines:
             bonus_embed = discord.Embed(
