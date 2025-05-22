@@ -13,26 +13,28 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         tid = str(target.id)
 
-        # Récupère l'inventaire du joueur
+        # 🔒 Refuser l'auto-attaque ou attaque de bots
+        if target.bot or uid == tid:
+            return await interaction.response.send_message(
+                "🤖 Tu ne peux pas attaquer cette cible. Essaie plutôt un vrai adversaire !", ephemeral=True
+            )
+
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        # Vérifie que l'objet est possédé
         if item not in user_inv:
             return await interaction.response.send_message("❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True)
 
-        # Vérifie que l'objet est bien une arme ou un effet de statut offensif
         if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "virus", "poison", "infection"]:
             return await interaction.response.send_message("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
 
-        # Applique l'objet via le système de combat
         result = await apply_item_with_cooldown(uid, tid, item, interaction)
         if not isinstance(result, tuple) or len(result) != 2:
-            await interaction.response.send_message("❌ Erreur inattendue (résultat invalide).")
-            return
+            return await interaction.response.send_message("❌ Erreur inattendue (résultat invalide).", ephemeral=True)
+
         embed, success = result
 
         if success:
-            user_inv.remove(item)  # Consomme l'objet si l'attaque réussit
+            user_inv.remove(item)
             sauvegarder()
             await interaction.response.send_message(embed=embed)
         else:
@@ -44,16 +46,30 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        # Filtre les objets d’attaque que le joueur possède
-        attack_items = sorted(set(
-            i for i in user_inv if OBJETS.get(i, {}).get("type") in ["attaque", "virus", "poison", "infection"]
-        ))
+        ALLOWED_TYPES = ["attaque", "virus", "poison", "infection"]
 
-        if not attack_items:
+        options = []
+        for emoji in set(user_inv):
+            obj = OBJETS.get(emoji)
+            if not obj or obj.get("type") not in ALLOWED_TYPES:
+                continue
+
+            label = emoji
+            typ = obj["type"]
+
+            if typ == "attaque":
+                label += f" ({obj['degats']} dmg, {int(obj['crit'] * 100)}% crit)"
+            elif typ == "virus":
+                label += " (🦠 Virus - 5/h)"
+            elif typ == "poison":
+                label += " (🧪 Poison - 3/30min)"
+            elif typ == "infection":
+                label += " (🧟 Infection - 2/30min)"
+
+            if current in emoji:
+                options.append(app_commands.Choice(name=label, value=emoji))
+
+        if not options:
             return [app_commands.Choice(name="Aucune arme disponible", value="")]
 
-        # Suggère les objets selon l'input
-        return [
-            app_commands.Choice(name=f"{emoji}", value=emoji)
-            for emoji in attack_items if current in emoji
-        ][:25]
+        return options[:25]
