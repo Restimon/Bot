@@ -14,7 +14,7 @@ last_daily_claim = {}
 shields = {}
 esquive_bonus = {}  
 casque_bonus = {}
-
+regeneration_status = {}  
 # Cooldowns globaux
 cooldowns = {
     "attack": {},
