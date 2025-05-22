@@ -15,6 +15,8 @@ shields = {}
 esquive_bonus = {}  
 casque_bonus = {}
 regeneration_status = {}  
+immunite_status = {} 
+
 # Cooldowns globaux
 cooldowns = {
     "attack": {},
