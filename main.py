@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import asyncio
 import os
 import atexit
@@ -25,7 +25,6 @@ from admin import register_admin_commands
 from profile import register_profile_command
 from status import register_status_command
 from box import register_box_command
-from discord.ext import tasks
 
 load_dotenv()
 
