@@ -1,7 +1,6 @@
 import json
 import os
 from storage import inventaire, hp, leaderboard
-from utils import cooldowns  # Important pour accès aux cooldowns globaux
 
 # ✅ Utilisation du disk persistant monté via Render
 DATA_FILE = "/persistent/data.json"
@@ -15,7 +14,6 @@ shields = {}
 esquive_bonus = {}  
 casque_bonus = {}
 regeneration_status = {}  
-immunite_status = {} 
 immunite_status = {} 
 
 # Cooldowns globaux
@@ -40,7 +38,12 @@ def sauvegarder():
                 "cooldowns": cooldowns,
                 "virus_status": virus_status,
                 "poison_status": poison_status,
-                "regeneration_status": regeneration_status  # ✅ Ajout ici
+                "infection_status": infection_status,
+                "regeneration_status": regeneration_status,
+                "immunite_status": immunite_status,
+                "shields": shields,
+                "esquive_bonus": esquive_bonus,
+                "casque_bonus": casque_bonus
             }, f, indent=4, ensure_ascii=False)
         print("💾 Données sauvegardées dans data.json.")  
     except Exception as e:
@@ -80,6 +83,21 @@ def charger():
 
         regeneration_status.clear()
         regeneration_status.update(data.get("regeneration_status", {}))
+        
+        infection_status.clear()
+        infection_status.update(data.get("infection_status", {}))
+
+        immunite_status.clear()
+        immunite_status.update(data.get("immunite_status", {}))
+
+        shields.clear()
+        shields.update(data.get("shields", {}))
+
+        esquive_bonus.clear()
+        esquive_bonus.update(data.get("esquive_bonus", {}))
+
+        casque_bonus.clear()
+        casque_bonus.update(data.get("casque_bonus", {}))
 
         print("✅ Données chargées depuis data.json.")
 
