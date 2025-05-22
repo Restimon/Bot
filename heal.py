@@ -147,18 +147,18 @@ def register_heal_command(bot):
         sauvegarder()
         await interaction.response.send_message(embed=embed)
 
-    @heal_slash.autocomplete("item")
-    async def autocomplete_items(interaction: discord.Interaction, current: str):
-        guild_id = str(interaction.guild.id)
-        uid = str(interaction.user.id)
-        user_inv, _, _ = get_user_data(guild_id, uid)
+        @heal_slash.autocomplete("item")
+        async def autocomplete_items(interaction: discord.Interaction, current: str):
+            guild_id = str(interaction.guild.id)
+            uid = str(interaction.user.id)
+            user_inv, _, _ = get_user_data(guild_id, uid)
 
-        heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i in ["💉", "🛡", "👟", "🪖"]))
+            heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i in ["💉", "🛡", "👟", "🪖"]))
 
-        if not heal_items:
-            return [app_commands.Choice(name="Aucun objet de soin", value="")]
+            if not heal_items:
+                return [app_commands.Choice(name="Aucun objet de soin", value="")]
 
-        return [
-            app_commands.Choice(name=emoji, value=emoji)
-            for emoji in heal_items if current in emoji
-        ][:25]
+            return [
+                app_commands.Choice(name=emoji, value=emoji)
+                for emoji in heal_items if current in emoji
+            ][:25]
