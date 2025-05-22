@@ -5,6 +5,7 @@ from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
 from config import get_config, save_config, get_guild_config
 from data import sauvegarder, virus_status, poison_status
+from special_supply import send_special_supply
 
 def register_admin_commands(bot):
     print("📦 Enregistrement des commandes admin...")
@@ -195,6 +196,16 @@ def register_admin_commands(bot):
         else:
             await interaction.response.send_message("⚠️ Une erreur est survenue.", ephemeral=True)
             
+    @bot.tree.command(name="supply", description="Force l’apparition d’un ravitaillement spécial (admin uniquement)")
+    async def supply_command(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("⛔ Commande réservée aux administrateurs.", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=False)
+        await send_special_supply(bot)
+        await interaction.followup.send("📦 Ravitaillement spécial déclenché avec succès.")
+       
     @bot.tree.command(name="forcer_lb_temp", description="🔁 Mise à jour manuelle du leaderboard spécial (test).")
     @app_commands.checks.has_permissions(administrator=True)
     async def force_leaderboard_update(interaction: discord.Interaction):
