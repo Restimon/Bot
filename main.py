@@ -125,22 +125,22 @@ async def on_message(message):
 
     current_time = asyncio.get_event_loop().time()
     if current_time - last_drop_time < 15:
-        return 
+        return
 
     message_counter += 1
     if message_counter >= random_threshold:
         last_drop_time = current_time
         item = get_random_item()
-        await message.add_reaction(item)  
+        await message.add_reaction(item)
 
-        collected_users = set()
+        collected_users = []
 
         def check(reaction, user):
             return (
                 reaction.message.id == message.id
                 and str(reaction.emoji) == item
                 and not user.bot
-                and user.id not in collected_users
+                and user.id not in [u.id for u in collected_users]
             )
 
         end_time = asyncio.get_event_loop().time() + 15
@@ -154,16 +154,21 @@ async def on_message(message):
                 uid = str(user.id)
                 user_inv, _, _ = get_user_data(guild_id, uid)
                 user_inv.append(item)
-                collected_users.add(user.id)
-                await message.channel.send(f"✅ {user.mention} a ramassé {item} offert par SomniCorp!")
+                collected_users.append(user)
             except asyncio.TimeoutError:
                 break
 
-        if len(collected_users) < 3:
-            await message.channel.send("⛔ Le dépôt de ravitaillement de SomniCorp a expiré.")
+        if collected_users:
+            mention_list = "\n".join(f"✅ {user.mention}" for user in collected_users)
+            await message.channel.send(
+                f"📦 Le dépôt de ravitaillement de SomniCorp a été récupéré par :\n{mention_list}"
+            )
+        else:
+            await message.channel.send("💥 Le dépôt de ravitaillement de SomniCorp s’est auto-détruit. 💣")
 
         message_counter = 0
         random_threshold = 5
+
 
 # ===================== Auto-Update Leaderboard ======================
 
