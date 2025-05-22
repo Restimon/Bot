@@ -194,7 +194,7 @@ if infect_stat and target_id not in infection_status.get(guild_id, {}):
             item,
             f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
             f"**SomniCorp :** {target_mention} : {before} - {dmg}{modif_txt} = {new_hp} / 100 PV{crit_txt}"
-        ), True
+        ), True  # 👈 cette ligne doit être INDENTÉE dans la fonction
 
     elif action["type"] == "soin":
         on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
