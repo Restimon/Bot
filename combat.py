@@ -72,49 +72,78 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 is_heal_other=False,
                 is_crit=False
             ), True
-
+            
         base_dmg = action["degats"]
         crit_txt = ""
-        if check_crit(action.get("crit", 0)):
-            base_dmg *= 2
-            crit_txt = " **(Coup critique ! 💥)**"
 
-        emoji_modif = ""
-        modif_txt = ""
+modif_txt = ""
 
-        if user_id in poison_status.get(guild_id, {}):
-            base_dmg -= 1
-            emoji_modif = "🧪"
-            modif_txt = f"(-1 {emoji_modif})"
+# 🧪 Poison : -1 dégât
+if user_id in poison_status.get(guild_id, {}):
+    base_dmg -= 1
+    emoji_modif = "🧪"
+    modif_txt = f"(-1 {emoji_modif})"
 
-       if user_id in virus_status.get(guild_id, {}):
-            base_dmg += 2
-            emoji_modif = "🦠"
-            modif_txt = f"(+2 {emoji_modif})"
-    
-            # Inflige 2 dégâts à l'attaquant
-            hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
+# 🦠 Virus : +2 dégâts et -2 PV
+if user_id in virus_status.get(guild_id, {}):
+    base_dmg += 2
+    emoji_modif = "🦠"
+    modif_txt = f"(+2 {emoji_modif})"
 
-           # Attribution des 2 points de dégâts à l'infecteur
-            source_id = virus_status[guild_id][user_id].get("source")
-            if source_id:
-                leaderboard.setdefault(guild_id, {})
-                leaderboard[guild_id].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                leaderboard[guild_id][source_id]["degats"] += 2
+    hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
 
-            # Transfère le virus à la cible
-            virus_status.setdefault(guild_id, {})
-            virus_status[guild_id][target_id] = virus_status[guild_id][user_id].copy()
+    virus_src = virus_status[guild_id][user_id].get("source")
+    if virus_src:
+        leaderboard.setdefault(guild_id, {})
+        leaderboard[guild_id].setdefault(virus_src, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+        leaderboard[guild_id][virus_src]["degats"] += 2
 
-            # Supprime le virus de l'attaquant
-            del virus_status[guild_id][user_id]
+    virus_status[guild_id][target_id] = virus_status[guild_id][user_id].copy()
+    del virus_status[guild_id][user_id]
 
-            # Message d'information dans le salon
-            channel = ctx.channel
-            await channel.send(
-                f"💉 {ctx.user.mention} a **transmis le virus** à {target_mention}.\n"
-                f"🦠 Le statut viral a été **supprimé** de {ctx.user.mention}."
-            )
+    await ctx.channel.send(
+        f"💉 {ctx.user.mention} a **transmis le virus** à {target_mention}.\n"
+        f"🦠 Le statut viral a été **supprimé** de {ctx.user.mention}."
+    )
+
+# 🧟 Infection : +2 dégâts bonus + 25% de propagation
+infect_stat = infection_status.get(guild_id, {}).get(user_id)
+if infect_stat and target_id not in infection_status.get(guild_id, {}):
+    infect_source = infect_stat.get("source", user_id)
+    bonus_dmg = 2
+    base_dmg += bonus_dmg
+    emoji_modif = "🧟"
+    modif_txt = f"(+{bonus_dmg} {emoji_modif})"
+
+    leaderboard.setdefault(guild_id, {})
+    leaderboard[guild_id].setdefault(infect_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+    leaderboard[guild_id][infect_source]["degats"] += bonus_dmg
+
+    if random.random() < 0.25:
+        infection_status[guild_id][target_id] = {
+            "start": now,
+            "duration": 3 * 3600,
+            "last_tick": 0,
+            "source": infect_source,
+            "channel_id": ctx.channel.id
+        }
+
+        bonus = 5
+        before_i = hp[guild_id].get(target_id, 100)
+        after_i = max(before_i - bonus, 0)
+        hp[guild_id][target_id] = after_i
+        leaderboard[guild_id][infect_source]["degats"] += bonus
+
+        if after_i == 0:
+            hp[guild_id][target_id] = 100
+            leaderboard.setdefault(guild_id, {})
+            leaderboard[guild_id].setdefault(target_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+            leaderboard[guild_id][target_id]["degats"] = max(0, leaderboard[guild_id][target_id]["degats"] - 25)
+            leaderboard[guild_id][infect_source]["degats"] += 50
+            leaderboard[guild_id][infect_source]["kills"] += 1
+            leaderboard[guild_id][target_id]["morts"] += 1
+
+        modif_txt += " +5🧟 (infection transmise)"
 
         dmg = max(0, base_dmg)
         before = target_hp
@@ -283,12 +312,10 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         infecteur_id = user_id  # L'infecteur initial
 
-        # Attribution des dégâts initiaux à l'infecteur
         leaderboard.setdefault(guild_id, {})
         leaderboard[guild_id].setdefault(infecteur_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
         leaderboard[guild_id][infecteur_id]["degats"] += dmg
 
-        # KO et points si cible tombe à 0 PV
         if new_hp == 0:
             hp[guild_id][target_id] = 100
             leaderboard.setdefault(guild_id, {})
@@ -298,7 +325,6 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             leaderboard[guild_id][infecteur_id]["kills"] += 1
             leaderboard[guild_id][target_id]["morts"] += 1
 
-        # Application du statut d'infection
         infection_status[guild_id][target_id] = {
             "start": now,
             "duration": duration,
@@ -307,8 +333,8 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "channel_id": ctx.channel.id
         }
 
-    return build_embed_from_item(
-        item,
-        f"🧟 {target_mention} est maintenant infecté ! Il subit {dmg} dégâts immédiats, "
-        f"et 2 toutes les 30 minutes pendant {duration // 3600}h."
-    ), True
+        return build_embed_from_item(
+            item,
+            f"🧟 {target_mention} est maintenant infecté ! Il subit {dmg} dégâts immédiats, "
+            f"et 2 toutes les 30 minutes pendant {duration // 3600}h."
+        ), True
