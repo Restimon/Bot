@@ -96,14 +96,15 @@ def register_heal_command(bot):
             
         # 💕 Régénération : soigne 3 PV toutes les 30 min pendant 3h
         if item == "💕":
-            from data import regeneration_status  # Assure-toi que ce dict est défini dans data.py
+            from data import regeneration_status  # Assure-toi que ce dict est bien importé
 
             regeneration_status.setdefault(guild_id, {})
             regeneration_status[guild_id][tid] = {
                 "start": time.time(),
                 "duration": 3 * 3600,
                 "last_tick": 0,
-                "source": uid
+                "source": uid,
+                "channel_id": interaction.channel.id  # ✅ indispensable pour afficher les tics au bon endroit
             }
 
             user_inv.remove("💕")
