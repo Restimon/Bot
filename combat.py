@@ -61,7 +61,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     # Vérification de cooldown uniquement pour les actions offensives
     if action["type"] in ["attaque", "virus", "poison", "infection"]:
-        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
+        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, target_id, "attack")
         if on_cooldown:
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer."), False
 
@@ -386,7 +386,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             ), True
 
     elif action["type"] == "soin":
-        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
+        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, target_id, "heal")
         if on_cooldown:
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min pour se soigner."), False
 
@@ -405,7 +405,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             shields[guild_id][target_id] = shields[guild_id].get(target_id, 0) + 20
             return build_embed_from_item(item, f"🛡 {target_mention} est maintenant protégé par un **bouclier de 20 points** !"), True
         user_stats["soin"] += heal
-        cooldowns["heal"].setdefault(guild_id, {})[user_id] = now
+        cooldowns["heal"].setdefault(guild_id, {})[(user_id, target_id)] = now
 
         return build_embed_from_item(item, f"{user_mention} soigne {target_mention} avec {item}, restaurant {heal} PV ({before} → {new_hp}){crit_txt}"), True
 
