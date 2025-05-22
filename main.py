@@ -124,7 +124,7 @@ async def on_message(message):
         return
 
     current_time = asyncio.get_event_loop().time()
-    if current_time - last_drop_time < 15:
+    if current_time - last_drop_time < 30:
         return
 
     message_counter += 1
