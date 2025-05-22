@@ -112,7 +112,7 @@ def register_heal_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i in ["💉", "🛡"]))
+        heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i in ["💉", "🛡", "👟", "🪖"]))
 
         if not heal_items:
             return [app_commands.Choice(name="Aucun objet de soin", value="")]
