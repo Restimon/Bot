@@ -18,6 +18,9 @@ def register_heal_command(bot):
         uid = str(interaction.user.id)
         tid = str(target.id) if target else uid
 
+        if target and target.bot:
+            return await interaction.followup.send("🚫 Tu ne peux pas soigner un bot.", ephemeral=True)
+
         user_inv, _, _ = get_user_data(guild_id, uid)
 
         if not item or item not in OBJETS:
@@ -157,6 +160,9 @@ def register_heal_command(bot):
             return [app_commands.Choice(name="Aucun objet de soin", value="")]
 
         return [
-            app_commands.Choice(name=emoji, value=emoji)
+            app_commands.Choice(
+                name=f"{emoji} — {OBJETS[emoji].get('type', '?')}",
+                value=emoji
+            )
             for emoji in options if current in emoji
         ][:25]
