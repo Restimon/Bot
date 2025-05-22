@@ -25,6 +25,7 @@ from admin import register_admin_commands
 from profile import register_profile_command
 from status import register_status_command
 from box import register_box_command
+from special_supply import special_supply_loop, update_last_active_channel
 
 load_dotenv()
 
@@ -94,7 +95,8 @@ async def on_ready():
     charger()
     load_config()
     register_all_commands(bot)
-
+    special_supply_loop.start(bot)
+    
     try:
         await bot.tree.sync()
         print("✅ Commandes slash synchronisées globalement.")
@@ -169,7 +171,11 @@ async def on_message(message):
         message_counter = 0
         random_threshold = 5
 
-
+@bot.event
+async def on_message(message):
+    update_last_active_channel(message)
+    await bot.process_commands(message)
+    
 # ===================== Auto-Update Leaderboard ======================
 
 async def update_leaderboard_loop():
