@@ -21,7 +21,7 @@ def register_fight_command(bot):
         if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "virus", "poison", "infection"]:
             return await interaction.response.send_message("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
 
-        embed, success = apply_item_with_cooldown(uid, tid, item, interaction)
+        embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
 
         if success:
             user_inv.remove(item)  # On consomme l'objet si attaque réussie
