@@ -18,10 +18,6 @@ SUPPLY_MIN_DELAY = 2 * 3600
 SUPPLY_MAX_DELAY = 8 * 3600
 SUPPLY_DATA_FILE = "supply_data.json"
 
-# Charger les données sauvegardées au démarrage
-load_supply_data()
-
-
 def save_supply_data():
     with open(SUPPLY_DATA_FILE, "w") as f:
         json.dump({
