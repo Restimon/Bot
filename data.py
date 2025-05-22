@@ -87,3 +87,15 @@ def charger():
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
     except Exception as e:
         print(f"❌ Erreur inattendue lors du chargement : {e}")
+
+def remove_status_effects(guild_id, user_id):
+    for status_dict in [virus_status, poison_status, infection_status]:
+        if guild_id in status_dict and user_id in status_dict[guild_id]:
+            del status_dict[guild_id][user_id]
+
+def update_leaderboard(guild_id, user_id, points, kill=0, death=0):
+    leaderboard.setdefault(guild_id, {})
+    leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+    leaderboard[guild_id][user_id]["degats"] += points
+    leaderboard[guild_id][user_id]["kills"] += kill
+    leaderboard[guild_id][user_id]["morts"] += death
