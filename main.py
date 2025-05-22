@@ -490,21 +490,31 @@ async def regeneration_loop():
             hp.setdefault(guild_id, {})
             leaderboard.setdefault(guild_id, {})
             leaderboard[guild_id].setdefault(stat["source"], {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-            hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 100) + 3, 100)
-            leaderboard[guild_id][stat["source"]]["soin"] += 3
 
-            # Annonce dans le salon d'origine
+            before = hp[guild_id].get(user_id, 100)
+            healed = min(3, 100 - before)
+            hp[guild_id][user_id] = min(before + healed, 100)
+            after = hp[guild_id][user_id]
+            leaderboard[guild_id][stat["source"]]["soin"] += healed
+
+            # Calcul du temps restant
+            elapsed = now - stat["start"]
+            remaining = max(0, stat["duration"] - elapsed)
+            remaining_mn = int(remaining // 60)
+
+            # Envoi dans le salon d'origine
             try:
                 channel = bot.get_channel(stat.get("channel_id", 0))
                 if channel:
                     member = await bot.fetch_user(int(user_id))
-                    await channel.send(
-                        embed=discord.Embed(
-                            title="💕 Régénération SomniCorp",
-                            description=f"{member.mention} récupère **+3 PV** grâce à l'effet de régénération.",
-                            color=discord.Color.green()
-                        )
+                    embed = discord.Embed(
+                        description=(
+                            f"✨ {member.mention} récupère **{healed} PV** *(Régénération)*.\n"
+                            f"⏳ Temps restant : **{remaining_mn} min** | ❤️ PV : **{after}/100**"
+                        ),
+                        color=discord.Color.green()
                     )
+                    await channel.send(embed=embed)
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
 
