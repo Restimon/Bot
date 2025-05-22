@@ -75,7 +75,29 @@ def register_heal_command(bot):
                 color=discord.Color.orange()
             )
             return await interaction.response.send_message(embed=embed)
-    
+            
+        # 💕 Régénération : soigne 3 PV toutes les 30 min pendant 3h
+        if item == "💕":
+            from data import regeneration_status  # Assure-toi que ce dict est défini dans data.py
+
+            regeneration_status.setdefault(guild_id, {})
+            regeneration_status[guild_id][tid] = {
+                "start": time.time(),
+                "duration": 3 * 3600,
+                "last_tick": 0,
+                "source": uid
+            }
+
+            user_inv.remove("💕")
+            sauvegarder()
+
+            embed = discord.Embed(
+                title="💕 Régénération activée",
+                description=f"{interaction.guild.get_member(int(tid)).mention} bénéficie d'une **régénération** de 3 PV toutes les 30 min pendant 3 heures.",
+                color=discord.Color.green()
+            )
+            return await interaction.response.send_message(embed=embed)
+
         # Traitement spécial pour 👟 esquive
         if item == "👟":
             esquive_duration = 3 * 3600  # 3 heures
