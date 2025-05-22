@@ -36,19 +36,23 @@ def register_admin_commands(bot):
         lines = []
         rank = 0
         for uid, stats in sorted_lb:
-            user = interaction.client.get_user(int(uid))
+            user = bot.get_user(int(uid))
             if not user:
                 continue
             if rank >= 10:
                 break
 
-            # 🔽 AJOUTE ICI
-            total = stats["degats"] + stats["soin"] + stats.get("kills", 0) * 50 - stats.get("morts", 0) * 25
+            degats = stats.get("degats", 0)
+            soin = stats.get("soin", 0)
+            kills = stats.get("kills", 0)
+            morts = stats.get("morts", 0)
+            total = degats + soin + kills * 50 - morts * 25
+            pv = hp.get(guild_id, {}).get(uid, 100)
 
             prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
             lines.append(
                 f"{prefix} **{user.display_name}** → "
-                f"🗡️ {stats['degats']} | 💚 {stats['soin']} | 🎽 {stats.get('kills', 0)} | 💀 {stats.get('morts', 0)} = **{total}** points"
+                f"🗡️ {degats} | 💚 {soin} | 🎽 {kills} | 💀 {morts} = **{total}** points | ❤️ {pv} PV"
             )
             rank += 1
 
