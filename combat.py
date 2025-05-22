@@ -61,7 +61,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     # Vérification de cooldown uniquement pour les actions offensives
     if action["type"] in ["attaque", "virus", "poison", "infection"]:
-        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, target_id, "attack")
+        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "attack")
         if on_cooldown:
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min avant d'attaquer."), False
 
@@ -386,7 +386,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             ), True
 
     elif action["type"] == "soin":
-        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, target_id, "heal")
+        on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
         if on_cooldown:
             return build_embed_from_item(item, f"{user_mention} doit attendre encore {remaining // 60} min pour se soigner."), False
 
