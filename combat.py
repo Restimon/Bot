@@ -38,7 +38,7 @@ def build_embed_from_item(item, description, is_heal_other=False, is_crit=False)
 def check_crit(chance):
     return random.random() < chance
 
-def apply_item_with_cooldown(user_id, target_id, item, ctx):
+async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     guild_id = str(ctx.guild.id)
     user_id = str(user_id)
     target_id = str(target_id)
