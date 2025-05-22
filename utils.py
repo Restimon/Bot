@@ -1,6 +1,8 @@
 import random
 import time
 
+from storage import set_hp
+
 # Objets disponibles
 OBJETS = {
     "❄️": {"type": "attaque", "degats": 1, "rarete": 1, "crit": 0.35},
@@ -60,8 +62,10 @@ def get_random_item():
         pool.extend([emoji] * (26 - data["rarete"]))
     return random.choice(pool)
 
+from utils import remove_status_effects, update_leaderboard  # si ce n’est pas déjà fait
+
 def handle_death(guild_id, target_id, source_id=None):
-    set_hp(guild_id, target_id, 100)
+    hp[guild_id][target_id] = 100  # Remise à 100 PV
     remove_status_effects(guild_id, target_id)
 
     if source_id and source_id != target_id:
