@@ -11,7 +11,7 @@ import time
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
 from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status
-from utils import cooldowns, get_random_item, OBJETS  
+from utils import cooldowns, get_random_item, OBJETS, handle_death  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
 from combat import apply_item_with_cooldown
@@ -337,7 +337,7 @@ async def virus_damage_loop():
                     hp[gid][uid] = new_hp
                     virus_status[gid][uid]["last_tick"] = tick_count
 
-                    # ➕ Message Embed
+                    # ➕ Embed
                     if channel_id:
                         channel = bot.get_channel(channel_id)
                         if channel:
@@ -348,26 +348,14 @@ async def virus_damage_loop():
                             )
                             await channel.send(embed=embed)
 
-                    # ➕ Gain de points pour la source
                     if source_id:
-                        leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                         leaderboard[gid][source_id]["degats"] += dmg
 
                     print(f"🦠 {uid} a subi {dmg} dégâts viraux (HP: {current_hp} → {new_hp})")
 
                     if new_hp == 0:
-                        hp[gid][uid] = 100
-                        leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(uid, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][uid]["degats"] = max(0, leaderboard[gid][uid]["degats"] - 25)
-                        leaderboard[gid][uid]["morts"] += 1
-
-                        if source_id:
-                            leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                            leaderboard[gid][source_id]["degats"] += 50
-                            leaderboard[gid][source_id]["kills"] += 1
-
+                        handle_death(gid, uid, source_id)
                         print(f"💀 {uid} a été vaincu par un virus et revient à 100 PV.")
 
         await asyncio.sleep(60)
@@ -405,7 +393,6 @@ async def poison_damage_loop():
                     hp[gid][uid] = new_hp
                     poison_status[gid][uid]["last_tick"] = tick_count
 
-                    # ➕ Embed public
                     if channel_id:
                         channel = bot.get_channel(channel_id)
                         if channel:
@@ -416,31 +403,18 @@ async def poison_damage_loop():
                             )
                             await channel.send(embed=embed)
 
-                    # ➕ Gain de points
                     if source_id:
-                        leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                         leaderboard[gid][source_id]["degats"] += dmg
 
                     print(f"🧪 {uid} a subi {dmg} dégâts de poison (HP: {current_hp} → {new_hp})")
 
-                    # 💀 KO
                     if new_hp == 0:
-                        hp[gid][uid] = 100
-                        leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(uid, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][uid]["degats"] = max(0, leaderboard[gid][uid]["degats"] - 25)
-                        leaderboard[gid][uid]["morts"] += 1
-
-                        if source_id:
-                            leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                            leaderboard[gid][source_id]["degats"] += 50
-                            leaderboard[gid][source_id]["kills"] += 1
-
+                        handle_death(gid, uid, source_id)
                         print(f"💀 {uid} a été vaincu par du poison et revient à 100 PV.")
 
         await asyncio.sleep(60)
-
+        
 async def infection_damage_loop():
     await bot.wait_until_ready()
     print("🧟 Boucle de dégâts d'infection démarrée.")
