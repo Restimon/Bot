@@ -117,7 +117,6 @@ async def on_ready():
     bot.loop.create_task(infection_damage_loop())
     regeneration_loop.start()
     
-@bot.event
 async def on_message(message):
     global message_counter, random_threshold, last_drop_time
     await bot.process_commands(message)
