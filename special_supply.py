@@ -2,6 +2,8 @@ import random
 import time
 import asyncio
 import discord
+import json
+import os
 from discord.ext import tasks
 
 from utils import OBJETS
@@ -14,6 +16,23 @@ supply_daily_counter = {}  # {guild_id: (date, count)}
 last_active_channel = {}   # {guild_id: channel_id}
 SUPPLY_MIN_DELAY = 2 * 3600
 SUPPLY_MAX_DELAY = 8 * 3600
+SUPPLY_DATA_FILE = "supply_data.json"
+
+def save_supply_data():
+    with open(SUPPLY_DATA_FILE, "w") as f:
+        json.dump({
+            "supply_daily_counter": supply_daily_counter,
+            "last_supply_time": last_supply_time
+        }, f)
+
+def load_supply_data():
+    global supply_daily_counter, last_supply_time
+    if os.path.exists(SUPPLY_DATA_FILE):
+        with open(SUPPLY_DATA_FILE, "r") as f:
+            data = json.load(f)
+            supply_daily_counter = data.get("supply_daily_counter", {})
+            last_supply_time = data.get("last_supply_time", 0)
+
 
 def get_random_item():
     pool = []
