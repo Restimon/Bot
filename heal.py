@@ -118,13 +118,12 @@ def register_heal_command(bot):
                 color=discord.Color.green()
             )
 
-    # ✨ Annonce publique dans le salon
-    await interaction.channel.send(
-        f"✨ {interaction.user.mention} a déclenché une régénération pour {target_mention} ! 💕"
-    )
+            # ✨ Annonce publique dans le salon
+            await interaction.channel.send(
+                f"✨ {interaction.user.mention} a déclenché une régénération pour {target_mention} ! 💕"
+            )
 
-    return await interaction.response.send_message(embed=embed)
-
+            return await interaction.response.send_message(embed=embed)
 
         # Traitement spécial pour 👟 esquive
         if item == "👟":
