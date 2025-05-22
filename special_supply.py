@@ -172,7 +172,7 @@ async def send_special_supply(bot, force=False):
         last_supply_time = now
 
 def update_last_active_channel(message):
-    if message.guild:
+    if message.guild and not message.author.bot:  # Ignorer les messages de bots
         last_active_channel[str(message.guild.id)] = message.channel.id
 
 @tasks.loop(minutes=5)
