@@ -151,8 +151,6 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             modif_txt += " +5🧟 (infection transmise)"
     # ☠️ Attaque en chaîne
     if item == "☠️":
-        from data import shields, casque_bonus, immunite_status, esquive_bonus
-
         # Liste des cibles secondaires
         others = [m for m in ctx.guild.members if m.id != int(user_id) and not m.bot]
         random.shuffle(others)
