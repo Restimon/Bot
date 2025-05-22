@@ -40,36 +40,41 @@ def register_fight_command(bot):
         else:
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @fight_slash.autocomplete("item")
-    async def autocomplete_items(interaction: discord.Interaction, current: str):
-        guild_id = str(interaction.guild.id)
-        uid = str(interaction.user.id)
-        user_inv, _, _ = get_user_data(guild_id, uid)
+   @fight_slash.autocomplete("item")
+async def autocomplete_items(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id)
+    uid = str(interaction.user.id)
+    user_inv, _, _ = get_user_data(guild_id, uid)
 
-        ALLOWED_TYPES = ["attaque", "virus", "poison", "infection"]
+    attack_types = ["attaque", "virus", "poison", "infection"]
+    attack_items = sorted(set(
+        i for i in user_inv if OBJETS.get(i, {}).get("type") in attack_types
+    ))
 
-        options = []
-        for emoji in set(user_inv):
-            obj = OBJETS.get(emoji)
-            if not obj or obj.get("type") not in ALLOWED_TYPES:
-                continue
+    if not attack_items:
+        return [app_commands.Choice(name="Aucune arme disponible", value="")]
 
-            label = emoji
-            typ = obj["type"]
+    suggestions = []
+    for emoji in attack_items:
+        if current not in emoji:
+            continue
 
-            if typ == "attaque":
-                label += f" ({obj['degats']} dmg, {int(obj['crit'] * 100)}% crit)"
-            elif typ == "virus":
-                label += " (🦠 Virus - 5/h)"
-            elif typ == "poison":
-                label += " (🧪 Poison - 3/30min)"
-            elif typ == "infection":
-                label += " (🧟 Infection - 2/30min)"
+        obj = OBJETS.get(emoji, {})
+        typ = obj.get("type")
 
-            if current in emoji:
-                options.append(app_commands.Choice(name=label, value=emoji))
+        if typ == "attaque":
+            label = f"{emoji} ({obj.get('degats')} dmg, {int(obj.get('crit', 0)*100)}% crit)"
+        elif emoji == "☠️":
+            label = f"{emoji} (☠️ 24 dmg + 2×12, {int(obj.get('crit', 0)*100)}% crit)"
+        elif typ == "virus":
+            label = f"{emoji} (🦠 Virus : 5 initiaux + 5/h)"
+        elif typ == "poison":
+            label = f"{emoji} (🧪 Poison : 3/30min)"
+        elif typ == "infection":
+            label = f"{emoji} (🧟 Infection : 2/30min, propagation possible)"
+        else:
+            label = f"{emoji} (Objet spécial)"
 
-        if not options:
-            return [app_commands.Choice(name="Aucune arme disponible", value="")]
+        suggestions.append(app_commands.Choice(name=label, value=emoji))
 
-        return options[:25]
+    return suggestions[:25]
