@@ -25,7 +25,11 @@ def register_fight_command(bot):
             return await interaction.response.send_message("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
 
         # Applique l'objet via le système de combat
-        embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
+        result = await apply_item_with_cooldown(uid, tid, item, interaction)
+        if not isinstance(result, tuple) or len(result) != 2:
+            await interaction.response.send_message("❌ Erreur inattendue (résultat invalide).")
+            return
+        embed, success = result
 
         if success:
             user_inv.remove(item)  # Consomme l'objet si l'attaque réussit
