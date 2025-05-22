@@ -1,8 +1,8 @@
 import random
 import time
 
-from storage import set_hp
-from helpers import remove_status_effects, update_leaderboard
+from data import virus_status, poison_status, infection_status
+from storage import hp, leaderboard
 
 # Objets disponibles
 OBJETS = {
@@ -90,3 +90,14 @@ def is_on_cooldown(guild_id, key, action_type):
 ATTACK_COOLDOWN = 120  # en secondes
 HEAL_COOLDOWN = 180
 
+def remove_status_effects(guild_id, user_id):
+    for status_dict in [virus_status, poison_status, infection_status]:
+        if guild_id in status_dict and user_id in status_dict[guild_id]:
+            del status_dict[guild_id][user_id]
+
+def update_leaderboard(guild_id, user_id, points, kill=0, death=0):
+    leaderboard.setdefault(guild_id, {})
+    leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+    leaderboard[guild_id][user_id]["degats"] += points
+    leaderboard[guild_id][user_id]["kills"] += kill
+    leaderboard[guild_id][user_id]["morts"] += death
