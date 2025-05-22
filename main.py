@@ -476,16 +476,13 @@ async def infection_damage_loop():
                     hp[gid][uid] = new_hp
                     infection_status[gid][uid]["last_tick"] = tick_count
 
-                    # Mise à jour des points
                     leaderboard.setdefault(gid, {})
                     leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                     leaderboard[gid][source_id]["degats"] += dmg
 
-                    # Temps restant
                     remaining = max(0, duration - elapsed)
                     remaining_min = int(remaining // 60)
 
-                    # Annonce en embed
                     try:
                         channel = bot.get_channel(channel_id)
                         if channel:
@@ -501,9 +498,12 @@ async def infection_damage_loop():
                     except Exception as e:
                         print(f"[infection_damage_loop] Erreur d’envoi embed : {e}")
 
-                    # KO
                     if new_hp == 0:
                         handle_death(gid, uid, source_id)
+
+        # 🔁 Pause obligatoire pour ne pas bloquer la boucle principale
+        await asyncio.sleep(60)
+
         
 @tasks.loop(minutes=30)
 async def regeneration_loop():
