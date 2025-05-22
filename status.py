@@ -1,7 +1,10 @@
 import discord
 import time
 from discord import app_commands
-from data import virus_status, poison_status, infection_status, immunite_status
+from data import (
+    virus_status, poison_status, infection_status,
+    immunite_status, regeneration_status  # ✅ Ajouté ici
+)
 
 def register_status_command(bot):
     @bot.tree.command(name="status", description="Voir si un membre est affecté par un virus ou un poison SomniCorp")
@@ -17,14 +20,38 @@ def register_status_command(bot):
             color=discord.Color.orange()
         )
 
-        # ... [début inchangé]
+        # ⭐️ Immunité
         immunite = immunite_status.get(guild_id, {}).get(user_id)
         if immunite:
             elapsed = now - immunite["start"]
             remaining = max(0, immunite["duration"] - elapsed)
             minutes = int(remaining // 60)
             seconds = int(remaining % 60)
-            status_lines.append(f"⭐️ Immunité (invulnérable) – reste {minutes}m {seconds}s")
+            embed.add_field(
+                name="⭐️ Immunité active",
+                value=f"• Invulnérabilité restante : **{minutes}m {seconds}s**",
+                inline=False
+            )
+
+        # 💕 Régénération
+        regen = regeneration_status.get(guild_id, {}).get(user_id)
+        if regen:
+            elapsed = now - regen["start"]
+            remaining = max(0, regen["duration"] - elapsed)
+            next_tick = 1800 - (elapsed % 1800)
+            r_m = int(remaining // 60)
+            t_m = int(next_tick // 60)
+            t_s = int(next_tick % 60)
+            warning = " ⚠️" if next_tick < 300 else ""
+            embed.add_field(
+                name="💕 Régénération en cours",
+                value=(
+                    f"• Temps restant : **{r_m} min**\n"
+                    f"• Prochain soin : **dans {t_m}m {t_s}s**{warning}\n"
+                    f"• ✨ Vous regagnez **3 PV toutes les 30 min**"
+                ),
+                inline=False
+            )
 
         # 🦠 Virus
         v_stat = virus_status.get(guild_id, {}).get(user_id)
