@@ -161,7 +161,7 @@ async def on_message(message):
         if collected_users:
             mention_list = "\n".join(f"✅ {user.mention}" for user in collected_users)
             await message.channel.send(
-                f"📦 Le dépôt de ravitaillement de SomniCorp a été récupéré par :\n{mention_list}"
+                f"{item} Le dépôt de ravitaillement de SomniCorp a été récupéré par :\n{mention_list}"
             )
         else:
             await message.channel.send("💥 Le dépôt de ravitaillement de SomniCorp s’est auto-détruit. 💣")
