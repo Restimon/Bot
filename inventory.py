@@ -90,6 +90,9 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     guild = bot.get_guild(int(guild_id))
     user = guild.get_member(int(user_id)) if guild else None
     name = user.display_name if user else f"ID {user_id}"
-    embed.set_author(name=f"Inventaire SomniCorp de {name}")
+    if user:
+        embed.set_author(name=f"Inventaire SomniCorp de {name}", icon_url=user.display_avatar.url)
+    else:
+        embed.set_author(name=f"Inventaire SomniCorp de {name}")
 
     return embed
