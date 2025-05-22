@@ -1,7 +1,7 @@
 import random
 import time
 
-from data import virus_status, poison_status, infection_status, remove_status_effects, update_leaderboard
+from data import remove_status_effects, update_leaderboard
 from storage import hp, leaderboard
 
 # Objets disponibles
