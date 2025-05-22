@@ -56,6 +56,26 @@ def register_heal_command(bot):
             )
             return await interaction.response.send_message(embed=embed)
             
+        # 🪖 Casque : réduit les dégâts reçus de 50% pendant 4 heures
+        if item == "🪖":
+            from data import casque_bonus  # assure-toi que cette structure existe dans data.py
+
+            casque_bonus.setdefault(guild_id, {})
+            casque_bonus[guild_id][uid] = {
+                "start": time.time(),
+                "duration": 4 * 3600
+            }
+
+            user_inv.remove("🪖")
+            sauvegarder()
+
+            embed = discord.Embed(
+                title="🪖 Casque équipé",
+                description=f"{interaction.user.mention} a équipé un **casque** qui réduit les dégâts reçus de 50% pendant 4 heures.",
+                color=discord.Color.orange()
+            )
+            return await interaction.response.send_message(embed=embed)
+    
         # Traitement spécial pour 👟 esquive
         if item == "👟":
             esquive_duration = 3 * 3600  # 3 heures
