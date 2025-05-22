@@ -7,7 +7,7 @@ from utils import (
 )
 from storage import get_user_data
 from storage import hp, leaderboard
-from data import virus_status, poison_status, infection_status, shields
+from data import virus_status, poison_status, infection_status, shields, vaccin
 import time
 import discord
 import random
@@ -144,6 +144,18 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     dmg = max(0, base_dmg)
     before = target_hp
+    # 💥 Gestion du bouclier
+    shield_amt = shields.get(guild_id, {}).get(target_id, 0)
+    if shield_amt > 0:
+        if dmg <= shield_amt:
+            shields[guild_id][target_id] -= dmg
+            return build_embed_from_item(
+                item,
+                f"🛡 {target_mention} est protégé par un bouclier ! Aucun PV perdu ({dmg} absorbés)."
+            ), True
+        else:
+            dmg -= shield_amt
+            shields[guild_id][target_id] = 0
     new_hp = max(before - dmg, 0)
     hp[guild_id][target_id] = new_hp
     user_stats["degats"] += dmg
@@ -227,6 +239,11 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         before = target_hp
         new_hp = min(target_hp + heal, 100)
         hp[guild_id][target_id] = new_hp
+        # 🛡 Bouclier : ajoute 20 points de protection
+        if item == "🛡":
+            shields.setdefault(guild_id, {})
+            shields[guild_id][target_id] = shields[guild_id].get(target_id, 0) + 20
+            return build_embed_from_item(item, f"🛡 {target_mention} est maintenant protégé par un **bouclier de 20 points** !"), True
         user_stats["soin"] += heal
         cooldowns["heal"].setdefault(guild_id, {})[user_id] = now
 
