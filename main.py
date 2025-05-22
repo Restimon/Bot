@@ -337,23 +337,31 @@ async def virus_damage_loop():
                     hp[gid][uid] = new_hp
                     virus_status[gid][uid]["last_tick"] = tick_count
 
-                    # ➕ Embed
-                    if channel_id:
+                    # Attribution des points
+                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                    leaderboard[gid][source_id]["degats"] += dmg
+
+                    # Temps restant
+                    remaining = max(0, duration - elapsed)
+                    remaining_min = int(remaining // 60)
+
+                    # Embed dans le salon
+                    try:
                         channel = bot.get_channel(channel_id)
                         if channel:
+                            member = await bot.fetch_user(int(uid))
                             embed = discord.Embed(
-                                title="🦠 Dégâts de virus",
-                                description=f"<@{uid}> subit **{dmg} dégâts** viraux ! (PV: {current_hp} → {new_hp})",
+                                description=(
+                                    f"🦠 {member.mention} subit **-{dmg} PV** *(Virus)*.\n"
+                                    f"⏳ Temps restant : **{remaining_min} min** | ❤️ PV : **{new_hp}/100**"
+                                ),
                                 color=discord.Color.dark_purple()
                             )
                             await channel.send(embed=embed)
+                    except Exception as e:
+                        print(f"[virus_damage_loop] Erreur d’envoi embed : {e}")
 
-                    if source_id:
-                        leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][source_id]["degats"] += dmg
-
-                    print(f"🦠 {uid} a subi {dmg} dégâts viraux (HP: {current_hp} → {new_hp})")
-
+                    # KO
                     if new_hp == 0:
                         handle_death(gid, uid, source_id)
                         print(f"💀 {uid} a été vaincu par un virus et revient à 100 PV.")
@@ -393,22 +401,31 @@ async def poison_damage_loop():
                     hp[gid][uid] = new_hp
                     poison_status[gid][uid]["last_tick"] = tick_count
 
-                    if channel_id:
+                    # Attribution des points
+                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                    leaderboard[gid][source_id]["degats"] += dmg
+
+                    # Temps restant
+                    remaining = max(0, duration - elapsed)
+                    remaining_min = int(remaining // 60)
+
+                    # Envoi dans le salon d'origine
+                    try:
                         channel = bot.get_channel(channel_id)
                         if channel:
+                            member = await bot.fetch_user(int(uid))
                             embed = discord.Embed(
-                                title="🧪 Dégâts de poison",
-                                description=f"<@{uid}> subit **{dmg} dégâts** de poison ! (PV: {current_hp} → {new_hp})",
+                                description=(
+                                    f"🧪 {member.mention} subit **-{dmg} PV** *(Poison)*.\n"
+                                    f"⏳ Temps restant : **{remaining_min} min** | ❤️ PV : **{new_hp}/100**"
+                                ),
                                 color=discord.Color.dark_green()
                             )
                             await channel.send(embed=embed)
+                    except Exception as e:
+                        print(f"[poison_damage_loop] Erreur d’envoi embed : {e}")
 
-                    if source_id:
-                        leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][source_id]["degats"] += dmg
-
-                    print(f"🧪 {uid} a subi {dmg} dégâts de poison (HP: {current_hp} → {new_hp})")
-
+                    # KO
                     if new_hp == 0:
                         handle_death(gid, uid, source_id)
                         print(f"💀 {uid} a été vaincu par du poison et revient à 100 PV.")
@@ -448,31 +465,34 @@ async def infection_damage_loop():
                     hp[gid][uid] = new_hp
                     infection_status[gid][uid]["last_tick"] = tick_count
 
-                    # Embed de dégâts dans le salon d’origine
-                    if channel_id:
+                    # Mise à jour des points
+                    leaderboard.setdefault(gid, {})
+                    leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                    leaderboard[gid][source_id]["degats"] += dmg
+
+                    # Temps restant
+                    remaining = max(0, duration - elapsed)
+                    remaining_min = int(remaining // 60)
+
+                    # Annonce en embed
+                    try:
                         channel = bot.get_channel(channel_id)
                         if channel:
+                            member = await bot.fetch_user(int(uid))
                             embed = discord.Embed(
-                                title="🧟 Dégâts d'infection",
-                                description=f"<@{uid}> subit **{dmg} dégâts** d'infection ! (PV: {current_hp} → {new_hp})",
+                                description=(
+                                    f"🧟 {member.mention} subit **-{dmg} PV** *(Infection)*.\n"
+                                    f"⏳ Temps restant : **{remaining_min} min** | ❤️ PV : **{new_hp}/100**"
+                                ),
                                 color=discord.Color.dark_green()
                             )
                             await channel.send(embed=embed)
+                    except Exception as e:
+                        print(f"[infection_damage_loop] Erreur d’envoi embed : {e}")
 
-                    # Points pour la source
-                    if source_id:
-                        leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][source_id]["degats"] += dmg
-
-                    print(f"🧟 {uid} a subi {dmg} dégâts d'infection (HP: {current_hp} → {new_hp})")
-
-                    # Si le joueur meurt
+                    # KO
                     if new_hp == 0:
                         handle_death(gid, uid, source_id)
-                        print(f"💀 {uid} a été vaincu par une infection et revient à 100 PV.")
-
-        await asyncio.sleep(60)
         
 @tasks.loop(minutes=30)
 async def regeneration_loop():
