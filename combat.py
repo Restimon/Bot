@@ -47,7 +47,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     target_mention = target_obj.mention if target_obj else f"<@{target_id}>"
 
     if item not in OBJETS:
-        return None
+        return build_embed_from_item("❓", f"⚠️ L'objet `{item}` est inconnu."), False
 
     action = OBJETS[item]
     
