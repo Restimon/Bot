@@ -13,18 +13,22 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         tid = str(target.id)
 
+        # Récupère l'inventaire du joueur
         user_inv, _, _ = get_user_data(guild_id, uid)
 
+        # Vérifie que l'objet est possédé
         if item not in user_inv:
             return await interaction.response.send_message("❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True)
 
+        # Vérifie que l'objet est bien une arme ou un effet de statut offensif
         if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "virus", "poison", "infection"]:
             return await interaction.response.send_message("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
 
+        # Applique l'objet via le système de combat
         embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
 
         if success:
-            user_inv.remove(item)  # On consomme l'objet si attaque réussie
+            user_inv.remove(item)  # Consomme l'objet si l'attaque réussit
             sauvegarder()
             await interaction.response.send_message(embed=embed)
         else:
@@ -36,12 +40,15 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
+        # Filtre les objets d’attaque que le joueur possède
         attack_items = sorted(set(
             i for i in user_inv if OBJETS.get(i, {}).get("type") in ["attaque", "virus", "poison", "infection"]
         ))
+
         if not attack_items:
             return [app_commands.Choice(name="Aucune arme disponible", value="")]
 
+        # Suggère les objets selon l'input
         return [
             app_commands.Choice(name=f"{emoji}", value=emoji)
             for emoji in attack_items if current in emoji
