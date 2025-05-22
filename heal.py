@@ -5,6 +5,9 @@ from storage import get_user_data
 from data import sauvegarder, virus_status
 from combat import apply_item_with_cooldown
 
+# Stockage temporaire des boucliers
+shields = {}
+
 def register_heal_command(bot):
     @bot.tree.command(name="heal", description="Soigne toi ou un autre membre avec un objet de soin")
     @app_commands.describe(target="Membre à soigner (ou toi-même)", item="Objet de soin à utiliser (emoji)")
@@ -21,10 +24,10 @@ def register_heal_command(bot):
         if item not in user_inv:
             return await interaction.response.send_message(f"🚫 SomniCorp ne détecte pas {item} dans ton inventaire.", ephemeral=True)
 
-        if OBJETS[item]["type"] != "soin" and item != "💉":
+        if OBJETS[item]["type"] != "soin" and item != "💉" and item != "🛡":
             return await interaction.response.send_message("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
 
-        # Traitement spécial pour 💉 vaccin
+        # 💉 Vaccin
         if item == "💉":
             virus_status.setdefault(guild_id, {})
             if uid in virus_status[guild_id]:
@@ -35,12 +38,26 @@ def register_heal_command(bot):
 
             user_inv.remove("💉")
             sauvegarder()
-
             embed = discord.Embed(title="📢 Vaccination SomniCorp", description=description, color=discord.Color.green())
             return await interaction.response.send_message(embed=embed)
 
-        # Traitement normal des soins
-        embed, success = apply_item_with_cooldown(uid, tid, item, interaction)
+        # 🛡 Bouclier : uniquement utilisable ici
+        if item == "🛡":
+            from data import shields as global_shields  # Pour conserver l'effet globalement
+            global_shields.setdefault(guild_id, {})
+            global_shields[guild_id][tid] = 20
+
+            user_inv.remove("🛡")
+            sauvegarder()
+            embed = discord.Embed(
+                title="🛡 Bouclier activé",
+                description=f"{interaction.user.mention} a activé un **bouclier de 20 points** pour {interaction.guild.get_member(int(tid)).mention} !",
+                color=discord.Color.blue()
+            )
+            return await interaction.response.send_message(embed=embed)
+
+        # Objets classiques de soin
+        embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
 
         if success:
             user_inv.remove(item)
@@ -54,7 +71,7 @@ def register_heal_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i == "💉"))
+        heal_items = sorted(set(i for i in user_inv if OBJETS.get(i, {}).get("type") == "soin" or i in ["💉", "🛡"]))
 
         if not heal_items:
             return [app_commands.Choice(name="Aucun objet de soin", value="")]
