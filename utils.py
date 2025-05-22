@@ -72,20 +72,3 @@ def handle_death(guild_id, target_id, source_id=None):
         update_leaderboard(guild_id, target_id, -25, death=1)
     else:
         update_leaderboard(guild_id, target_id, -25, death=1)
-
-# Cooldowns globaux (utilisés dans data.py)
-cooldowns = {
-    "attack": {},
-    "heal": {}
-}
-
-def is_on_cooldown(guild_id, key, action_type):
-    now = time.time()
-    guild_cooldowns = cooldowns[action_type].setdefault(str(guild_id), {})
-    last_used = guild_cooldowns.get(key, 0)
-    duration = ATTACK_COOLDOWN if action_type == "attack" else HEAL_COOLDOWN
-    remaining = duration - (now - last_used)
-    return (remaining > 0), max(int(remaining), 0)
-
-ATTACK_COOLDOWN = 120  # en secondes
-HEAL_COOLDOWN = 180
