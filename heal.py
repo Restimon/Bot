@@ -110,12 +110,21 @@ def register_heal_command(bot):
             user_inv.remove("💕")
             sauvegarder()
 
+            target_mention = interaction.guild.get_member(int(tid)).mention
+
             embed = discord.Embed(
                 title="💕 Régénération activée",
-                description=f"{interaction.guild.get_member(int(tid)).mention} bénéficie d'une **régénération** de 3 PV toutes les 30 min pendant 3 heures.",
+                description=f"{target_mention} bénéficie d'une **régénération** de 3 PV toutes les 30 min pendant 3 heures.",
                 color=discord.Color.green()
             )
-            return await interaction.response.send_message(embed=embed)
+
+    # ✨ Annonce publique dans le salon
+    await interaction.channel.send(
+        f"✨ {interaction.user.mention} a déclenché une régénération pour {target_mention} ! 💕"
+    )
+
+    return await interaction.response.send_message(embed=embed)
+
 
         # Traitement spécial pour 👟 esquive
         if item == "👟":
