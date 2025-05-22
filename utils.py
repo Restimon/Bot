@@ -59,6 +59,16 @@ def get_random_item():
         pool.extend([emoji] * (26 - data["rarete"]))
     return random.choice(pool)
 
+def handle_death(guild_id, target_id, source_id=None):
+    set_hp(guild_id, target_id, 100)
+    remove_status_effects(guild_id, target_id)
+
+    if source_id and source_id != target_id:
+        update_leaderboard(guild_id, source_id, 50, kill=1)
+        update_leaderboard(guild_id, target_id, -25, death=1)
+    else:
+        update_leaderboard(guild_id, target_id, -25, death=1)
+
 # Cooldowns globaux (utilisés dans data.py)
 cooldowns = {
     "attack": {},
