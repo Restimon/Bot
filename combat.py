@@ -192,9 +192,9 @@ if infect_stat and target_id not in infection_status.get(guild_id, {}):
 
         return build_embed_from_item(
             item,
-            f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
-            f"**SomniCorp :** {target_mention} : {before} - {dmg}{modif_txt} = {new_hp} / 100 PV{crit_txt}"
-        ), True
+                f"{user_mention} inflige {dmg} dégâts à {target_mention} avec {item} !\n"
+                f"**SomniCorp :** {target_mention} : {before} - {dmg}{modif_txt} = {new_hp} / 100 PV{crit_txt}"
+            ), True
 
     elif action["type"] == "soin":
         on_cooldown, remaining = is_on_cooldown(guild_id, user_id, "heal")
