@@ -11,6 +11,7 @@ infection_status = {}
 virus_status = {}
 poison_status = {}
 last_daily_claim = {}
+shields = {}
 
 # Cooldowns globaux
 cooldowns = {
