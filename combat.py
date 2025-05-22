@@ -87,12 +87,34 @@ def apply_item_with_cooldown(user_id, target_id, item, ctx):
             emoji_modif = "🧪"
             modif_txt = f"(-1 {emoji_modif})"
 
-        if user_id in virus_status.get(guild_id, {}):
+       if user_id in virus_status.get(guild_id, {}):
             base_dmg += 2
             emoji_modif = "🦠"
             modif_txt = f"(+2 {emoji_modif})"
+    
+            # Inflige 2 dégâts à l'attaquant
             hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
+
+           # Attribution des 2 points de dégâts à l'infecteur
+            source_id = virus_status[guild_id][user_id].get("source")
+            if source_id:
+                leaderboard.setdefault(guild_id, {})
+                leaderboard[guild_id].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[guild_id][source_id]["degats"] += 2
+
+            # Transfère le virus à la cible
+            virus_status.setdefault(guild_id, {})
             virus_status[guild_id][target_id] = virus_status[guild_id][user_id].copy()
+
+            # Supprime le virus de l'attaquant
+            del virus_status[guild_id][user_id]
+
+            # Message d'information dans le salon
+            channel = ctx.channel
+            await channel.send(
+                f"💉 {ctx.user.mention} a **transmis le virus** à {target_mention}.\n"
+                f"🦠 Le statut viral a été **supprimé** de {ctx.user.mention}."
+            )
 
         dmg = max(0, base_dmg)
         before = target_hp
