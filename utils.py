@@ -83,3 +83,7 @@ def is_on_cooldown(guild_id, user_id, target_id, action_type):
     duration = ATTACK_COOLDOWN if action_type == "attack" else HEAL_COOLDOWN
     remaining = duration - (now - last_used)
     return (remaining > 0), max(int(remaining), 0)
+
+ATTACK_COOLDOWN = 120  # en secondes
+HEAL_COOLDOWN = 180
+
