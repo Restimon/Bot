@@ -514,7 +514,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             f"⚠️ Le vaccin 💉 ne peut être utilisé que via la commande `/heal`."
         ), False   
         
-        elif action["type"] == "infection":
+    elif action["type"] == "infection":
         infection_status.setdefault(guild_id, {})
         dmg = action.get("degats", 5)
         duration = action.get("duree", 3 * 3600)
