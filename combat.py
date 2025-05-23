@@ -1,37 +1,3 @@
-from utils import (
-    OBJETS,
-    GIFS,
-    cooldowns,
-    ATTACK_COOLDOWN,
-    HEAL_COOLDOWN,
-    handle_death,
-    is_on_cooldown
-)
-from storage import get_user_data
-from storage import hp, leaderboard
-from data import virus_status, poison_status, infection_status, shields, esquive_bonus, casque_bonus, immunite_status, ATTACK_COOLDOWN, HEAL_COOLDOWN
-import time
-import discord
-import random
-import math
-
-def build_embed_from_item(item, description, is_heal_other=False, is_crit=False):
-    if "esquive" in description.lower():
-        gif_url = GIFS.get("esquive")
-    elif is_crit:
-        gif_url = GIFS.get("critique")
-    else:
-        gif_url = GIFS.get("soin_autre") if is_heal_other and OBJETS[item]["type"] == "soin" else GIFS.get(item, "")
-    
-    color = discord.Color.green() if OBJETS[item]["type"] == "soin" else discord.Color.red()
-    embed = discord.Embed(title="📢 Action SomniCorp", description=description, color=color)
-    if gif_url:
-        embed.set_image(url=gif_url)
-    return embed
-
-def check_crit(chance):
-    return random.random() < chance
-
 async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     guild_id = str(ctx.guild.id)
     user_id = str(user_id)
@@ -362,8 +328,14 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     before = hp[guild_id].get(target_id, 100)
     new_hp = max(before - dmg, 0)
     real_dmg = before - new_hp
+    real_dmg = before - new_hp
     hp[guild_id][target_id] = new_hp
-    user_stats["degats"] += real_dmg
+
+    if new_hp == 0:
+        handle_death(guild_id, target_id, user_id)  # ou infecteur_id
+    else:
+        user_stats["degats"] += real_dmg
+
     cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
 
     reset_txt = ""
@@ -559,9 +531,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         before = hp[guild_id].get(target_id, 100)
         new_hp = max(before - base_dmg, 0)
-        hreal_dmg = before - new_hp
+        real_dmg = before - new_hp
         hp[guild_id][target_id] = new_hp
         user_stats["degats"] += real_dmg
+
         cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
 
         reset_txt = ""
