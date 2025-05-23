@@ -5,7 +5,7 @@ import discord
 
 from discord import app_commands
 from data import esquive_bonus, casque_bonus, shields, virus_status, poison_status, infection_status, immunite_status, hp, leaderboard, cooldowns
-from utils import OBJETS, is_on_cooldown, check_crit, build_embed_from_item  
+from utils import OBJETS, is_on_cooldown, check_crit
 from storage import get_user_data
 from embeds import build_embed_from_item
 
