@@ -6,8 +6,7 @@ from storage import inventaire, hp, leaderboard
 from embeds import build_embed_from_item
 
 # ✅ Utilisation du disk persistant monté via Render
-DATA_FILE = "/persistent/data.json"
-
+PERSISTENT_PATH = "/persistent"
 cooldowns = {"attack": {}, "heal": {}}
 
 # États persistants
@@ -25,7 +24,7 @@ def sauvegarder():
     """Sauvegarde toutes les données SomniCorp dans un seul fichier JSON."""
     try:
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
+        with open(os.path.join(PERSISTENT_PATH, "data.json"), "w") as f:
             json.dump({
                 "inventaire": inventaire,
                 "hp": hp,
