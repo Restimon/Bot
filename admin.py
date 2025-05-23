@@ -216,7 +216,7 @@ def register_admin_commands(bot):
             return
 
         await interaction.response.defer(thinking=False)
-        await send_special_supply(bot, forced=True)
+        await send_special_supply(bot, force=True)
         await interaction.followup.send("📦 Ravitaillement spécial déclenché avec succès.")
        
     @bot.tree.command(name="forcer_lb_temp", description="🔁 Mise à jour manuelle du leaderboard spécial (test).")
