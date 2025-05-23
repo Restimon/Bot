@@ -14,7 +14,7 @@ OBJETS = {
     "⚡": {"type": "attaque", "degats": 10, "rarete": 5, "crit": 0.20},
     "🔫": {"type": "attaque", "degats": 15, "rarete": 12, "crit": 0.15},
     "🧨": {"type": "attaque", "degats": 20, "rarete": 15, "crit": 0.10},
-    "☠️": {"type": "attaque_chaine", "degats_principal": 24, "degats_secondaire": 12, "rarete": 25, "crit": 0.15}
+    "☠️": {"type": "attaque_chaine", "degats_principal": 24, "degats_secondaire": 12, "rarete": 25, "crit": 0.15},
     "🦠": {"type": "virus", "status": "virus", "degats": 5, "duree": 6 * 3600, "rarete": 22, "crit": 0.1},
     "🧪": {"type": "poison", "status": "poison", "degats": 3, "intervalle": 1800, "duree": 3 * 3600, "rarete": 13, "crit": 0.1},
     "🧟": {"type": "infection", "status": "infection", "degats": 5, "intervalle": 1800, "duree": 3 * 3600, "rarete": 25},
