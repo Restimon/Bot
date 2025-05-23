@@ -25,12 +25,11 @@ def build_help_embed():
     embed.add_field(
         name="🧪 Statuts et effets SomniCorp",
         value=(
-            "• **🧪 Poison** : -3 PV toutes les 30min pendant 3h. Réduit de 1 les points de dégats que tu infliges.\n"
-            "• **🦠 Virus** : -5 PV immédiats, puis -5 PV par heure pendant 6h. Se transfert à chaque attaque mais l'attaquant subit 2 dégâts.\n"
-            "• **🧟 Infection** : -5 PV immédiats, -2 PV toutes les 30min pendant 3h. 25% de chance de se propager lors des attaques."
+            "• **🧪 Poison** : -3 PV toutes les 30min pendant 3h. Réduit de 1 les dégâts infligés.\n"
+            "• **🦠 Virus** : -5 PV immédiats, puis -5 PV par heure pendant 6h. Transmissible à chaque attaque. L’attaquant subit 2 dégâts.\n"
+            "• **🧟 Infection** : -5 PV immédiats, -2 PV toutes les 30min pendant 3h. 25% de chance de propagation à chaque attaque."
         ),
         inline=False
-        
     )
 
     embed.add_field(
@@ -51,12 +50,6 @@ def build_help_embed():
     )
 
     embed.add_field(
-        name="📦 Objets disponibles",
-        value="`/item liste` — Affiche la description complète de tous les objets du jeu.",
-        inline=False
-    )
-
-    embed.add_field(
         name="🎁 Récompense Quotidienne",
         value="`/daily` — Récupère des objets chaque jour grâce à SomniCorp.",
         inline=False
@@ -68,7 +61,7 @@ def build_help_embed():
             "`/reset @membre` — Réinitialise les stats d’un joueur.\n"
             "`/resetinv @membre` — Vide l’inventaire d’un joueur.\n"
             "`/resethp @membre` — Remet les PV à 100.\n"
-            "`/resetall` — Réinitialise tous les joueurs (PV, stats, inventaire).\n"
+            "`/resetall` — Réinitialise tous les joueurs (PV, stats, inventaire, statuts).\n"
             "`/resetleaderboard` — Réinitialise tout le classement.\n"
             "`/setleaderboardchannel #salon` — Définit le salon pour le leaderboard spécial.\n"
             "`/get_leaderboard_channel` — Affiche le salon actuel du leaderboard spécial.\n"
@@ -76,7 +69,7 @@ def build_help_embed():
             "`/supply` — Force l’apparition d’un ravitaillement spécial.\n"
             "`/forcer_lb_temp` — Met à jour manuellement le leaderboard spécial.\n"
             "`/giveitem @membre 🪓` — Donne un objet à un joueur.\n"
-            "`/purge_status @membre` — Supprime les effets (virus, poison) d’un joueur."
+            "`/purge_status @membre` — Supprime les effets (virus, poison, infection) d’un joueur."
         ),
         inline=False
     )
