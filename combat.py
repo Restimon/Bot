@@ -172,7 +172,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         # Applique le statut de poison
         poison_status.setdefault(guild_id, {})[target_id] = {
             "start": now,
-            "duration": action.get("duree", 3 * 3600),  # 3 heures par défaut
+            "duration": action.get("duree", 3 * 3600) ,  # 3 heures par défaut
             "last_tick": 0,
             "source": user_id,
             "channel_id": ctx.channel.id
@@ -208,7 +208,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         # Applique le statut viral
         virus_status.setdefault(guild_id, {})[target_id] = {
             "start": now,
-            "duration": action.get("duree", 6 * 3600),
+            "duration": action.get("duree", 6 * 3600) + 60,
             "last_tick": 0,
             "source": user_id,
             "channel_id": ctx.channel.id
@@ -272,7 +272,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         # Applique le statut d'infection
         infection_status.setdefault(guild_id, {})[target_id] = {
             "start": now,
-            "duration": action.get("duree", 3 * 3600),
+            "duration": action.get("duree", 3 * 3600) + 60,
             "last_tick": 0,
             "source": user_id,
             "channel_id": ctx.channel.id
