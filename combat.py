@@ -318,28 +318,29 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         await ctx.channel.send(embed=embed_info)
 
         return embed_attack, True
-         
-        elif action["type"] == "vol":
-            attacker_inv, _, _ = get_user_data(guild_id, user_id)
-            target_inv, _, _ = get_user_data(guild_id, target_id)
 
-            if not target_inv:
-                embed = discord.Embed(
-                    description=f"🔍 {target_mention} n’a **aucun objet** à se faire voler !",
-                    color=discord.Color.red()
-                )
-                return embed, False
+    elif action["type"] == "vol":
+        attacker_inv, _, _ = get_user_data(guild_id, user_id)
+        target_inv, _, _ = get_user_data(guild_id, target_id)
 
-            # Vol aléatoire
-            stolen = random.choice(target_inv)
-            target_inv.remove(stolen)
-            attacker_inv.append(stolen)
-
+        if not target_inv:
             embed = discord.Embed(
-                description=f"🔍 {user_mention} a volé **{stolen}** à {target_mention} !",
-                color=discord.Color.gold()
+                description=f"🔍 {target_mention} n’a **aucun objet** à se faire voler !",
+                color=discord.Color.red()
             )
-            return embed, True
+            return embed, False
+
+        # Vol aléatoire
+        stolen = random.choice(target_inv)
+        target_inv.remove(stolen)
+        attacker_inv.append(stolen)
+
+        embed = discord.Embed(
+            description=f"🔍 {user_mention} a volé **{stolen}** à {target_mention} !",
+            color=discord.Color.gold()
+        )
+        return embed, True
+
 
         # Inventaire cible
         target_inv, _, _ = get_user_data(guild_id, target_id)
