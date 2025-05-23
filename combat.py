@@ -53,29 +53,28 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         hp[guild_id][target_id] = 100
         target_hp = 100
 
-
     # ⭐️ Immunité ?
     if is_immune(guild_id, target_id):
         return build_embed_from_item(
             item,
-             f"⭐️ {target_mention} est **invulnérable**. Aucun effet."
-         ), True
+            f"⭐️ {target_mention} est **invulnérable**. Aucun effet."
+        ), True
 
-     # 💨 Esquive ?
-     if action["type"] in ["attaque", "virus", "poison", "infection"]:
+    # 💨 Esquive ?
+    if action["type"] in ["attaque", "virus", "poison", "infection"]:
         if random.random() < get_evade_chance(guild_id, target_id):
             return build_embed_from_item(
                 item,
                 f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât."
             ), True
 
-        # Ici on traite les différents types
-        if action["type"] == "attaque":
+    # 🎯 Attaque
+    if action["type"] == "attaque":
         base_dmg = action.get("degats", 0)
         bonus_dmg = 0
         bonus_info = ""
 
-        # 🦠 Bonus virus : +2 dégâts attribués à la source
+        # 🦠 Bonus virus
         virus_stat = virus_status.get(guild_id, {}).get(user_id)
         if virus_stat:
             bonus_dmg += 2
@@ -84,7 +83,6 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             leaderboard.setdefault(guild_id, {}).setdefault(virus_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
             leaderboard[guild_id][virus_source]["degats"] += 2
 
-            # ✅ Transfert du virus
             virus_status[guild_id][target_id] = virus_stat.copy()
             del virus_status[guild_id][user_id]
             await ctx.channel.send(
@@ -92,7 +90,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 f"🦠 Le statut viral a été **supprimé** de {user_mention}."
             )
 
-        # 🧠 Infection : bonus +2 et possible propagation
+        # 🧠 Infection
         infect_stat = infection_status.get(guild_id, {}).get(user_id)
         if infect_stat and target_id not in infection_status.get(guild_id, {}):
             infect_source = infect_stat.get("source", user_id)
@@ -125,16 +123,13 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     f"Ils subissent immédiatement **5 dégâts supplémentaires**."
                 )
 
-        # 🧪 Poison : -1 dégât
+        # 🧪 Poison
         if poison_status.get(guild_id, {}).get(user_id):
             bonus_dmg -= 1
             bonus_info += "-1 🧪 "
 
-        # 🎯 Calcul des dégâts
-        crit_applied = False
+        # Calcul des dégâts
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
-        if crit_txt:
-            crit_applied = True
         total_dmg = base_dmg + bonus_dmg
         total_dmg = apply_casque_reduction(guild_id, target_id, total_dmg)
         total_dmg = apply_shield(guild_id, target_id, total_dmg)
@@ -159,6 +154,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
             f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
         ), True
+
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
