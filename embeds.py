@@ -21,7 +21,6 @@ GIFS = {
     "🪖": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWFqa2Uzd25uM3dsMjd0eGs4a2xtdTJpaW0wajFrZ3Nlc3RjanM2eiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/VxHixRra5rtEMMw7b0/giphy.gif",
     "🛡": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMDBmZzY3bXdpeWNncnVnMHNieW45dHVpZnRpOWM1bW9qcDhtYm5kMSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/rR7wrU76zfWnf7xBDR/giphy.gif",
     "👟": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExenJtZmFoem13aGwxNTVwYzVrc3k0cG00enBkZ3lxeHV2MTVjeTBoNSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/EBiho5DrxUQ75JMcq7/giphy.gif",
-    "☠️": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMDdqb2R0eWJvZzh4eXJuZXNuYmJjZDZzeWxtZDF3Zjg2bmpsMHpsbCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/qtkfPuvX4wrSuW5Q4T/giphy.gif",
     "soin_autre": "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcDVwc21sMTQ5MGF2bjRrazdmdHJpMmFoNGgzeGxtazF4Mnl6MHByNyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Mxb7h4hq6mJNzWNF5W/giphy.gif",
     "critique": "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnRsZDZzNmUxM3N4OHVqbXhmOWUxbzVjOGkyeTR2cW1tMHlzamxnbCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/o2TqK6vEzhp96/giphy.gif",
     "esquive": "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHdzZDd6eHhyMHZqdmZnMGg5ZXoybnMwM3g5NzgwbXVuNjFqNjI4dCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/eIm624c8nnNbiG0V3g/giphy.gif"
