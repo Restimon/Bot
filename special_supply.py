@@ -13,7 +13,7 @@ from data import virus_status, poison_status, infection_status, regeneration_sta
 from embeds import build_embed_from_item
 
 # Variables globales
-last_supply_time = 0
+last_supply_time = {}
 supply_daily_counter = {}  # {guild_id: (date, count)}
 last_active_channel = {}   # {guild_id: channel_id}
 SUPPLY_MIN_DELAY = 2 * 3600
@@ -33,7 +33,7 @@ def load_supply_data():
         with open(SUPPLY_DATA_FILE, "r") as f:
             data = json.load(f)
             supply_daily_counter = data.get("supply_daily_counter", {})
-            last_supply_time = data.get("last_supply_time", 0)
+            last_supply_time = data.get("last_supply_time", {})
 
 load_supply_data()
 
@@ -87,6 +87,16 @@ def choose_reward(user_id, guild_id):
     else:
         return "regen", True
 
+# Voici la version corrigée et complète de ta fonction `send_special_supply`,
+# prenant en compte un cooldown par serveur + persistance à la sauvegarde.
+def load_supply_data():
+    global supply_daily_counter, last_supply_time
+    if os.path.exists(SUPPLY_DATA_FILE):
+        with open(SUPPLY_DATA_FILE, "r") as f:
+            data = json.load(f)
+            supply_daily_counter = data.get("supply_daily_counter", {})
+            last_supply_time = data.get("last_supply_time", {})  # ← dictionnaire
+
 async def send_special_supply(bot, force=False):
     global last_supply_time, supply_daily_counter
 
@@ -96,25 +106,28 @@ async def send_special_supply(bot, force=False):
     for guild in bot.guilds:
         gid = str(guild.id)
 
-        if not force:
-            channel_id = last_active_channel.get(gid)
-            if not channel_id:
-                continue
-        else:
-            channel_id = last_active_channel.get(gid)
-            if not channel_id:
-                continue
+        # 🔄 Détermine le bon salon (seulement si connu)
+        channel_id = last_active_channel.get(gid)
+        if not channel_id:
+            continue
+        channel = bot.get_channel(channel_id)
+        if not channel:
+            continue
 
+        # 🕒 Vérifie le cooldown
+        last_time = last_supply_time.get(gid, 0)
+        delay = random.randint(SUPPLY_MIN_DELAY, SUPPLY_MAX_DELAY)
+        if not force and (now - last_time < delay):
+            continue
+
+        # 📆 Vérifie la limite journalière
         date, count = supply_daily_counter.get(gid, (None, 0))
         if date != today:
             supply_daily_counter[gid] = (today, 0)
         elif count >= 3 and not force:
             continue
 
-        channel = bot.get_channel(channel_id)
-        if not channel:
-            continue
-
+        # 📦 Envoi du ravitaillement
         embed = discord.Embed(
             title="📦 Ravitaillement spécial SomniCorp",
             description="Réagissez avec 📦 pour récupérer une récompense surprise !\n"
@@ -145,6 +158,7 @@ async def send_special_supply(bot, force=False):
             except asyncio.TimeoutError:
                 break
 
+        # 🎁 Récompenses
         results = []
         for user in collected_users:
             uid = str(user.id)
@@ -201,8 +215,9 @@ async def send_special_supply(bot, force=False):
         else:
             await channel.send("💥 Le ravitaillement spécial SomniCorp s’est auto-détruit. 💣")
 
+        # 🔁 Mise à jour des compteurs et cooldown
         supply_daily_counter[gid] = (today, supply_daily_counter[gid][1] + 1)
-        last_supply_time = now
+        last_supply_time[gid] = now
         save_supply_data()
 
 def update_last_active_channel(message):
@@ -212,6 +227,12 @@ def update_last_active_channel(message):
 @tasks.loop(minutes=5)
 async def special_supply_loop(bot):
     now = time.time()
-    delay = random.randint(SUPPLY_MIN_DELAY, SUPPLY_MAX_DELAY)
-    if now - last_supply_time >= delay:
-        await send_special_supply(bot)
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        last_time = last_supply_time.get(gid, 0)
+        delay = random.randint(SUPPLY_MIN_DELAY, SUPPLY_MAX_DELAY)
+        if now - last_time >= delay:
+            await send_special_supply(bot)
+            break  # Un seul ravitaillement toutes les 5 minutes max
+
+
