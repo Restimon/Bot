@@ -61,12 +61,11 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         ), True
 
     # 💨 Esquive ?
-    if action["type"] in ["attaque", "virus", "poison", "infection"]:
-        if random.random() < get_evade_chance(guild_id, target_id):
-            return build_embed_from_item(
-                item,
-                f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât."
-            ), True
+    if random.random() < get_evade_chance(guild_id, target_id):
+        return build_embed_from_item(
+            "💨",  # emoji ou ID d’effet visuel d’esquive
+            f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât."
+        ), True
 
     # 🎯 Attaque
     if action["type"] == "attaque":
@@ -326,11 +325,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 f"⭐️ {target_mention} est **protégé**. Impossible de voler quoi que ce soit !"
             ), True
 
-        # 💨 Esquive ?
         if random.random() < get_evade_chance(guild_id, target_id):
             return build_embed_from_item(
-                item,
-                f"💨 {target_mention} esquive habilement la tentative de vol de {user_mention} avec {item} !"
+                "💨",  # emoji ou ID d’effet visuel d’esquive
+                f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât."
             ), True
 
         # Inventaire cible
