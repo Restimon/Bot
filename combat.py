@@ -184,7 +184,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         else:
             reset_txt = ""
 
-        effect_txt = "\n🧪 Un poison s'est propagé dans son corps. 3 dégâts toutes les 30 minutes pendant 3h."
+        effect_txt = "\n🧪 Un poison s'est propagé dans ton corps. 3 dégâts toutes les 30 minutes pendant 3h."
 
         return build_embed_from_item(
             item,
