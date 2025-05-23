@@ -338,7 +338,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         for i, tid in enumerate(all_targets):
             is_main = i == 0
             base_dmg = main_dmg if is_main else splash_dmg
-            dmg = base_dmg
+            bonus_dmg = 0
             mention = get_mention(ctx, tid)
             start_hp = hp[guild_id].get(tid, 100)
             bonus_info = ""
@@ -358,7 +358,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             already_infected = tid in infection_status.get(guild_id, {})
             if infect_stat and not already_infected:
                 infect_source = infect_stat.get("source", user_id)
-                dmg += 2
+                bonus_dmg += 2
                 bonus_info += "+2 🧟"
                 leaderboard.setdefault(guild_id, {}).setdefault(infect_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                 leaderboard[guild_id][infect_source]["degats"] += 2
@@ -388,6 +388,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 virus_status[guild_id][tid] = virus_status[guild_id][user_id].copy()
                 del virus_status[guild_id][user_id]
                 hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
+                bonus_dmg += 2
                 bonus_info += "+2 🦠"
 
                 source_virus = virus_status[guild_id][tid].get("source")
@@ -397,6 +398,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
                 embed = discord.Embed(title="💉 Transmission virale", description=f"{user_mention} a **transmis le virus** à {mention}.\n🦠 Le statut viral a été **supprimé** de {user_mention}.", color=0x2288FF)
                 await ctx.channel.send(embed=embed)
+
+            # 🎯 Coup critique (uniquement sur base_dmg)
+            base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
+            dmg = base_dmg + bonus_dmg
 
             # 🛡 Casque + bouclier
             dmg = apply_casque_reduction(guild_id, tid, dmg)
@@ -415,18 +420,16 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 reset_txt = ""
 
             status_txt = f"{bonus_info}" if bonus_info else ""
-
             if is_main:
-                embed_lines.append(f"**SomniCorp** : {mention} perd {base_dmg} PV {status_txt} | {start_hp} - {base_dmg} {status_txt} = {end_hp}{reset_txt}")
+                embed_lines.append(f"**SomniCorp** : {mention} perd {real_dmg} PV{crit_txt} | {base_dmg - bonus_dmg} de base{f' ({status_txt})' if status_txt else ''} ➝ {start_hp} → {end_hp}{reset_txt}")
                 embed_lines.append("L’attaque rebondit !")
             else:
-                embed_lines.append(f"{mention} perd {base_dmg} PV (attaque secondaire) {status_txt} | {start_hp} - {base_dmg} {status_txt} = {end_hp}{reset_txt}")
+                embed_lines.append(f"{mention} perd {real_dmg} PV (attaque secondaire){crit_txt} | {base_dmg - bonus_dmg} de base{f' ({status_txt})' if status_txt else ''} ➝ {start_hp} → {end_hp}{reset_txt}")
 
         return build_embed_from_item(
             item,
             "\n".join(embed_lines)
         ), True
-
 
 def is_immune(guild_id, target_id):
     """Vérifie si la cible a une immunité active."""
