@@ -125,8 +125,16 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     f"Ils subissent immédiatement **5 dégâts supplémentaires**."
                 )
 
+        # 🧪 Poison : -1 dégât
+        if poison_status.get(guild_id, {}).get(user_id):
+            bonus_dmg -= 1
+            bonus_info += "-1 🧪 "
+
         # 🎯 Calcul des dégâts
+        crit_applied = False
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
+        if crit_txt:
+            crit_applied = True
         total_dmg = base_dmg + bonus_dmg
         total_dmg = apply_casque_reduction(guild_id, target_id, total_dmg)
         total_dmg = apply_shield(guild_id, target_id, total_dmg)
@@ -148,9 +156,9 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         return build_embed_from_item(
             item,
-            f"{user_mention} inflige {base_dmg}{bonus_info_str} dégâts à {target_mention} avec {item} !\n"
-            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {base_dmg} {bonus_info_str} = {after}{crit_txt}{reset_txt}"
-        ), True""
+            f"{user_mention} inflige {base_dmg} (+{bonus_dmg}) dégâts à {target_mention} avec {item} !"
+            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}"
+        ), True
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
