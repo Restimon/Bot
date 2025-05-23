@@ -291,10 +291,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
             leaderboard[guild_id][user_id]["degats"] += dmg
 
-           if after == 0:
+            reset = ""
+            if after == 0:
                 handle_death(guild_id, victim_id, user_id)
                 reset = " 💀 (remis à 100 PV)"
-
 
             return f"☠️ {item} inflige {dmg} dégâts à <@{victim_id}> ({before} → {after}){modif}{reset}"
 
