@@ -8,7 +8,7 @@ from data import esquive_bonus, cooldowns, casque_bonus, shields, virus_status, 
 from utils import OBJETS, check_crit, handle_death
 from storage import get_user_data
 from embeds import build_embed_from_item
-from cooldowns import is_on_cooldown
+from cooldowns import is_on_cooldown, set_cooldown
 from leaderboard_utils import update_leaderboard
 from effects import remove_status_effects
 
