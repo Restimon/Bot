@@ -337,10 +337,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         for i, tid in enumerate(all_targets):
             is_main = i == 0
-            dmg = main_dmg if is_main else splash_dmg
+            base_dmg = main_dmg if is_main else splash_dmg
+            dmg = base_dmg
             mention = get_mention(ctx, tid)
             start_hp = hp[guild_id].get(tid, 100)
-            extra_info = ""
             bonus_info = ""
 
             # ⚠️ Immunité
@@ -358,7 +358,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             if infect_stat and tid not in infection_status.get(guild_id, {}):
                 infect_source = infect_stat.get("source", user_id)
                 dmg += 2
-                bonus_info += " +2 🧟"
+                bonus_info += "+2 🧟"
                 leaderboard.setdefault(guild_id, {}).setdefault(infect_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                 leaderboard[guild_id][infect_source]["degats"] += 2
 
@@ -379,25 +379,23 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     if inf_after == 0:
                         handle_death(guild_id, tid, infect_source)
 
-                    await ctx.channel.send(
-                        f"🧬 {mention} a été **infecté** par {user_mention} !\nIls subissent immédiatement **5 dégâts supplémentaires**."
-                )
+                    embed = discord.Embed(title="🧬 Infection", description=f"{mention} a été **infecté** par {user_mention} !\nIls subissent immédiatement **5 dégâts supplémentaires**.", color=0x880088)
+                    await ctx.channel.send(embed=embed)
 
             # 🦠 Virus : -2 pour l'utilisateur, transfert si main cible
             if is_main and user_id in virus_status.get(guild_id, {}):
                 virus_status[guild_id][tid] = virus_status[guild_id][user_id].copy()
                 del virus_status[guild_id][user_id]
                 hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
-                bonus_info += " +2 🦠"
+                bonus_info += "+2 🦠"
 
                 source_virus = virus_status[guild_id][tid].get("source")
                 if source_virus and source_virus != user_id:
                     leaderboard.setdefault(guild_id, {}).setdefault(source_virus, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                     leaderboard[guild_id][source_virus]["degats"] += 2
 
-                await ctx.channel.send(
-                    f"💉 {user_mention} a **transmis le virus** à {mention}.\n🦠 Le statut viral a été **supprimé** de {user_mention}."
-                )
+                embed = discord.Embed(title="💉 Transmission virale", description=f"{user_mention} a **transmis le virus** à {mention}.\n🦠 Le statut viral a été **supprimé** de {user_mention}.", color=0x2288FF)
+                await ctx.channel.send(embed=embed)
 
             # 🛡 Casque + bouclier
             dmg = apply_casque_reduction(guild_id, tid, dmg)
@@ -415,17 +413,18 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             else:
                 reset_txt = ""
 
+            status_txt = f"{bonus_info}" if bonus_info else ""
+
             if is_main:
-                embed_lines.append(f"**SomniCorp** : {mention} perd {real_dmg} PV ({bonus_info.strip()}) | {start_hp} - {real_dmg} {bonus_info} = {end_hp}{reset_txt}")
+                embed_lines.append(f"**SomniCorp** : {mention} perd {base_dmg} PV {status_txt} | {start_hp} - {base_dmg} {status_txt} = {end_hp}{reset_txt}")
                 embed_lines.append("L’attaque rebondit !")
             else:
-                embed_lines.append(f"{mention} perd {real_dmg} PV (attaque secondaire){bonus_info} | {start_hp} - {real_dmg} {bonus_info} = {end_hp}{reset_txt}")
+                embed_lines.append(f"{mention} perd {base_dmg} PV (attaque secondaire) {status_txt} | {start_hp} - {base_dmg} {status_txt} = {end_hp}{reset_txt}")
 
         return build_embed_from_item(
             item,
             "\n".join(embed_lines)
         ), True
-
 
 def is_immune(guild_id, target_id):
     """Vérifie si la cible a une immunité active."""
