@@ -345,7 +345,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     real_dmg = before - new_hp
     hp[guild_id][target_id] = new_hp
 
-    if new_hp == 0:
+    if new_hp == 0 and before > 0:
         handle_death(guild_id, target_id, user_id)  # ou infecteur_id
     else:
         user_stats["degats"] += real_dmg
@@ -353,7 +353,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
 
     reset_txt = ""
-    if new_hp == 0:
+    if new_hp == 0 and before > 0:
         handle_death(guild_id, target_id, user_id)
         reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
@@ -423,7 +423,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         hp[guild_id][target_id] = new_hp
     
         reset_txt = ""
-        if new_hp == 0:
+        if new_hp == 0 and before > 0:
             handle_death(guild_id, target_id, user_id)
             reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
@@ -460,7 +460,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         hp[guild_id][target_id] = new_hp
 
         reset_txt = ""
-        if new_hp == 0:
+        if new_hp == 0 and before > 0:
             handle_death(guild_id, target_id, user_id)
             reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
@@ -513,7 +513,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         leaderboard[guild_id][infecteur_id]["degats"] += dmg
 
         reset_txt = ""
-        if new_hp == 0:
+        if new_hp == 0 and before > 0:
             handle_death(guild_id, target_id, infecteur_id)
             reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
@@ -552,7 +552,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
 
         reset_txt = ""
-        if new_hp == 0:
+        if new_hp == 0 and before > 0:
             handle_death(guild_id, target_id, user_id)
             reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
 
