@@ -291,14 +291,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
             leaderboard[guild_id][user_id]["degats"] += dmg
 
-            reset = ""
-            if after == 0:
-                hp[guild_id][victim_id] = 100
-                leaderboard[guild_id][victim_id]["degats"] = max(0, leaderboard[guild_id][victim_id].get("degats", 0) - 25)
-                leaderboard[guild_id][user_id]["degats"] += 50
-                leaderboard[guild_id][user_id]["kills"] += 1
-                leaderboard[guild_id][victim_id]["morts"] += 1
+           if after == 0:
+                handle_death(guild_id, victim_id, user_id)
                 reset = " 💀 (remis à 100 PV)"
+
 
             return f"☠️ {item} inflige {dmg} dégâts à <@{victim_id}> ({before} → {after}){modif}{reset}"
 
@@ -365,8 +361,9 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     before = hp[guild_id].get(target_id, 100)
     new_hp = max(before - dmg, 0)
+    real_dmg = before - new_hp
     hp[guild_id][target_id] = new_hp
-    user_stats["degats"] += dmg
+    user_stats["degats"] += real_dmg
     cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
 
     reset_txt = ""
@@ -562,8 +559,9 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         before = hp[guild_id].get(target_id, 100)
         new_hp = max(before - base_dmg, 0)
+        hreal_dmg = before - new_hp
         hp[guild_id][target_id] = new_hp
-        user_stats["degats"] += base_dmg
+        user_stats["degats"] += real_dmg
         cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
 
         reset_txt = ""
