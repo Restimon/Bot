@@ -339,7 +339,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         attacker_inv.append(stolen)
 
         embed = discord.Embed(
-            description=f"🔍 {get_mention(attacker_id)} a volé **{stolen}** à {get_mention(target_id)} !",
+            description=f"🔍 {get_mention(ctx, user_id)} a volé **{stolen}** à {get_mention(ctx, target_id)} !",
             color=discord.Color.gold()
         )
         return embed, True
