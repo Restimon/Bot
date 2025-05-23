@@ -30,6 +30,8 @@ from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
 
+os.makedirs("/persistent", exist_ok=True)
+
 load_dotenv()
 charger()
 
