@@ -1,7 +1,7 @@
 import random
 import time
 
-from data import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN
+from data import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN, remove_status_effects
 from storage import hp, leaderboard
 
 # Objets disponibles
@@ -65,7 +65,11 @@ def get_random_item():
 
 def handle_death(guild_id, target_id, source_id=None):
     hp[guild_id][target_id] = 100  # Remise à 100 PV
-    remove_status_effects(guild_id, target_id)
+
+    try:
+        remove_status_effects(guild_id, target_id)
+    except Exception as e:
+        print(f"[handle_death] Erreur lors de la suppression des statuts : {e}")
 
     if source_id and source_id != target_id:
         update_leaderboard(guild_id, source_id, 50, kill=1)
