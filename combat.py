@@ -355,7 +355,8 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
             # 🧠 Infection (bonus +2 et transmission)
             infect_stat = infection_status.get(guild_id, {}).get(user_id)
-            if infect_stat and tid not in infection_status.get(guild_id, {}):
+            already_infected = tid in infection_status.get(guild_id, {})
+            if infect_stat and not already_infected:
                 infect_source = infect_stat.get("source", user_id)
                 dmg += 2
                 bonus_info += "+2 🧟"
@@ -425,6 +426,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             item,
             "\n".join(embed_lines)
         ), True
+
 
 def is_immune(guild_id, target_id):
     """Vérifie si la cible a une immunité active."""
