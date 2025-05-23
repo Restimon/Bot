@@ -245,7 +245,7 @@ async def update_leaderboard_loop():
                 rank += 1
 
             text = (
-                ">🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+                "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
                 "\n".join(lines) +
                 "\n\n📌 Classement mis à jour automatiquement par SomniCorp."
             ) if lines else "*Aucune donnée disponible.*"
