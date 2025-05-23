@@ -31,6 +31,7 @@ from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
 
 load_dotenv()
+charger()
 
 intents = discord.Intents.default()
 intents.message_content = True
