@@ -1,6 +1,5 @@
 import discord
-from utils import OBJETS
-from data import GIFS  # ← si tu stockes GIFS dans data.py
+from utils import OBJETS, GIFS
 
 def build_embed_from_item(item, description, is_heal_other=False, is_crit=False):
     embed = discord.Embed(
