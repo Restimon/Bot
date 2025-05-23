@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from embeds import build_embed_from_item
 
 def register_help_commands(bot):
     @bot.command(name="aide")
