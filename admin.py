@@ -215,10 +215,14 @@ def register_admin_commands(bot):
             await interaction.response.send_message("⛔ Commande réservée aux administrateurs.", ephemeral=True)
             return
 
+        # 👇 Fixe manuellement le salon actif
+        guild_id = str(interaction.guild.id)
+        last_active_channel[guild_id] = interaction.channel.id
+
         await interaction.response.defer(thinking=False)
         await send_special_supply(bot, force=True)
         await interaction.followup.send("📦 Ravitaillement spécial déclenché avec succès.")
-       
+ 
     @bot.tree.command(name="forcer_lb_temp", description="🔁 Mise à jour manuelle du leaderboard spécial (test).")
     @app_commands.checks.has_permissions(administrator=True)
     async def force_leaderboard_update(interaction: discord.Interaction):
