@@ -32,7 +32,6 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
     action = OBJETS[item]
     
-    # 🕒 Vérifie le cooldown
     if action["type"] in ["attaque", "virus", "poison", "infection", "attaque_chaine"]:
         on_cd, remain = is_on_cooldown(guild_id, (user_id, target_id), "attack")
         if on_cd:
