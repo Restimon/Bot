@@ -1,18 +1,3 @@
-import discord
-from discord.ext import commands
-from embeds import build_embed_from_item
-
-def register_help_commands(bot):
-    @bot.command(name="aide")
-    async def help_command(ctx):
-        embed = build_help_embed()
-        await ctx.send(embed=embed)
-
-    @bot.tree.command(name="help", description="📘 Affiche toutes les commandes de SomniCorp")
-    async def help_slash(interaction: discord.Interaction):
-        embed = build_help_embed()
-        await interaction.followup.send(embed=embed)
-
 def build_help_embed():
     embed = discord.Embed(
         title="📘 Manuel Opérationnel - SomniCorp",
@@ -40,8 +25,8 @@ def build_help_embed():
     embed.add_field(
         name="🧪 Statuts et effets SomniCorp",
         value=(
-            "• **🧪 Poison** : -3 PV toutes les 30min pendant 3h.\n"
-            "• **🦠 Virus** : -5 PV immédiats, puis -5 PV par heure pendant 6h. Se transfert à chaque attaque mais l'attaquant subit 2 dégats.\n"
+            "• **🧪 Poison** : -3 PV toutes les 30min pendant 3h. Réduit de 1 les points de dégats que tu infliges.\n"
+            "• **🦠 Virus** : -5 PV immédiats, puis -5 PV par heure pendant 6h. Se transfert à chaque attaque mais l'attaquant subit 2 dégâts.\n"
             "• **🧟 Infection** : -5 PV immédiats, -2 PV toutes les 30min pendant 3h. 25% de chance de se propager lors des attaques."
         ),
         inline=False
@@ -53,8 +38,14 @@ def build_help_embed():
             "`/leaderboard` — Classement global (avec kills et morts).\n"
             "`/info [@membre]` — Voir les PV, stats, statuts et classement personnel.\n"
             "`/setleaderboardchannel #salon` *(admin)* — Définit le salon du classement **spécial** mis à jour automatiquement.\n"
-            "/status [@membre]` — Voir les effets persistants d’un joueur (virus, poison, etc.)."
+            "`/status [@membre]` — Voir les effets persistants d’un joueur (virus, poison, etc.)."
         ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📦 Objets disponibles",
+        value="`/item liste` — Affiche la description complète de tous les objets du jeu.",
         inline=False
     )
 
