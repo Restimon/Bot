@@ -272,7 +272,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "channel_id": ctx.channel.id
         }
 
-        # Attribution des points, sauf si self-infecté (pas de gain si cible == source)
+        # Attribution des points, sauf si self-infecté
         if target_id != user_id:
             leaderboard.setdefault(guild_id, {})
             leaderboard[guild_id].setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
@@ -289,11 +289,25 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "\n⚠️ En attaquant, 25% de chance de transmettre l’infection."
         )
 
-        return build_embed_from_item(
+        # Embed principal de l’attaque
+        embed_attack = build_embed_from_item(
             item,
             f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
             f"**{before} → {after} PV**{crit_txt}{reset_txt}{effect_txt}"
-        ), True
+        )
+
+        # Embed secondaire pour le message d'infection
+        embed_info = discord.Embed(
+            title="🧬 Infection",
+            description=(
+                f"**SomniCorp** détecte un nouveau infecté : {target_mention}.\n"
+                f"Il subit immédiatement **5 dégâts 🧟**."
+            ),
+            color=0x880088
+        )
+        await ctx.channel.send(embed=embed_info)
+
+        return embed_attack, True
          
     elif action["type"] == "vol":
         # ⭐️ Immunité ?
