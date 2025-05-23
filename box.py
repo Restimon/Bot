@@ -3,6 +3,7 @@ import discord
 from discord import app_commands
 from storage import get_user_data
 from utils import OBJETS
+from embeds import build_embed_from_item
 
 def register_box_command(bot):
     @bot.tree.command(name="box", description="Ouvre une boîte 📦 et reçois des objets aléatoires.")
