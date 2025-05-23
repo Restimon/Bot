@@ -33,7 +33,7 @@ def build_help_embed():
         
     )
 
-        embed.add_field(
+    embed.add_field(
         name="📦 Objets disponibles",
         value="`/item liste` — Affiche la description complète de tous les objets du jeu.",
         inline=False
