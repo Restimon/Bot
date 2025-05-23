@@ -255,7 +255,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             f"**{before} → {after} PV**{crit_txt}{reset_txt}{effect_txt}"
         ), True
         
-    elif action["type"] == "infection":
+    elif action["type"].strip() == "infection":
         base_dmg = action.get("degats", 5)
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
         base_dmg = apply_casque_reduction(guild_id, target_id, base_dmg)
