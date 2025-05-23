@@ -481,9 +481,11 @@ async def infection_damage_loop():
                     hp[gid][uid] = new_hp
                     infection_status[gid][uid]["last_tick"] = tick_count
 
-                    leaderboard.setdefault(gid, {})
-                    leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                    leaderboard[gid][source_id]["degats"] += dmg
+                    # ✅ Attribuer les points seulement si la source ≠ victime
+                    if uid != source_id:
+                        leaderboard.setdefault(gid, {})
+                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard[gid][source_id]["degats"] += dmg
 
                     remaining = max(0, duration - elapsed)
                     remaining_min = int(remaining // 60)
@@ -506,9 +508,7 @@ async def infection_damage_loop():
                     if new_hp == 0:
                         handle_death(gid, uid, source_id)
 
-        # 🔁 Pause obligatoire pour ne pas bloquer la boucle principale
         await asyncio.sleep(60)
-
         
 @tasks.loop(minutes=30)
 async def regeneration_loop():
