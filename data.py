@@ -1,5 +1,7 @@
 import json
 import os
+import time
+
 from storage import inventaire, hp, leaderboard
 
 # ✅ Utilisation du disk persistant monté via Render
