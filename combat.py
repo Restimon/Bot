@@ -156,8 +156,8 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         return build_embed_from_item(
             item,
-            f"{user_mention} inflige {base_dmg} (+{bonus_dmg}) dégâts à {target_mention} avec {item} !"
-            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}"
+            f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
+            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
         ), True
 
     elif action["type"] == "poison":
