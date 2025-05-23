@@ -5,6 +5,7 @@ from data import remove_status_effects
 from storage import hp, leaderboard
 from cooldowns import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN
 from leaderboard_utils import update_leaderboard
+from effects import remove_status_effects
 
 # Objets disponibles
 OBJETS = {
