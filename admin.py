@@ -128,18 +128,29 @@ def register_admin_commands(bot):
 
         await interaction.response.send_message("🛑 Leaderboard spécial désactivé et supprimé.", ephemeral=True)
 
-    @bot.tree.command(name="resetall", description="Réinitialise TOUS les joueurs : inventaire, PV, classement.")
+    @bot.tree.command(name="resetall", description="Réinitialise TOUS les joueurs : inventaire, PV, classement, statuts.")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_all(interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
+
         uids = set(inventaire.get(guild_id, {})) | set(hp.get(guild_id, {})) | set(leaderboard.get(guild_id, {}))
         for uid in uids:
             inventaire[guild_id][uid] = []
             hp[guild_id][uid] = 100
-            leaderboard[guild_id][uid] = {"degats": 0, "soin": 0}
+            leaderboard[guild_id][uid] = {"degats": 0, "soin": 0, "kills": 0, "morts": 0}
+
+        # Réinitialisation des statuts
+        from data import virus_status, poison_status, infection_status, regeneration_status
+
+        virus_status[guild_id] = {}
+        poison_status[guild_id] = {}
+        infection_status[guild_id] = {}
+        regeneration_status[guild_id] = {}
+
         sauvegarder()
+
         await interaction.response.send_message(
-            f"♻️ Tous les joueurs ont été réinitialisés ({len(uids)} membres).", ephemeral=True
+            f"♻️ Tous les joueurs ont été réinitialisés ({len(uids)} membres), y compris leurs statuts.", ephemeral=True
         )
 
     @bot.tree.command(name="resethp", description="Remet les PV d’un membre à 100.")
@@ -227,8 +238,7 @@ def register_admin_commands(bot):
 
         medals = ["🥇", "🥈", "🥉"]
         server_lb = leaderboard.get(guild_id, {})
-        from storage import hp  # 🩺 Pour récupérer les PV
-        sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
+        sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]["degats"] + x[1]["soin"] + x[1].get("kills", 0) * 50 - x[1].get("morts", 0) * 25, reverse=True)
 
         lines = []
         rank = 0
@@ -238,11 +248,18 @@ def register_admin_commands(bot):
                 continue
             if rank >= 10:
                 break
-            total = stats["degats"] + stats["soin"]
-            current_hp = hp.get(guild_id, {}).get(uid, 100)  # 🔥 Ajout des PV
+
+            degats = stats.get("degats", 0)
+            soin = stats.get("soin", 0)
+            kills = stats.get("kills", 0)
+            morts = stats.get("morts", 0)
+            total = degats + soin + kills * 50 - morts * 25
+            current_hp = hp.get(guild_id, {}).get(uid, 100)
+
             prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
             lines.append(
-                f"{prefix} **{member.display_name}** → 🗡️ {stats['degats']} | 💚 {stats['soin']} = **{total}** points | ❤️ {current_hp} PV"
+                f"{prefix} **{member.display_name}** → "
+                f"🗡️ {degats} | 💚 {soin} | 🎽 {kills} | 💀 {morts} = **{total}** points | ❤️ {current_hp} PV"
             )
             rank += 1
 
