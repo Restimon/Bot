@@ -1,14 +1,12 @@
-import random
 import time
-import asyncio
+import math
+import random
 import discord
-import json
-import os
-from discord.ext import tasks
 
-from utils import OBJETS
-from storage import get_user_data, hp, leaderboard
-from data import virus_status, poison_status, infection_status, regeneration_status
+from discord import app_commands
+from data import sauvegarder
+from utils import OBJETS, is_on_cooldown  
+from storage import get_user_data
 
 async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     guild_id = str(ctx.guild.id)
