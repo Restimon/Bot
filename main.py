@@ -7,6 +7,7 @@ import signal
 import sys
 import datetime
 import time
+import logging
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
@@ -244,31 +245,27 @@ async def update_leaderboard_loop():
                 )
                 rank += 1
 
-            text = (
+            content = (
                 "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
-                "\n".join(lines) +
-                "\n\n📌 Classement mis à jour automatiquement par SomniCorp."
+                "\n".join([f"> {line}" for line in lines]) +
+                "\n\n> 📌 Classement mis à jour automatiquement par SomniCorp."
             ) if lines else "*Aucune donnée disponible.*"
 
             try:
                 if message_id:
                     print(f"✏️ Modification du message {message_id} dans {channel.name}")
                     msg = await channel.fetch_message(message_id)
-                    await msg.edit(content=text)
+                    await msg.edit(content=content)
                 else:
                     raise discord.NotFound(response=None, message="No message ID")
             except (discord.NotFound, discord.HTTPException):
                 print(f"📤 Envoi d’un nouveau message dans {channel.name}")
-                msg = await channel.send(content=text)
+                msg = await channel.send(content=content)
                 guild_config["special_leaderboard_message_id"] = msg.id
                 save_config()
 
         await asyncio.sleep(60)
         
-import datetime
-import asyncio
-import logging
-
 async def yearly_reset_loop():
     await bot.wait_until_ready()
     while not bot.is_closed():
