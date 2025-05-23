@@ -514,7 +514,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             f"⚠️ Le vaccin 💉 ne peut être utilisé que via la commande `/heal`."
         ), False   
         
-    elif action["type"] == "infection":
+        elif action["type"] == "infection":
         infection_status.setdefault(guild_id, {})
         dmg = action.get("degats", 5)
         duration = action.get("duree", 3 * 3600)
@@ -553,3 +553,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             f"**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV"
             f"{reset_txt}{effect_txt}"
         ), True
+
+    # ✅ Si aucun des `if` ou `elif` ci-dessus n'est pris en compte, retourne un embed d'erreur
+    print(f"[apply_item_with_cooldown] Aucun traitement défini pour l’objet {item} de type {action.get('type')}")
+    return build_embed_from_item(item, f"⚠️ Aucun effet appliqué pour l'objet `{item}` (type: {action.get('type')})."), False
