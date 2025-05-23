@@ -8,6 +8,8 @@ from embeds import build_embed_from_item
 # ✅ Utilisation du disk persistant monté via Render
 DATA_FILE = "/persistent/data.json"
 
+cooldowns = {"attack": {}, "heal": {}}
+
 # États persistants
 infection_status = {} 
 virus_status = {}
