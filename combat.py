@@ -228,10 +228,16 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         if action["type"] == "attaque":
             virus_status[guild_id][target_id] = virus_status[guild_id][user_id].copy()
             del virus_status[guild_id][user_id]
-            await ctx.channel.send(
-                f"💉 {user_mention} a **transmis le virus** à {target_mention}.\n"
-                f"🦠 Le statut viral a été **supprimé** de {user_mention}."
+
+            embed_virus = discord.Embed(
+                title="💉 Transmission virale",
+                description=(
+                    f"**SomniCorp** confirme une transmission virale : {target_mention} est désormais infecté.\n"
+                    f"🦠 Le virus a été retiré de {user_mention}."
+                ),
+                color=0x2288FF
             )
+            await ctx.channel.send(embed=embed_virus)
 
         # 💀 KO
         if after == 0:
