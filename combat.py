@@ -5,11 +5,12 @@ import discord
 
 from discord import app_commands
 from data import esquive_bonus, casque_bonus, shields, virus_status, poison_status, infection_status, immunite_status, hp, leaderboard
-from utils import OBJETS, is_on_cooldown, check_crit, handle_death
+from utils import OBJETS, check_crit, handle_death
 from storage import get_user_data
 from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
+from effects import remove_status_effects
 
 async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     guild_id = str(ctx.guild.id)
