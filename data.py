@@ -3,6 +3,7 @@ import os
 import time
 
 from storage import inventaire, hp, leaderboard
+from embeds import build_embed_from_item
 
 # ✅ Utilisation du disk persistant monté via Render
 DATA_FILE = "/persistent/data.json"
