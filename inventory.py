@@ -2,6 +2,7 @@ import random
 import discord
 from utils import OBJETS
 from storage import get_user_data
+from embeds import build_embed_from_item
 
 def get_random_item():
     """Retourne un objet au hasard selon sa rareté."""
