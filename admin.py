@@ -211,18 +211,26 @@ def register_admin_commands(bot):
             
     @bot.tree.command(name="supply", description="Force l’apparition d’un ravitaillement spécial (admin uniquement)")
     async def supply_command(interaction: discord.Interaction):
+        from special_supply import send_special_supply, last_active_channel, last_supply_time
+
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("⛔ Commande réservée aux administrateurs.", ephemeral=True)
             return
 
-        # 👇 Fixe manuellement le salon actif
         guild_id = str(interaction.guild.id)
         last_active_channel[guild_id] = interaction.channel.id
 
-        await interaction.response.defer(thinking=False)
-        await send_special_supply(bot, force=True)
-        await interaction.followup.send("📦 Ravitaillement spécial déclenché avec succès.")
- 
+        try:
+            await interaction.response.defer(thinking=False)
+            await send_special_supply(bot, force=True)
+
+            # ⛔ Empêche le déclenchement d'un ravitaillement automatique juste après
+            last_supply_time[guild_id] = time.time()
+
+            await interaction.followup.send("📦 Ravitaillement spécial déclenché avec succès.")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erreur lors du déclenchement : {e}")
+
     @bot.tree.command(name="forcer_lb_temp", description="🔁 Mise à jour manuelle du leaderboard spécial (test).")
     @app_commands.checks.has_permissions(administrator=True)
     async def force_leaderboard_update(interaction: discord.Interaction):
