@@ -1,13 +1,14 @@
-import discordimport time
-import math
 import random
+import time
+import asyncio
 import discord
+import json
+import os
+from discord.ext import tasks
 
-from discord import app_commands
-from data import sauvegarder
 from utils import OBJETS
-from storage import get_user_data
-from combat import apply_item_with_cooldown
+from storage import get_user_data, hp, leaderboard
+from data import virus_status, poison_status, infection_status, regeneration_status
 
 async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     guild_id = str(ctx.guild.id)
