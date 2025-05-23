@@ -17,15 +17,21 @@ def register_fight_command(bot):
         tid = str(target.id)
 
         if target.bot:
-            return await interaction.followup.send("🤖 Tu ne peux pas attaquer un bot, même s’il a l’air louche.", ephemeral=True)
+            return await interaction.followup.send(
+                "🤖 Tu ne peux pas attaquer un bot, même s’il a l’air louche.", ephemeral=True
+            )
 
         user_inv, _, _ = get_user_data(guild_id, uid)
 
         if item not in user_inv:
-            return await interaction.followup.send("❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True)
+            return await interaction.followup.send(
+                "❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True
+            )
 
         if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "attaque_chaine", "virus", "poison", "infection", "vol"]:
-            return await interaction.followup.send("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
+            return await interaction.followup.send(
+                "⚠️ Cet objet n’est pas une arme valide !", ephemeral=True
+            )
 
         embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
         if success:
@@ -35,14 +41,16 @@ def register_fight_command(bot):
         else:
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # ✅ Autocomplétion des objets avec description
+    # ✅ Autocomplétion des objets d'attaque avec description
     @fight_slash.autocomplete("item")
     async def autocomplete_items(interaction: discord.Interaction, current: str):
         guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection"]
+        # 👇 Ajout du type "vol" ici
+        attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection", "vol"]
+
         attack_items = sorted(set(
             i for i in user_inv if OBJETS.get(i, {}).get("type") in attack_types
         ))
@@ -59,15 +67,17 @@ def register_fight_command(bot):
             typ = obj.get("type")
 
             if typ == "attaque":
-                label = f"{emoji} |{obj.get('degats')} dmg, {int(obj.get('crit', 0)*100)}% crit"
+                label = f"{emoji} | {obj.get('degats')} dmg, {int(obj.get('crit', 0)*100)}% crit"
             elif typ == "attaque_chaine":
-                label = f"{emoji} (☠️ 24 dmg + 2×12, {int(obj.get('crit', 0)*100)}% crit)"
+                label = f"{emoji} | ☠️ 24 dmg + 2×12, {int(obj.get('crit', 0)*100)}% crit"
             elif typ == "virus":
-                label = f"{emoji} |Virus -> 5dmg initiaux + 5dmg toutes les heures"
+                label = f"{emoji} | Virus → 5 dmg initiaux + 5 dmg/h"
             elif typ == "poison":
-                label = f"{emoji} |Poison -> 3dmg initaux + 3dmg toutes les 30min"
+                label = f"{emoji} | Poison → 3 dmg initiaux + 3 dmg/30min"
             elif typ == "infection":
-                label = f"{emoji} |Infection -> 5dmg initiaux + 2dmg toutes les 30min, propagation possible"
+                label = f"{emoji} | Infection → 5 dmg initiaux + 2 dmg/30min, propagation"
+            elif typ == "vol":
+                label = f"{emoji} | Vole un objet aléatoire à la cible"
             else:
                 label = f"{emoji} (Objet spécial)"
 
