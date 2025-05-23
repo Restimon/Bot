@@ -33,7 +33,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     action = OBJETS[item]
     
     # 🕒 Vérifie le cooldown
-    if action["type"] in ["attaque", "virus", "poison", "infection"]:
+    if action["type"] in ["attaque", "virus", "poison", "infection", "attaque_chaine"]:
         on_cd, remain = is_on_cooldown(guild_id, (user_id, target_id), "attack")
         if on_cd:
             return build_embed_from_item(
@@ -70,14 +70,14 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât."
             ), True
 
-    # 💥 Traitement de l'effet "attaque"
-    if action["type"] == "attaque":
+    elif action["type"] == "attaque":
         base_dmg = action.get("degats", 0)
+        bonus_dmg = 0
 
         # 🦠 Bonus virus : +2 dégâts attribués à la source
         virus_stat = virus_status.get(guild_id, {}).get(user_id)
         if virus_stat:
-            base_dmg += 2
+            bonus_dmg += 2
             virus_source = virus_stat.get("source", user_id)
             leaderboard.setdefault(guild_id, {}).setdefault(virus_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
             leaderboard[guild_id][virus_source]["degats"] += 2
@@ -94,7 +94,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         infect_stat = infection_status.get(guild_id, {}).get(user_id)
         if infect_stat and target_id not in infection_status.get(guild_id, {}):
             infect_source = infect_stat.get("source", user_id)
-            base_dmg += 2
+            bonus_dmg += 2
             leaderboard.setdefault(guild_id, {}).setdefault(infect_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
             leaderboard[guild_id][infect_source]["degats"] += 2
 
@@ -124,11 +124,12 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         # 🎯 Calcul des dégâts
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
-        base_dmg = apply_casque_reduction(guild_id, target_id, base_dmg)
-        dmg_final = apply_shield(guild_id, target_id, base_dmg)
+        total_dmg = base_dmg + bonus_dmg
+        total_dmg = apply_casque_reduction(guild_id, target_id, total_dmg)
+        total_dmg = apply_shield(guild_id, target_id, total_dmg)
 
         before = hp[guild_id].get(target_id, 100)
-        after = max(before - dmg_final, 0)
+        after = max(before - total_dmg, 0)
         hp[guild_id][target_id] = after
 
         real_dmg = before - after
@@ -143,7 +144,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         return build_embed_from_item(
             item,
             f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-            f"**{before} → {after} PV**{crit_txt}{reset_txt}"
+            f"**{before} → {after} PV** (base: {base_dmg - bonus_dmg} + bonus: {bonus_dmg}){crit_txt}{reset_txt}"
         ), True
 
     elif action["type"] == "poison":
