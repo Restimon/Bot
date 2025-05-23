@@ -7,6 +7,7 @@ from embeds import build_embed_from_item
 
 # ✅ Utilisation du disk persistant monté via Render
 PERSISTENT_PATH = "/persistent"
+DATA_FILE = os.path.join(PERSISTENT_PATH, "data.json")
 cooldowns = {"attack": {}, "heal": {}}
 
 # États persistants
