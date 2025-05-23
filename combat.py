@@ -58,18 +58,19 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     if is_immune(guild_id, target_id):
         return build_embed_from_item(
             item,
-            f"⭐️ {target_mention} est **invulnérable**. Aucun effet."
-        ), True
+             f"⭐️ {target_mention} est **invulnérable**. Aucun effet."
+         ), True
 
-        # 💨 Esquive ?
-    if action["type"] in ["attaque", "virus", "poison", "infection"]:
+     # 💨 Esquive ?
+     if action["type"] in ["attaque", "virus", "poison", "infection"]:
         if random.random() < get_evade_chance(guild_id, target_id):
             return build_embed_from_item(
                 item,
                 f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât."
             ), True
 
-    elif action["type"] == "attaque":
+        # Ici on traite les différents types
+        if action["type"] == "attaque":
         base_dmg = action.get("degats", 0)
         bonus_dmg = 0
         bonus_info = ""
