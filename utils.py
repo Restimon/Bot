@@ -57,6 +57,10 @@ GIFS = {
 }
 
 # Objets avec pondération (plus rare = moins probable)
+def check_crit(chance):
+    """Renvoie True si un coup critique a lieu selon la probabilité `chance` (0.0 à 1.0)."""
+    return random.random() < chance
+
 def get_random_item():
     pool = []
     for emoji, data in OBJETS.items():
