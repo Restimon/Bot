@@ -11,7 +11,7 @@ import time
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
 from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status
-from utils import cooldowns, get_random_item, OBJETS, handle_death  
+from utils import get_random_item, OBJETS, handle_death  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
 from combat import apply_item_with_cooldown
@@ -27,6 +27,8 @@ from status import register_status_command
 from box import register_box_command
 from special_supply import special_supply_loop, update_last_active_channel
 from embeds import build_embed_from_item
+from cooldowns import is_on_cooldown
+from leaderboard_utils import update_leaderboard
 
 load_dotenv()
 
