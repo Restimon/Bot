@@ -1,8 +1,10 @@
 import random
 import time
 
-from data import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN, remove_status_effects, update_leaderboard
+from data import remove_status_effects
 from storage import hp, leaderboard
+from cooldowns import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN
+from leaderboard_utils import update_leaderboard
 
 # Objets disponibles
 OBJETS = {
