@@ -430,6 +430,8 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 embed_lines.append(f"{header} (attaque secondaire)")
 
         return build_embed_from_item(item, "\n".join(embed_lines)), True
+            # Aucun type reconnu : fail-safe
+    return build_embed_from_item("❓", f"⚠️ Type d'effet inconnu pour l’objet {item}."), False
 
 def is_immune(guild_id, target_id):
     """Vérifie si la cible a une immunité active."""
@@ -484,7 +486,3 @@ def apply_crit(dmg, crit_chance):
 def get_mention(ctx, user_id):
     member = ctx.guild.get_member(int(user_id))
     return member.mention if member else f"<@{user_id}>"
-
-    # Aucun type reconnu : fail-safe
-    return build_embed_from_item("❓", f"⚠️ Type d'effet inconnu pour l’objet {item}."), False
-
