@@ -353,15 +353,14 @@ async def virus_damage_loop():
                     hp[gid][uid] = new_hp
                     virus_status[gid][uid]["last_tick"] = tick_count
 
-                    # Attribution des points
-                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                    leaderboard[gid][source_id]["degats"] += dmg
+                    # ✅ Pas de points si la source est aussi la cible
+                    if uid != source_id:
+                        leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard[gid][source_id]["degats"] += dmg
 
-                    # Temps restant
                     remaining = max(0, duration - elapsed)
                     remaining_min = int(remaining // 60)
 
-                    # Embed dans le salon
                     try:
                         channel = bot.get_channel(channel_id)
                         if channel:
@@ -377,7 +376,6 @@ async def virus_damage_loop():
                     except Exception as e:
                         print(f"[virus_damage_loop] Erreur d’envoi embed : {e}")
 
-                    # KO
                     if new_hp == 0:
                         handle_death(gid, uid, source_id)
                         print(f"💀 {uid} a été vaincu par un virus et revient à 100 PV.")
