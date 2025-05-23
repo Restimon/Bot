@@ -10,6 +10,7 @@ from discord.ext import tasks
 from utils import OBJETS
 from storage import get_user_data, hp, leaderboard
 from data import virus_status, poison_status, infection_status, regeneration_status
+from embeds import build_embed_from_item
 
 # Variables globales
 last_supply_time = 0
