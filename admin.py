@@ -6,6 +6,7 @@ from utils import OBJETS
 from config import get_config, save_config, get_guild_config
 from data import sauvegarder, virus_status, poison_status
 from special_supply import send_special_supply
+from embeds import build_embed_from_item
 
 def register_admin_commands(bot):
     print("📦 Enregistrement des commandes admin...")
