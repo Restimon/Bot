@@ -26,6 +26,7 @@ from profile import register_profile_command
 from status import register_status_command
 from box import register_box_command
 from special_supply import special_supply_loop, update_last_active_channel
+from embeds import build_embed_from_item
 
 load_dotenv()
 
