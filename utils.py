@@ -1,7 +1,7 @@
 import random
 import time
 
-from data import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN, remove_status_effects
+from data import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN, remove_status_effects, update_leaderboard
 from storage import hp, leaderboard
 
 # Objets disponibles
