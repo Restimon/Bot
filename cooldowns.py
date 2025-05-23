@@ -20,9 +20,11 @@ def is_on_cooldown(guild_id, key, action):
     remaining = int(value + (ATTACK_COOLDOWN if action == "attack" else HEAL_COOLDOWN) - now)
     return remaining > 0, remaining
 
-def set_cooldown(guild_id, key, action):
+def set_cooldown(guild_id, key, action, duration=None):
     now = time.time()
+    cd_time = now if duration is None else now - (ATTACK_COOLDOWN if action == "attack" else HEAL_COOLDOWN) + duration
+
     if isinstance(key, tuple):
-        cooldowns[action].setdefault(guild_id, {})[tuple(key)] = now
+        cooldowns[action].setdefault(guild_id, {})[tuple(key)] = cd_time
     else:
-        cooldowns[action].setdefault(guild_id, {})[key] = now
+        cooldowns[action].setdefault(guild_id, {})[key] = cd_time
