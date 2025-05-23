@@ -368,6 +368,7 @@ async def virus_damage_loop():
                         channel = bot.get_channel(channel_id)
                         if channel:
                             member = await bot.fetch_user(int(uid))
+                            await asyncio.sleep(0.05)
                             embed = discord.Embed(
                                 description=(
                                     f"🦠 {member.mention} subit **-{dmg} PV** *(Virus)*.\n"
@@ -376,6 +377,8 @@ async def virus_damage_loop():
                                 color=discord.Color.dark_purple()
                             )
                             await channel.send(embed=embed)
+                            await asyncio.sleep(0.05)
+                            
                     except Exception as e:
                         print(f"[virus_damage_loop] Erreur d’envoi embed : {e}")
 
@@ -443,6 +446,8 @@ async def poison_damage_loop():
                         channel = bot.get_channel(channel_id)
                         if channel:
                             member = await bot.fetch_user(int(uid))
+                            await asyncio.sleep(0.05)
+                            
                             embed = discord.Embed(
                                 description=(
                                     f"🧪 {member.mention} subit **-{dmg} PV** *(Poison)*.\n"
@@ -451,7 +456,8 @@ async def poison_damage_loop():
                                 color=discord.Color.dark_green()
                             )
                             await channel.send(embed=embed)
-
+                            await asyncio.sleep(0.05)
+                            
                             if new_hp == 0:
                                 handle_death(gid, uid, source_id)
                                 embed_ko = discord.Embed(
@@ -513,7 +519,8 @@ async def infection_damage_loop():
                         channel = bot.get_channel(channel_id)
                         if channel:
                             member = await bot.fetch_user(int(uid))
-
+                            await asyncio.sleep(0.05)
+                            
                             embed = discord.Embed(
                                 description=(
                                     f"🧟 {member.mention} subit **-{dmg} PV** *(Infection)*.\n"
@@ -522,7 +529,8 @@ async def infection_damage_loop():
                                 color=discord.Color.dark_green()
                             )
                             await channel.send(embed=embed)
-
+                            await asyncio.sleep(0.05)
+                            
                             if new_hp == 0:
                                 handle_death(gid, uid, source_id)
                                 ko_embed = discord.Embed(
