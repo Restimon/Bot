@@ -323,14 +323,14 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         # Vérifie si l'utilisateur peut esquiver ou est immunisé (déjà géré)
         # ...
 
-        attacker_inv, _, _ = get_user_data(guild_id, attacker_id)
+        attacker_inv, _, _ = get_user_data(guild_id, user_id)
         target_inv, _, _ = get_user_data(guild_id, target_id)
 
         volables = target_inv.copy()
         if not volables:
             embed = discord.Embed(
-                description=f"🔍 {get_mention(target_id)} n’avait **aucun objet à voler**.",
-                color=discord.Color.red()
+                description=f"🔍 {get_mention(ctx, user_id)} a volé **{stolen}** à {get_mention(ctx, target_id)} !",
+                color=discord.Color.gold()
             )
             return embed, False
 
