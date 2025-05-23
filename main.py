@@ -129,12 +129,20 @@ async def on_ready():
     bot.loop.create_task(infection_damage_loop())
     regeneration_loop.start()
     
+@bot.event
 async def on_message(message):
-    global message_counter, random_threshold, last_drop_time
-    await bot.process_commands(message)
-
+    # Ignorer les bots
     if message.author.bot:
         return
+
+    # 🔁 Update du dernier salon actif
+    update_last_active_channel(message)
+
+    # 🔄 Traitement des commandes slash ou prefix
+    await bot.process_commands(message)
+
+    # 📦 Ravitaillement spécial
+    global message_counter, random_threshold, last_drop_time
 
     current_time = asyncio.get_event_loop().time()
     if current_time - last_drop_time < 30:
@@ -182,11 +190,6 @@ async def on_message(message):
         message_counter = 0
         random_threshold = 5
 
-@bot.event
-async def on_message(message):
-    update_last_active_channel(message)
-    await bot.process_commands(message)
-    
 # ===================== Auto-Update Leaderboard ======================
 
 async def update_leaderboard_loop():
