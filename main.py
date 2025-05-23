@@ -29,6 +29,7 @@ from special_supply import special_supply_loop, update_last_active_channel
 from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
+from Item_list import register_item_command
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -93,6 +94,7 @@ def register_all_commands(bot):
     register_profile_command(bot)
     register_status_command(bot)
     register_box_command(bot)                     
+    register_item_command(bot)
     
 # ===================== Events ======================
 
