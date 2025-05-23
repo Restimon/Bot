@@ -108,20 +108,23 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     "channel_id": ctx.channel.id
                 }
 
-                before_inf = hp[guild_id].get(target_id, 100)
-                after_inf = max(before_inf - 5, 0)
-                hp[guild_id][target_id] = after_inf
-
+                inf_before = hp[guild_id].get(target_id, 100)
+                inf_after = max(inf_before - 5, 0)
+                hp[guild_id][target_id] = inf_after
                 if target_id != infect_source:
                     leaderboard[guild_id][infect_source]["degats"] += 5
-
-                if after_inf == 0:
+                if inf_after == 0:
                     handle_death(guild_id, target_id, infect_source)
 
-                await ctx.channel.send(
-                    f"🧬 {target_mention} a été **infecté** par {user_mention} !\n"
-                    f"Ils subissent immédiatement **5 dégâts supplémentaires**."
+                embed_info = discord.Embed(
+                    title="🧬 Infection propagée",
+                    description=(
+                        f"**SomniCorp** détecte un nouveau infecté : {target_mention}.\n"
+                        f"Il subit immédiatement **5 dégâts 🧟**."
+                    ),
+                    color=0x880088
                 )
+                await ctx.channel.send(embed=embed_info)
 
         # 🧪 Poison
         if poison_status.get(guild_id, {}).get(user_id):
@@ -387,7 +390,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 leaderboard[guild_id][infect_source]["degats"] += 2
 
                 if random.random() < 0.25:
-                    infection_status[guild_id][tid] = {
+                    infection_status[guild_id][target_id] = {
                         "start": now,
                         "duration": 3 * 3600,
                         "last_tick": 0,
@@ -395,16 +398,23 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                         "channel_id": ctx.channel.id
                     }
 
-                    inf_before = hp[guild_id].get(tid, 100)
+                    inf_before = hp[guild_id].get(target_id, 100)
                     inf_after = max(inf_before - 5, 0)
-                    hp[guild_id][tid] = inf_after
-                    if tid != infect_source:
+                    hp[guild_id][target_id] = inf_after
+                    if target_id != infect_source:
                         leaderboard[guild_id][infect_source]["degats"] += 5
                     if inf_after == 0:
-                        handle_death(guild_id, tid, infect_source)
+                        handle_death(guild_id, target_id, infect_source)
 
-                    embed = discord.Embed(title="🧬 Infection", description=f"{mention} a été **infecté** par {user_mention} !\nIls subissent immédiatement **5 dégâts supplémentaires**.", color=0x880088)
-                    await ctx.channel.send(embed=embed)
+                    embed_info = discord.Embed(
+                        title="🧬 Infection propagée",
+                        description=(
+                            f"**SomniCorp** détecte un nouveau infecté : {target_mention}.\n"
+                            f"Il subit immédiatement **5 dégâts 🧟**."
+                        ),
+                        color=0x880088
+                    )
+                    await ctx.channel.send(embed=embed_info)
 
             if is_main and user_id in virus_status.get(guild_id, {}):
                 virus_status[guild_id][tid] = virus_status[guild_id][user_id].copy()
@@ -418,8 +428,15 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     leaderboard.setdefault(guild_id, {}).setdefault(source_virus, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                     leaderboard[guild_id][source_virus]["degats"] += 2
 
-                embed = discord.Embed(title="💉 Transmission virale", description=f"{user_mention} a **transmis le virus** à {mention}.\n🦠 Le statut viral a été **supprimé** de {user_mention}.", color=0x2288FF)
-                await ctx.channel.send(embed=embed)
+                embed_virus = discord.Embed(
+                    title="💉 Transmission virale",
+                    description=(
+                        f"**SomniCorp** confirme une transmission virale : {target_mention} est désormais infecté.\n"
+                        f"🦠 Le virus a été retiré de {user_mention}."
+                    ),
+                    color=0x2288FF
+                )
+                await ctx.channel.send(embed=embed_virus)
 
             base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
             dmg = base_dmg + bonus_dmg
