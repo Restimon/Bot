@@ -266,7 +266,7 @@ def register_admin_commands(bot):
         content = (
             "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
             "\n".join([f"> {line}" for line in lines]) +
-            "\n>\n 📌 Classement mis à jour automatiquement par SomniCorp."
+            "\n\n 📌 Classement mis à jour automatiquement par SomniCorp."
         ) if lines else "*Aucune donnée disponible.*"
 
         try:
