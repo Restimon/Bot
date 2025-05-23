@@ -19,23 +19,6 @@ casque_bonus = {}
 regeneration_status = {}  
 immunite_status = {} 
 
-# Cooldowns globaux (utilisés dans data.py)
-cooldowns = {
-    "attack": {},
-    "heal": {}
-}
-
-def is_on_cooldown(guild_id, key, action_type):
-    now = time.time()
-    guild_cooldowns = cooldowns[action_type].setdefault(str(guild_id), {})
-    last_used = guild_cooldowns.get(key, 0)
-    duration = ATTACK_COOLDOWN if action_type == "attack" else HEAL_COOLDOWN
-    remaining = duration - (now - last_used)
-    return (remaining > 0), max(int(remaining), 0)
-
-ATTACK_COOLDOWN = 120  # en secondes
-HEAL_COOLDOWN = 180
-
 def sauvegarder():
     """Sauvegarde toutes les données SomniCorp dans un seul fichier JSON."""
     try:
