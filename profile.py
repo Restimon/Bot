@@ -8,6 +8,7 @@ from data import (
     shields, esquive_bonus, casque_bonus, immunite_status,
     regeneration_status  # ✅ Ajout ici
 )
+from embeds import build_embed_from_item
 
 def register_profile_command(bot):
     @bot.tree.command(name="info", description="Affiche le profil SomniCorp d’un membre.")
