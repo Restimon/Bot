@@ -232,6 +232,23 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     dmg += 5
                     modif += " +5🧟 (infection transmise)"
                     leaderboard[guild_id][source_inf]["degats"] += 5
+                    
+            # Gestion de l'esquive uniquement pour les objets offensifs (pas de soin)
+            if action["type"] in ["attaque", "virus", "poison", "infection"]:
+                evade_chance = 0.1
+                esquive_data = esquive_bonus.get(guild_id, {}).get(target_id)
+                if esquive_data:
+                    elapsed = now - esquive_data["start"]
+                    if elapsed < esquive_data["duration"]:
+                        evade_chance += 0.2
+                    else:
+                        del esquive_bonus[guild_id][target_id]
+
+                if random.random() < evade_chance:
+                    return build_embed_from_item(
+                        item,
+                        f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât infligé."
+                    ), True
 
             # Esquive
             esquive_data = esquive_bonus.get(guild_id, {}).get(victim_id)
