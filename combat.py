@@ -149,10 +149,20 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         else:
             reset_txt = ""
 
-        bonus_info_str = f" (+{bonus_info.strip()})" if bonus_info else ""
+        bonus_info_str = f" ({bonus_info.strip()})" if bonus_info else ""
 
         # ✅ Enregistrement du cooldown (important)
         set_cooldown(guild_id, (user_id, target_id), "attack", OBJETS[item].get("cooldown", 30))
+        
+        if "Coup critique" in crit_txt:
+            embed_crit = discord.Embed(
+                title="💥 Coup Critique !",
+                description=f"{user_mention} a frappé avec une puissance inouïe !",
+                color=discord.Color.red()
+            )
+            
+            embed_crit.set_image(url="https://media.tenor.com/OUts7rGkfLMAAAAd/slash-critique.gif")
+            await ctx.channel.send(embed=embed_crit)
 
         return build_embed_from_item(
             item,
