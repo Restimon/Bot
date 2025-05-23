@@ -474,6 +474,7 @@ async def poison_damage_loop():
 
         await asyncio.sleep(60)
 
+
 async def infection_damage_loop():
     await bot.wait_until_ready()
     print("🧟 Boucle de dégâts d'infection démarrée.")
