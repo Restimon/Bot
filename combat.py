@@ -72,7 +72,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         base_dmg = action.get("degats", 0)
         bonus_dmg = 0
         bonus_info = ""
-
+    
         # 🦠 Bonus virus
         virus_stat = virus_status.get(guild_id, {}).get(user_id)
         if virus_stat:
@@ -151,12 +151,14 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         bonus_info_str = f" (+{bonus_info.strip()})" if bonus_info else ""
 
+        # ✅ Enregistrement du cooldown (important)
+        set_cooldown(guild_id, (user_id, target_id), "attack", OBJETS[item].get("cooldown", 30))
+
         return build_embed_from_item(
             item,
             f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
             f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
         ), True
-
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
