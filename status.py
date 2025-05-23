@@ -5,6 +5,7 @@ from data import (
     virus_status, poison_status, infection_status,
     immunite_status, regeneration_status  # ✅ Ajouté ici
 )
+from embeds import build_embed_from_item
 
 def register_status_command(bot):
     @bot.tree.command(name="status", description="Voir si un membre est affecté par un virus ou un poison SomniCorp")
