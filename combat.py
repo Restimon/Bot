@@ -4,8 +4,8 @@ import random
 import discord
 
 from discord import app_commands
-from data import esquive_bonus, casque_bonus, shields, virus_status, poison_status, infection_status, immunite_status, hp, leaderboard, cooldowns, check_crit
-from utils import OBJETS, is_on_cooldown  
+from data import esquive_bonus, casque_bonus, shields, virus_status, poison_status, infection_status, immunite_status, hp, leaderboard, cooldowns
+from utils import OBJETS, is_on_cooldown, check_crit  
 from storage import get_user_data
 
 async def apply_item_with_cooldown(user_id, target_id, item, ctx):
