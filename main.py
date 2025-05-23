@@ -102,6 +102,9 @@ async def on_ready():
     load_config()
     register_all_commands(bot)
     special_supply_loop.start(bot)
+    asyncio.create_task(virus_damage_loop())
+    asyncio.create_task(poison_damage_loop())
+    asyncio.create_task(infection_damage_loop())
     
     try:
         await bot.tree.sync()
