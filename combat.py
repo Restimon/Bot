@@ -504,7 +504,7 @@ def is_immune(guild_id, target_id):
 
 def get_evade_chance(guild_id, target_id):
     """Retourne la probabilité d'esquive d'un utilisateur."""
-    base = 0.1
+    base = 0.05
     esquive = esquive_bonus.get(guild_id, {}).get(target_id)
     if esquive:
         if time.time() - esquive["start"] < esquive["duration"]:
