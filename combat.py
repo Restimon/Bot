@@ -320,18 +320,29 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         return embed_attack, True
          
     elif action["type"] == "vol":
-        # ⭐️ Immunité ?
-        if is_immune(guild_id, target_id):
-            return build_embed_from_item(
-                item,
-                f"⭐️ {target_mention} est **protégé**. Impossible de voler quoi que ce soit !"
-            ), True
+        # Vérifie si l'utilisateur peut esquiver ou est immunisé (déjà géré)
+        # ...
 
-        if random.random() < get_evade_chance(guild_id, target_id):
-            return build_embed_from_item(
-                "💨",  # emoji ou ID d’effet visuel d’esquive
-                f"💨 {target_mention} esquive habilement l’attaque de {user_mention} avec {item} ! Aucun dégât."
-            ), True
+        attacker_inv, _, _ = get_user_data(guild_id, attacker_id)
+        target_inv, _, _ = get_user_data(guild_id, target_id)
+
+        volables = target_inv.copy()
+        if not volables:
+            embed = discord.Embed(
+                description=f"🔍 {get_mention(target_id)} n’avait **aucun objet à voler**.",
+                color=discord.Color.red()
+            )
+            return embed, False
+
+        stolen = random.choice(volables)
+        target_inv.remove(stolen)
+        attacker_inv.append(stolen)
+
+        embed = discord.Embed(
+            description=f"🔍 {get_mention(attacker_id)} a volé **{stolen}** à {get_mention(target_id)} !",
+            color=discord.Color.gold()
+        )
+        return embed, True
 
         # Inventaire cible
         target_inv, _, _ = get_user_data(guild_id, target_id)
