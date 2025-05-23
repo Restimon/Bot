@@ -60,9 +60,9 @@ def register_admin_commands(bot):
             rank += 1
 
         content = (
-            "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n>\n" +
+            "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
             "\n".join([f"> {line}" for line in lines]) +
-            "\n>\n> 📌 Classement mis à jour automatiquement par SomniCorp."
+            "\n\n> 📌 Classement mis à jour automatiquement par SomniCorp."
         )
 
         msg = await channel.send(content=content)
@@ -264,9 +264,9 @@ def register_admin_commands(bot):
             rank += 1
 
         content = (
-            "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n>\n" +
+            "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
             "\n".join([f"> {line}" for line in lines]) +
-            "\n>\n> 📌 Classement mis à jour automatiquement par SomniCorp."
+            "\n>\n 📌 Classement mis à jour automatiquement par SomniCorp."
         ) if lines else "*Aucune donnée disponible.*"
 
         try:
