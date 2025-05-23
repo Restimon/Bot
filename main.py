@@ -332,10 +332,14 @@ async def virus_damage_loop():
 
         for guild in bot.guilds:
             gid = str(guild.id)
+            await asyncio.sleep(0)  # Laisse respirer la boucle
+
             if gid not in virus_status:
                 continue
 
             for uid, status in list(virus_status[gid].items()):
+                await asyncio.sleep(0)  # Permet au loop de ne pas se bloquer
+
                 start = status.get("start")
                 duration = status.get("duration")
                 last_tick = status.get("last_tick", 0)
@@ -356,7 +360,6 @@ async def virus_damage_loop():
                     hp[gid][uid] = new_hp
                     virus_status[gid][uid]["last_tick"] = tick_count
 
-                    # ✅ Pas de points si la source est aussi la cible
                     if uid != source_id:
                         leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                         leaderboard[gid][source_id]["degats"] += dmg
@@ -369,6 +372,7 @@ async def virus_damage_loop():
                         if channel:
                             member = await bot.fetch_user(int(uid))
                             await asyncio.sleep(0.05)
+
                             embed = discord.Embed(
                                 description=(
                                     f"🦠 {member.mention} subit **-{dmg} PV** *(Virus)*.\n"
@@ -378,29 +382,24 @@ async def virus_damage_loop():
                             )
                             await channel.send(embed=embed)
                             await asyncio.sleep(0.05)
-                            
+
+                            if new_hp == 0:
+                                handle_death(gid, uid, source_id)
+
+                                embed_ko = discord.Embed(
+                                    title="💀 KO viral détecté",
+                                    description=(
+                                        f"**SomniCorp** détecte une chute à 0 PV pour {member.mention}.\n"
+                                        f"🦠 Effondrement dû à une **charge virale critique**.\n"
+                                        f"🔄 {member.mention} est **stabilisé à 100 PV**."
+                                    ),
+                                    color=0x8800FF
+                                )
+                                await channel.send(embed=embed_ko)
                     except Exception as e:
                         print(f"[virus_damage_loop] Erreur d’envoi embed : {e}")
 
-                    if new_hp == 0:
-                        handle_death(gid, uid, source_id)
-
-                        try:
-                            channel = bot.get_channel(channel_id)
-                            member = await bot.fetch_user(int(uid))
-                            mention = member.mention
-                            embed = discord.Embed(
-                                title="💀 KO viral détecté",
-                                description=(
-                                    f"**SomniCorp** détecte une chute à 0 PV pour {mention}.\n"
-                                    f"🦠 Effondrement dû à une **charge virale critique**.\n"
-                                    f"🔄 {mention} est **stabilisé à 100 PV**."
-                                ),
-                                color=0x8800FF
-                            )
-                            await channel.send(embed=embed)
-                        except Exception as e:
-                            print(f"[virus_damage_loop] Erreur d’envoi embed KO : {e}")
+        await asyncio.sleep(60)
 
 async def poison_damage_loop():
     await bot.wait_until_ready()
