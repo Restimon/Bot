@@ -73,11 +73,13 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     elif action["type"] == "attaque":
         base_dmg = action.get("degats", 0)
         bonus_dmg = 0
+        bonus_info = ""
 
         # 🦠 Bonus virus : +2 dégâts attribués à la source
         virus_stat = virus_status.get(guild_id, {}).get(user_id)
         if virus_stat:
             bonus_dmg += 2
+            bonus_info += "+2 🦠 "
             virus_source = virus_stat.get("source", user_id)
             leaderboard.setdefault(guild_id, {}).setdefault(virus_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
             leaderboard[guild_id][virus_source]["degats"] += 2
@@ -95,6 +97,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         if infect_stat and target_id not in infection_status.get(guild_id, {}):
             infect_source = infect_stat.get("source", user_id)
             bonus_dmg += 2
+            bonus_info += "+2 🧟 "
             leaderboard.setdefault(guild_id, {}).setdefault(infect_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
             leaderboard[guild_id][infect_source]["degats"] += 2
 
@@ -141,11 +144,13 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         else:
             reset_txt = ""
 
+        bonus_info_str = f" (+{bonus_info.strip()})" if bonus_info else ""
+
         return build_embed_from_item(
             item,
-            f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-            f"**{before} → {after} PV** (base: {base_dmg - bonus_dmg} + bonus: {bonus_dmg}){crit_txt}{reset_txt}"
-        ), True
+            f"{user_mention} inflige {base_dmg}{bonus_info_str} dégâts à {target_mention} avec {item} !\n"
+            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {base_dmg} {bonus_info_str} = {after}{crit_txt}{reset_txt}"
+        ), True""
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
