@@ -484,3 +484,7 @@ def apply_crit(dmg, crit_chance):
 def get_mention(ctx, user_id):
     member = ctx.guild.get_member(int(user_id))
     return member.mention if member else f"<@{user_id}>"
+
+    # Aucun type reconnu : fail-safe
+    return build_embed_from_item("❓", f"⚠️ Type d'effet inconnu pour l’objet {item}."), False
+
