@@ -58,15 +58,15 @@ def register_fight_command(bot):
             typ = obj.get("type")
 
             if typ == "attaque":
-                label = f"{emoji} ({obj.get('degats')} dmg, {int(obj.get('crit', 0)*100)}% crit)"
+                label = f"{emoji} |{obj.get('degats')} dmg, {int(obj.get('crit', 0)*100)}% crit"
             elif emoji == "☠️":
                 label = f"{emoji} (☠️ 24 dmg + 2×12, {int(obj.get('crit', 0)*100)}% crit)"
             elif typ == "virus":
-                label = f"{emoji} (🦠 Virus : 5 initiaux + 5/h)"
+                label = f"{emoji} |Virus -> 5dmg initiaux + 5dmg toutes les heures"
             elif typ == "poison":
-                label = f"{emoji} (🧪 Poison : 3/30min)"
+                label = f"{emoji} |Poison -> 3dmg initaux + 3dmg toutes les 30min"
             elif typ == "infection":
-                label = f"{emoji} (🧟 Infection : 2/30min, propagation possible)"
+                label = f"{emoji} |Infection -> 5dmg initiaux + 2dmg toutes les 30min, propagation possible"
             else:
                 label = f"{emoji} (Objet spécial)"
 
