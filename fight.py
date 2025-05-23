@@ -24,7 +24,7 @@ def register_fight_command(bot):
         if item not in user_inv:
             return await interaction.followup.send("❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True)
 
-        if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "virus", "poison", "infection"]:
+        if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "attaque_chaine", "virus", "poison", "infection"]:
             return await interaction.followup.send("⚠️ Cet objet n’est pas une arme valide !", ephemeral=True)
 
         embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
@@ -42,7 +42,7 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        attack_types = ["attaque", "virus", "poison", "infection"]
+        attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection"]
         attack_items = sorted(set(
             i for i in user_inv if OBJETS.get(i, {}).get("type") in attack_types
         ))
@@ -60,7 +60,7 @@ def register_fight_command(bot):
 
             if typ == "attaque":
                 label = f"{emoji} |{obj.get('degats')} dmg, {int(obj.get('crit', 0)*100)}% crit"
-            elif emoji == "☠️":
+            elif typ == "attaque_chaine":
                 label = f"{emoji} (☠️ 24 dmg + 2×12, {int(obj.get('crit', 0)*100)}% crit)"
             elif typ == "virus":
                 label = f"{emoji} |Virus -> 5dmg initiaux + 5dmg toutes les heures"
