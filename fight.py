@@ -4,6 +4,7 @@ from utils import OBJETS
 from storage import get_user_data
 from data import sauvegarder
 from combat import apply_item_with_cooldown
+from embeds import build_embed_from_item
 
 def register_fight_command(bot):
     @bot.tree.command(name="fight", description="Attaque un autre membre avec un objet spécifique")
