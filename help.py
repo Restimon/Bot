@@ -30,6 +30,13 @@ def build_help_embed():
             "• **🧟 Infection** : -5 PV immédiats, -2 PV toutes les 30min pendant 3h. 25% de chance de se propager lors des attaques."
         ),
         inline=False
+        
+    )
+
+        embed.add_field(
+        name="📦 Objets disponibles",
+        value="`/item liste` — Affiche la description complète de tous les objets du jeu.",
+        inline=False
     )
 
     embed.add_field(
@@ -58,8 +65,18 @@ def build_help_embed():
     embed.add_field(
         name="🛠️ Outils Admin (modérateurs uniquement)",
         value=(
-            "`/reset` — Réinitialise les stats d’un joueur.\n"
-            "`/setleaderboardchannel` — Configure le salon pour le leaderboard spécial."
+            "`/reset @membre` — Réinitialise les stats d’un joueur.\n"
+            "`/resetinv @membre` — Vide l’inventaire d’un joueur.\n"
+            "`/resethp @membre` — Remet les PV à 100.\n"
+            "`/resetall` — Réinitialise tous les joueurs (PV, stats, inventaire).\n"
+            "`/resetleaderboard` — Réinitialise tout le classement.\n"
+            "`/setleaderboardchannel #salon` — Définit le salon pour le leaderboard spécial.\n"
+            "`/get_leaderboard_channel` — Affiche le salon actuel du leaderboard spécial.\n"
+            "`/stopleaderboard` — Supprime le message et stoppe la MAJ automatique.\n"
+            "`/supply` — Force l’apparition d’un ravitaillement spécial.\n"
+            "`/forcer_lb_temp` — Met à jour manuellement le leaderboard spécial.\n"
+            "`/giveitem @membre 🪓` — Donne un objet à un joueur.\n"
+            "`/purge_status @membre` — Supprime les effets (virus, poison) d’un joueur."
         ),
         inline=False
     )
