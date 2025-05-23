@@ -1,5 +1,6 @@
 import discord
 from storage import leaderboard, hp  # 🔧 ajoute hp ici
+from embeds import build_embed_from_item
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
     medals = ["🥇", "🥈", "🥉"]
