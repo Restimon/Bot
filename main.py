@@ -181,11 +181,23 @@ async def on_message(message):
 
         if collected_users:
             mention_list = "\n".join(f"✅ {user.mention}" for user in collected_users)
-            await message.channel.send(
-                f"📦 Le dépôt de ravitaillement de SomniCorp contenant {item} a été récupéré par :\n{mention_list}"
+
+            embed = discord.Embed(
+                title="📦 Ravitaillement récupéré",
+                description=(
+                    f"Le dépôt de **SomniCorp** contenant {item} a été récupéré par :\n\n{mention_list}"
+                ),
+                color=0x00FFAA
             )
+            await message.channel.send(embed=embed)
+
         else:
-            await message.channel.send(f"💥 Le dépôt de ravitaillement de SomniCorp contenant {item} s’est auto-détruit. 💣")
+            embed = discord.Embed(
+                title="💥 Ravitaillement détruit",
+                description=f"Le dépôt de **SomniCorp** contenant {item} s’est **auto-détruit**. 💣",
+                color=0xFF0000
+            )
+            await message.channel.send(embed=embed)
 
         message_counter = 0
         random_threshold = 5
