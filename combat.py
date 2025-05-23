@@ -553,6 +553,29 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             f"**SomniCorp :** {target_mention} : {before} - {dmg} = {new_hp} / 100 PV"
             f"{reset_txt}{effect_txt}"
         ), True
+        
+    elif action["type"] == "attaque":
+        crit_txt = ""
+        if check_crit(action.get("crit", 0)):
+            base_dmg *= 2
+            crit_txt = " **(Coup critique ! 💥)**"
+
+        before = hp[guild_id].get(target_id, 100)
+        new_hp = max(before - base_dmg, 0)
+        hp[guild_id][target_id] = new_hp
+        user_stats["degats"] += base_dmg
+        cooldowns["attack"].setdefault(guild_id, {})[user_id] = now
+
+        reset_txt = ""
+        if new_hp == 0:
+            handle_death(guild_id, target_id, user_id)
+            reset_txt = f"\n💀 {target_mention} a été vaincu et revient à **100 PV**. (-25 pts | +50 pts)"
+
+        return build_embed_from_item(
+            item,
+            f"{user_mention} inflige {base_dmg} dégâts à {target_mention} avec {item} !\n"
+            f"**SomniCorp :** {target_mention} : {before} - {base_dmg} = {new_hp} / 100 PV{crit_txt}{reset_txt}"
+        ), True
 
     # ✅ Si aucun des `if` ou `elif` ci-dessus n'est pris en compte, retourne un embed d'erreur
     print(f"[apply_item_with_cooldown] Aucun traitement défini pour l’objet {item} de type {action.get('type')}")
