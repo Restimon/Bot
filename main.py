@@ -29,7 +29,7 @@ from special_supply import special_supply_loop, update_last_active_channel
 from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
-from Item_list import register_item_command
+from item_list import register_item_command
 
 os.makedirs("/persistent", exist_ok=True)
 
