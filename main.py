@@ -378,9 +378,23 @@ async def virus_damage_loop():
 
                     if new_hp == 0:
                         handle_death(gid, uid, source_id)
-                        print(f"💀 {uid} a été vaincu par un virus et revient à 100 PV.")
 
-        await asyncio.sleep(60)
+                        try:
+                            channel = bot.get_channel(channel_id)
+                            member = await bot.fetch_user(int(uid))
+                            mention = member.mention
+                            embed = discord.Embed(
+                                title="💀 KO viral détecté",
+                                description=(
+                                    f"**SomniCorp** détecte une chute à 0 PV pour {mention}.\n"
+                                    f"🦠 Effondrement dû à une **charge virale critique**.\n"
+                                    f"🔄 {mention} est **stabilisé à 100 PV**."
+                                ),
+                                color=0x8800FF
+                            )
+                            await channel.send(embed=embed)
+                        except Exception as e:
+                            print(f"[virus_damage_loop] Erreur d’envoi embed KO : {e}")
 
 async def poison_damage_loop():
     await bot.wait_until_ready()
@@ -415,15 +429,13 @@ async def poison_damage_loop():
                     hp[gid][uid] = new_hp
                     poison_status[gid][uid]["last_tick"] = tick_count
 
-                    # Attribution des points
-                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                    leaderboard[gid][source_id]["degats"] += dmg
+                    if uid != source_id:
+                        leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard[gid][source_id]["degats"] += dmg
 
-                    # Temps restant
                     remaining = max(0, duration - elapsed)
                     remaining_min = int(remaining // 60)
 
-                    # Envoi dans le salon d'origine
                     try:
                         channel = bot.get_channel(channel_id)
                         if channel:
@@ -436,16 +448,24 @@ async def poison_damage_loop():
                                 color=discord.Color.dark_green()
                             )
                             await channel.send(embed=embed)
+
+                            if new_hp == 0:
+                                handle_death(gid, uid, source_id)
+                                embed_ko = discord.Embed(
+                                    title="💀 KO toxique détecté",
+                                    description=(
+                                        f"**SomniCorp** détecte une chute à 0 PV pour {member.mention}.\n"
+                                        f"🧪 Effondrement dû à une **intoxication sévère**.\n"
+                                        f"🔄 {member.mention} est **stabilisé à 100 PV**."
+                                    ),
+                                    color=0x006600
+                                )
+                                await channel.send(embed=embed_ko)
                     except Exception as e:
                         print(f"[poison_damage_loop] Erreur d’envoi embed : {e}")
 
-                    # KO
-                    if new_hp == 0:
-                        handle_death(gid, uid, source_id)
-                        print(f"💀 {uid} a été vaincu par du poison et revient à 100 PV.")
-
         await asyncio.sleep(60)
-        
+
 async def infection_damage_loop():
     await bot.wait_until_ready()
     print("🧟 Boucle de dégâts d'infection démarrée.")
@@ -466,7 +486,7 @@ async def infection_damage_loop():
                 channel_id = status.get("channel_id")
 
                 elapsed = now - start
-                tick_count = int(elapsed // 1800)  # 30 minutes
+                tick_count = int(elapsed // 1800)
 
                 if elapsed >= duration:
                     del infection_status[gid][uid]
@@ -479,10 +499,8 @@ async def infection_damage_loop():
                     hp[gid][uid] = new_hp
                     infection_status[gid][uid]["last_tick"] = tick_count
 
-                    # ✅ Attribuer les points seulement si la source ≠ victime
                     if uid != source_id:
-                        leaderboard.setdefault(gid, {})
-                        leaderboard[gid].setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                         leaderboard[gid][source_id]["degats"] += dmg
 
                     remaining = max(0, duration - elapsed)
@@ -492,6 +510,7 @@ async def infection_damage_loop():
                         channel = bot.get_channel(channel_id)
                         if channel:
                             member = await bot.fetch_user(int(uid))
+
                             embed = discord.Embed(
                                 description=(
                                     f"🧟 {member.mention} subit **-{dmg} PV** *(Infection)*.\n"
@@ -500,11 +519,21 @@ async def infection_damage_loop():
                                 color=discord.Color.dark_green()
                             )
                             await channel.send(embed=embed)
+
+                            if new_hp == 0:
+                                handle_death(gid, uid, source_id)
+                                ko_embed = discord.Embed(
+                                    title="💀 KO infectieux détecté",
+                                    description=(
+                                        f"**SomniCorp** détecte une chute à 0 PV pour {member.mention}.\n"
+                                        f"🧟 Effondrement dû à une infection invasive.\n"
+                                        f"🔄 Le patient est stabilisé à **100 PV**."
+                                    ),
+                                    color=0x880088
+                                )
+                                await channel.send(embed=ko_embed)
                     except Exception as e:
                         print(f"[infection_damage_loop] Erreur d’envoi embed : {e}")
-
-                    if new_hp == 0:
-                        handle_death(gid, uid, source_id)
 
         await asyncio.sleep(60)
         
