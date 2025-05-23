@@ -429,8 +429,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             else:
                 embed_lines.append(f"{header} (attaque secondaire)")
 
+        # On sort de la boucle for et on retourne l'embed
         return build_embed_from_item(item, "\n".join(embed_lines)), True
-            # Aucun type reconnu : fail-safe
+
+    # Aucun type reconnu : fail-safe
     return build_embed_from_item("❓", f"⚠️ Type d'effet inconnu pour l’objet {item}."), False
 
 def is_immune(guild_id, target_id):
