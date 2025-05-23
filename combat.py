@@ -1,3 +1,14 @@
+import discordimport time
+import math
+import random
+import discord
+
+from discord import app_commands
+from data import sauvegarder
+from utils import OBJETS
+from storage import get_user_data
+from combat import apply_item_with_cooldown
+
 async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     guild_id = str(ctx.guild.id)
     user_id = str(user_id)
