@@ -4,7 +4,7 @@ import random
 import discord
 
 from discord import app_commands
-from data import esquive_bonus, casque_bonus, shields, virus_status, poison_status, infection_status, immunite_status, hp, leaderboard
+from data import esquive_bonus, cooldowns, casque_bonus, shields, virus_status, poison_status, infection_status, immunite_status, hp, leaderboard
 from utils import OBJETS, check_crit, handle_death
 from storage import get_user_data
 from embeds import build_embed_from_item
