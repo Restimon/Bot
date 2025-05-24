@@ -102,8 +102,10 @@ def register_all_commands(bot):
 
 @bot.event
 async def on_ready():
+    now = time.time()
     charger()
     load_config()
+    supply_data = load_supply_data()  # ✅ à ajouter
     register_all_commands(bot)
     special_supply_loop.start(bot)
     asyncio.create_task(virus_damage_loop())
@@ -118,10 +120,9 @@ async def on_ready():
             if elapsed < 300:
                 delay = 300 - elapsed
                 print(f"🔁 Ravito en cours sur {guild.name}, fermeture dans {int(delay)} sec.")
-                asyncio.create_task(asyncio.sleep(delay))
-                asyncio.create_task(close_special_supply(gid))
+                asyncio.create_task(wait_and_close_supply(gid, delay))  # ✅
             else:
-                asyncio.create_task(close_special_supply(gid)
+                asyncio.create_task(close_special_supply(gid))  # ✅
                                     
     try:
         await bot.tree.sync()
@@ -656,6 +657,10 @@ async def close_special_supply(guild_id):
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
     sauvegarder()
+
+async def wait_and_close_supply(guild_id, delay):
+    await asyncio.sleep(delay)
+    await close_special_supply(guild_id)
 
 # Appel automatique à la fermeture normale du programme
 atexit.register(on_shutdown)
