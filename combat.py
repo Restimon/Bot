@@ -35,10 +35,11 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
     if action["type"] in ["attaque", "virus", "poison", "infection", "attaque_chaine", "vol"]:
         on_cd, remain = is_on_cooldown(guild_id, (user_id, target_id), "attack")
         if on_cd:
-            return build_embed_from_item(
-                item,
-                f"🕒 {user_mention}, vous devez attendre **{remain} sec** avant d'attaquer."
-            ), False
+            embed = discord.Embed(
+                description=f"🕒 {user_mention}, vous devez attendre **{remain} sec** avant d'attaquer.",
+                color=discord.Color.orange()
+            )
+            return embed, False
 
     if action["type"] == "soin":
         soin = action.get("soin", 0)
