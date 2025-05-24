@@ -50,14 +50,26 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         hp[guild_id][target_id] = after
 
         user_stats["soin"] += real_soin
-
-        reset_txt = "" if real_soin > 0 else "\n🛑 Aucun PV n’a été soigné."
         set_cooldown(guild_id, (user_id, target_id), "heal", action.get("cooldown", 30))
+
+        # 📝 Message personnalisé selon la cible
+        if user_id == target_id:
+            description = (
+                f"💊 {user_mention} se soigne avec {item}.\n"
+                f"🩹 Il récupère **{real_soin} PV**.{crit_txt}"
+            )
+        else:
+            description = (
+                f"💉 {user_mention} soigne {target_mention} avec {item}.\n"
+                f"🩹 {target_mention} récupère **{real_soin} PV**.{crit_txt}"
+            )
+
+        if real_soin == 0:
+            description += "\n🛑 Aucun PV n’a été soigné."
 
         return build_embed_from_item(
             item,
-            f"{user_mention} soigne {target_mention} avec {item}.\n"
-            f"**{before} → {after} PV**{crit_txt}{reset_txt}",
+            description,
             is_heal_other=(user_id != target_id)
         ), True
 
