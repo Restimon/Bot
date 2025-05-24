@@ -26,11 +26,12 @@ from admin import register_admin_commands
 from profile import register_profile_command
 from status import register_status_command
 from box import register_box_command
-from special_supply import special_supply_loop, update_last_active_channel
+from special_supply import update_last_active_channel, end_special_supply
 from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
 from item_list import register_item_command
+from .supply_persistence import load_supply_data, save_supply_data 
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -108,7 +109,20 @@ async def on_ready():
     asyncio.create_task(virus_damage_loop())
     asyncio.create_task(poison_damage_loop())
     asyncio.create_task(infection_damage_loop())
-    
+
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        if supply_data.get(gid, {}).get("is_open", False):
+            last = supply_data[gid]["last_supply_time"]
+            elapsed = now - last
+            if elapsed < 300:
+                delay = 300 - elapsed
+                print(f"🔁 Ravito en cours sur {guild.name}, fermeture dans {int(delay)} sec.")
+                asyncio.create_task(asyncio.sleep(delay))
+                asyncio.create_task(close_special_supply(gid))
+            else:
+                asyncio.create_task(close_special_supply(gid)
+                                    
     try:
         await bot.tree.sync()
         print("✅ Commandes slash synchronisées globalement.")
@@ -607,6 +621,37 @@ async def regeneration_loop():
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
 
+@tasks.loop(minutes=5)
+async def special_supply_loop(bot):
+    now = time.time()
+    supply_data = load_supply_data()
+
+    for guild in bot.guilds:
+        gid = str(guild.id)
+
+        # Ignorer si un ravitaillement est déjà ouvert
+        if supply_data.get(gid, {}).get("is_open", False):
+            continue
+
+        last_time = supply_data.get(gid, {}).get("last_supply_time", 0)
+        delay = random.randint(1800, 3600)  # 30 à 60 min
+
+        if now - last_time >= delay:
+            print(f"📦 Ravitaillement déclenché pour {guild.name}")
+            await send_special_supply(bot, guild)
+
+            supply_data[gid] = {
+                "last_supply_time": now,
+                "is_open": True
+            }
+            save_supply_data(supply_data)
+            break  # Un seul ravitaillement par boucle
+            
+async def close_special_supply(guild_id):
+    supply_data = load_supply_data()
+    if str(guild_id) in supply_data:
+        supply_data[str(guild_id)]["is_open"] = False
+        save_supply_data(supply_data)
 
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
