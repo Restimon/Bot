@@ -26,12 +26,11 @@ from admin import register_admin_commands
 from profile import register_profile_command
 from status import register_status_command
 from box import register_box_command
-from special_supply import update_last_active_channel
 from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
 from item_list import register_item_command
-from supply_persistence import load_supply_data, save_supply_data
+from special_supply import load_supply_data, save_supply_data, update_last_active_channel
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -44,7 +43,6 @@ intents.messages = True
 intents.reactions = True
 intents.guilds = True
 intents.members = True
-SUPPLY_DATA_FILE = "supply_data.json"
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 message_counter = 0
