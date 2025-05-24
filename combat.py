@@ -55,13 +55,13 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         # 📝 Message personnalisé selon la cible
         if user_id == target_id:
             description = (
-                f"💊 {user_mention} se soigne avec {item}.\n"
-                f"🩹 Il récupère **{real_soin} PV**.{crit_txt}"
+                f"{user_mention} se soigne avec {item}.\n"
+                f"{item} Il récupère **{real_soin} PV** | {before} + {real_soin} = {after}{crit_txt}"
             )
         else:
             description = (
-                f"💉 {user_mention} soigne {target_mention} avec {item}.\n"
-                f"🩹 {target_mention} récupère **{real_soin} PV**.{crit_txt}"
+                f"{user_mention} soigne {target_mention} avec {item}.\n"
+                f"{item} {target_mention} récupère **{real_soin} PV** | {before} + {real_soin} = {after}{crit_txt}""
             )
 
         if real_soin == 0:
