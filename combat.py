@@ -1,4 +1,4 @@
-import time
+    import time
 import math
 import random
 import discord
@@ -61,7 +61,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         else:
             description = (
                 f"{user_mention} soigne {target_mention} avec {item}.\n"
-                f"{item} {target_mention} récupère **{real_soin} PV** | {before} + {real_soin} = {after}{crit_txt}""
+                f"{item} {target_mention} récupère **{real_soin} PV** | {before} + {real_soin} = {after}{crit_txt}"
             )
 
         if real_soin == 0:
@@ -195,19 +195,13 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         gif_url = "https://media.tenor.com/OUts7rGkfLMAAAAd/slash-critique.gif" if is_crit else OBJETS[item].get("gif")
 
         # 🔷 Embed personnalisé avec GIF adapté
-        embed = discord.Embed(
-            title=f"{OBJETS[item].get('nom', item)} - Action de SomniCorp",
-            description=(
-                f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-                f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
-            ),
-            color=discord.Color.red() if is_crit else discord.Color.blue()
+        description = (
+            f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
+            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
         )
 
-        if gif_url:
-            embed.set_image(url=gif_url)
+        return build_embed_from_item(item, description, is_crit=is_crit), True
 
-        return embed, True
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
