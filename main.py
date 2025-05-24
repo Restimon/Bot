@@ -26,7 +26,7 @@ from admin import register_admin_commands
 from profile import register_profile_command
 from status import register_status_command
 from box import register_box_command
-from special_supply import update_last_active_channel, end_special_supply
+from special_supply import update_last_active_channel
 from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
