@@ -20,21 +20,17 @@ SUPPLY_MIN_DELAY = 2 * 3600
 SUPPLY_MAX_DELAY = 8 * 3600
 SUPPLY_DATA_FILE = "supply_data.json"
 
-def save_supply_data():
-    with open(SUPPLY_DATA_FILE, "w") as f:
-        json.dump({
-            "supply_daily_counter": supply_daily_counter,
-            "last_supply_time": last_supply_time
-        }, f)
 
 def load_supply_data():
-    global supply_daily_counter, last_supply_time
     if os.path.exists(SUPPLY_DATA_FILE):
         with open(SUPPLY_DATA_FILE, "r") as f:
-            data = json.load(f)
-            supply_daily_counter = data.get("supply_daily_counter", {})
-            last_supply_time = data.get("last_supply_time", {})
+            return json.load(f)
+    return {}
 
+def save_supply_data(data):
+    with open(SUPPLY_DATA_FILE, "w") as f:
+        json.dump(data, f)
+    
 load_supply_data()
 
 def get_random_item():
@@ -223,16 +219,3 @@ async def send_special_supply(bot, force=False):
 def update_last_active_channel(message):
     if message.guild and not message.author.bot:
         last_active_channel[str(message.guild.id)] = message.channel.id
-
-@tasks.loop(minutes=5)
-async def special_supply_loop(bot):
-    now = time.time()
-    for guild in bot.guilds:
-        gid = str(guild.id)
-        last_time = last_supply_time.get(gid, 0)
-        delay = random.randint(SUPPLY_MIN_DELAY, SUPPLY_MAX_DELAY)
-        if now - last_time >= delay:
-            await send_special_supply(bot)
-            break  # Un seul ravitaillement toutes les 5 minutes max
-
-
