@@ -1,4 +1,3 @@
-
 import random
 import time
 import asyncio
@@ -20,17 +19,19 @@ SUPPLY_MIN_DELAY = 2 * 3600
 SUPPLY_MAX_DELAY = 8 * 3600
 SUPPLY_DATA_FILE = "supply_data.json"
 
-
 def load_supply_data():
-    if os.path.exists(SUPPLY_DATA_FILE):
+    if not os.path.exists(SUPPLY_DATA_FILE):
+        return {}
+    try:
         with open(SUPPLY_DATA_FILE, "r") as f:
             return json.load(f)
-    return {}
+    except json.JSONDecodeError:
+        print("⚠️ Fichier supply_data.json corrompu ou vide. Réinitialisation...")
+        return {}
 
 def save_supply_data(data):
     with open(SUPPLY_DATA_FILE, "w") as f:
         json.dump(data, f)
-    
 load_supply_data()
 
 def get_random_item():
@@ -82,16 +83,6 @@ def choose_reward(user_id, guild_id):
         return "soin", random.randint(1, 10)
     else:
         return "regen", True
-
-# Voici la version corrigée et complète de ta fonction `send_special_supply`,
-# prenant en compte un cooldown par serveur + persistance à la sauvegarde.
-def load_supply_data():
-    global supply_daily_counter, last_supply_time
-    if os.path.exists(SUPPLY_DATA_FILE):
-        with open(SUPPLY_DATA_FILE, "r") as f:
-            data = json.load(f)
-            supply_daily_counter = data.get("supply_daily_counter", {})
-            last_supply_time = data.get("last_supply_time", {})  # ← dictionnaire
 
 async def send_special_supply(bot, force=False):
     global last_supply_time, supply_daily_counter
