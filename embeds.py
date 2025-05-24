@@ -27,10 +27,13 @@ GIFS = {
 }
 
 def build_embed_from_item(item, description, is_heal_other=False, is_crit=False):
-    embed = discord.Embed(
-        title=f"{item} Action de SomniCorp",
-        description=description,
-        color=discord.Color.green() if is_heal_other else discord.Color.red()
+    embed = build_embed_from_item(
+        item,
+        description=(
+            f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
+            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
+        ),
+        is_crit=is_crit
     )
 
     # Choix du GIF à afficher
