@@ -1,5 +1,6 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext 
+import commands, tasks
 import asyncio
 import os
 import atexit
@@ -8,6 +9,7 @@ import sys
 import datetime
 import time
 import logging
+import random
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
