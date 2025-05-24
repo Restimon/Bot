@@ -73,22 +73,28 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         bonus_dmg = 0
         bonus_info = ""
     
-        # 🦠 Bonus virus
+        # 🦠 Virus : auto-dégâts et transmission (pas de bonus dégâts à la cible)
         virus_stat = virus_status.get(guild_id, {}).get(user_id)
         if virus_stat:
-            bonus_dmg += 2
-            bonus_info += "+2 🦠 "
             virus_source = virus_stat.get("source", user_id)
-            leaderboard.setdefault(guild_id, {}).setdefault(virus_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-            leaderboard[guild_id][virus_source]["degats"] += 2
+
+            before_self = hp[guild_id].get(user_id, 100)
+            after_self = max(before_self - 2, 0)
+            hp[guild_id][user_id] = after_self
+            lost_hp = before_self - after_self
+
+            if virus_source != user_id:
+                leaderboard.setdefault(guild_id, {}).setdefault(virus_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[guild_id][virus_source]["degats"] += lost_hp
 
             virus_status[guild_id][target_id] = virus_stat.copy()
             del virus_status[guild_id][user_id]
+
             embed_virus = discord.Embed(
                 title="💉 Transmission virale",
                 description=(
                     f"**SomniCorp** confirme une transmission virale : {target_mention} est désormais infecté.\n"
-                    f"🦠 Le virus a été retiré de {user_mention}."
+                    f"🦠 Le virus a été retiré de {user_mention}, qui perd **{lost_hp} PV** ({before_self} → {after_self})."
                 ),
                 color=0x2288FF
             )
@@ -158,22 +164,25 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         # ✅ Enregistrement du cooldown (important)
         set_cooldown(guild_id, (user_id, target_id), "attack", OBJETS[item].get("cooldown", 30))
-        
-        if "Coup critique" in crit_txt:
-            embed_crit = discord.Embed(
-                title="💥 Coup Critique !",
-                description=f"{user_mention} a frappé avec une puissance inouïe !",
-                color=discord.Color.red()
-            )
-            
-            embed_crit.set_image(url="https://media.tenor.com/OUts7rGkfLMAAAAd/slash-critique.gif")
-            await ctx.channel.send(embed=embed_crit)
 
-        return build_embed_from_item(
-            item,
-            f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
-        ), True
+        # 💥 Critique ?
+        is_crit = "Coup critique" in crit_txt
+        gif_url = "https://media.tenor.com/OUts7rGkfLMAAAAd/slash-critique.gif" if is_crit else OBJETS[item].get("gif")
+
+        # 🔷 Embed personnalisé avec GIF adapté
+        embed = discord.Embed(
+            title=f"{OBJETS[item].get('nom', item)} - Action de SomniCorp",
+            description=(
+                f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
+            ),
+            color=discord.Color.red() if is_crit else discord.Color.blue()
+        )
+
+        if gif_url:
+            embed.set_image(url=gif_url)
+
+        return embed, True
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
@@ -440,23 +449,31 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     )
                     await ctx.channel.send(embed=embed_info)
 
-            if is_main and user_id in virus_status.get(guild_id, {}):
-                virus_status[guild_id][tid] = virus_status[guild_id][user_id].copy()
-                del virus_status[guild_id][user_id]
-                hp[guild_id][user_id] = max(hp[guild_id].get(user_id, 100) - 2, 0)
-                bonus_dmg += 2
-                bonus_info.append("+2 🦠")
+            # 🦠 Virus : auto-dégâts et transmission (pas de bonus dégâts à la cible)
+            virus_stat = virus_status.get(guild_id, {}).get(user_id)
+            if virus_stat:
+                virus_source = virus_stat.get("source", user_id)
 
-                source_virus = virus_status[guild_id][tid].get("source")
-                if source_virus and source_virus != user_id:
-                    leaderboard.setdefault(guild_id, {}).setdefault(source_virus, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                    leaderboard[guild_id][source_virus]["degats"] += 2
+                # 💉 Auto-dégâts
+                before_self = hp[guild_id].get(user_id, 100)
+                after_self = max(before_self - 2, 0)
+                hp[guild_id][user_id] = after_self
+                lost_hp = before_self - after_self
+
+                # Attribution des points à la source du virus
+                if virus_source != user_id:
+                    leaderboard.setdefault(guild_id, {}).setdefault(virus_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                    leaderboard[guild_id][virus_source]["degats"] += lost_hp
+
+                # ✅ Transmission
+                virus_status[guild_id][target_id] = virus_stat.copy()
+                del virus_status[guild_id][user_id]
 
                 embed_virus = discord.Embed(
                     title="💉 Transmission virale",
                     description=(
                         f"**SomniCorp** confirme une transmission virale : {target_mention} est désormais infecté.\n"
-                        f"🦠 Le virus a été retiré de {user_mention}."
+                        f"🦠 Le virus a été retiré de {user_mention}, qui perd **{lost_hp} PV** ({before_self} → {after_self})."
                     ),
                     color=0x2288FF
                 )
