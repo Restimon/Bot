@@ -41,12 +41,25 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             ), False
 
     elif action["type"] == "soin":
-        on_cd, remain = is_on_cooldown(guild_id, (user_id, target_id), "heal")
-        if on_cd:
-            return build_embed_from_item(
-                item,
-                f"🕒 {user_mention}, vous devez attendre **{remain} sec** avant de soigner {target_mention}."
-            ), False
+        soin = action.get("soin", 0)
+        soin, crit_txt = apply_crit(soin, action.get("crit", 0))
+        
+        before = hp[guild_id].get(target_id, 100)
+        after = min(before + soin, 100)
+        real_soin = after - before
+        hp[guild_id][target_id] = after
+
+        user_stats["soin"] += real_soin
+
+        reset_txt = "" if real_soin > 0 else "\n🛑 Aucun PV n’a été soigné."
+
+        set_cooldown(guild_id, (user_id, target_id), "heal", action.get("cooldown", 30))
+
+        return build_embed_from_item(
+            item,
+            f"{user_mention} soigne {target_mention} avec {item}.\n"
+            f"**{before} → {after} PV**{crit_txt}{reset_txt}"
+        ), True
 
     # Si la cible est à 0 PV, on la remet à 100 automatiquement (fail-safe)
     if target_hp <= 0:
