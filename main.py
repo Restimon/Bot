@@ -44,6 +44,7 @@ intents.messages = True
 intents.reactions = True
 intents.guilds = True
 intents.members = True
+SUPPLY_DATA_FILE = "supply_data.json"
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 message_counter = 0
