@@ -23,7 +23,7 @@ regeneration_status = {}
 immunite_status = {} 
 
 def sauvegarder():
-    """Sauvegarde toutes les données SomniCorp dans un seul fichier JSON."""
+    """Sauvegarde toutes les données GotValis dans un seul fichier JSON."""
     try:
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         with open(os.path.join(PERSISTENT_PATH, "data.json"), "w") as f:
@@ -47,7 +47,7 @@ def sauvegarder():
         print(f"❌ Erreur lors de la sauvegarde : {e}")
 
 def charger():
-    """Charge toutes les données SomniCorp depuis un seul fichier JSON."""
+    """Charge toutes les données GotValis depuis un seul fichier JSON."""
     global last_daily_claim
     if not os.path.exists(DATA_FILE):
         print("ℹ️ Aucun fichier data.json trouvé — initialisation d'une nouvelle base.")
