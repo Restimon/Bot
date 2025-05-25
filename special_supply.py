@@ -107,13 +107,6 @@ async def send_special_supply(bot, force=False):
         if not force and (now - last_time < delay):
             continue
 
-        # 📆 Vérifie la limite journalière
-        date, count = supply_daily_counter.get(gid, (None, 0))
-        if date != today:
-            supply_daily_counter[gid] = (today, 0)
-        elif count >= 3 and not force:
-            continue
-
         # 📦 Envoi du ravitaillement
         embed = discord.Embed(
             title="📦 Ravitaillement spécial SomniCorp",
