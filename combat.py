@@ -119,7 +119,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             embed_virus = discord.Embed(
                 title="💉 Transmission virale",
                 description=(
-                    f"**SomniCorp** confirme une transmission virale : {target_mention} est désormais infecté.\n"
+                    f"**GotValis** confirme une transmission virale : {target_mention} est désormais infecté.\n"
                     f"🦠 Le virus a été retiré de {user_mention}, qui perd **{lost_hp} PV** ({before_self} → {after_self})."
                 ),
                 color=0x2288FF
@@ -155,7 +155,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 embed_info = discord.Embed(
                     title="🧬 Infection propagée",
                     description=(
-                        f"**SomniCorp** détecte un nouveau infecté : {target_mention}.\n"
+                        f"**GotValis** détecte un nouveau infecté : {target_mention}.\n"
                         f"Il subit immédiatement **5 dégâts 🧟**."
                     ),
                     color=0x880088
@@ -280,7 +280,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             embed_virus = discord.Embed(
                 title="💉 Transmission virale",
                 description=(
-                    f"**SomniCorp** confirme une transmission virale : {target_mention} est désormais infecté.\n"
+                    f"**GotValis** confirme une transmission virale : {target_mention} est désormais infecté.\n"
                     f"🦠 Le virus a été retiré de {user_mention}."
                 ),
                 color=0x2288FF
@@ -354,7 +354,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         embed_info = discord.Embed(
             title="🧬 Infection",
             description=(
-                f"**SomniCorp** détecte un nouveau infecté : {target_mention}.\n"
+                f"**GotValis** détecte un nouveau infecté : {target_mention}.\n"
                 f"Il subit immédiatement **5 dégâts 🧟**."
             ),
             color=0x880088
@@ -462,7 +462,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     embed_info = discord.Embed(
                         title="🧬 Infection propagée",
                         description=(
-                            f"**SomniCorp** détecte un nouveau infecté : {target_mention}.\n"
+                            f"**GotValis** détecte un nouveau infecté : {target_mention}.\n"
                             f"Il subit immédiatement **5 dégâts 🧟**."
                         ),
                         color=0x880088
@@ -492,7 +492,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 embed_virus = discord.Embed(
                     title="💉 Transmission virale",
                     description=(
-                        f"**SomniCorp** confirme une transmission virale : {target_mention} est désormais infecté.\n"
+                        f"**GotValis** confirme une transmission virale : {target_mention} est désormais infecté.\n"
                         f"🦠 Le virus a été retiré de {user_mention}, qui perd **{lost_hp} PV** ({before_self} → {after_self})."
                     ),
                     color=0x2288FF
@@ -518,7 +518,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             bonus_str = f" (+{' '.join(bonus_info)})" if bonus_info else ""
             header = f"{mention} perd {real_dmg} PV{crit_txt} | {base_dmg} de base{bonus_str} ➝ {start_hp} → {end_hp}{reset_txt}"
             if is_main:
-                embed_lines.insert(1, f"**SomniCorp** : {header}")
+                embed_lines.insert(1, f"**GotValis** : {header}")
                 embed_lines.append("L’attaque rebondit !")
             else:
                 embed_lines.append(f"{header} (attaque secondaire)")
