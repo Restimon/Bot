@@ -79,7 +79,7 @@ async def inv_slash(interaction: discord.Interaction, user: discord.Member = Non
         ephemeral=(user is not None and user != interaction.user)
     )
 
-@bot.tree.command(name="leaderboard", description="Voir le classement SomniCorp")
+@bot.tree.command(name="leaderboard", description="Voir le classement GotValis")
 async def leaderboard_slash(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)
     embed = await build_leaderboard_embed(bot, interaction.guild)  # ← passe la guild ici
@@ -133,7 +133,7 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Erreur pendant la synchronisation des slash commands : {e}")
 
-    print(f"✅ SomniCorp Bot prêt. Connecté en tant que {bot.user}")
+    print(f"✅ GotValis Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
     for command in bot.tree.get_commands():
         print(f" - /{command.name}")
@@ -203,7 +203,7 @@ async def on_message(message):
             embed = discord.Embed(
                 title="📦 Ravitaillement récupéré",
                 description=(
-                    f"Le dépôt de **SomniCorp** contenant {item} a été récupéré par :\n\n{mention_list}"
+                    f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mention_list}"
                 ),
                 color=0x00FFAA
             )
@@ -212,7 +212,7 @@ async def on_message(message):
         else:
             embed = discord.Embed(
                 title="💥 Ravitaillement détruit",
-                description=f"Le dépôt de **SomniCorp** contenant {item} s’est **auto-détruit**. 💣",
+                description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
                 color=0xFF0000
             )
             await message.channel.send(embed=embed)
@@ -279,9 +279,9 @@ async def update_leaderboard_loop():
                 rank += 1
 
             content = (
-                "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+                "> 🏆 __**CLASSEMENT GOTVALIS - ÉDITION SPÉCIALE**__ 🏆\n\n" +
                 "\n".join([f"> {line}" for line in lines]) +
-                "\n\n 📌 Classement mis à jour automatiquement par SomniCorp."
+                "\n\n 📌 Classement mis à jour automatiquement par GotValis."
             ) if lines else "*Aucune donnée disponible.*"
 
             try:
@@ -316,7 +316,7 @@ async def yearly_reset_loop():
 
             sauvegarder()
             print("🎉 Réinitialisation annuelle effectuée pour tous les serveurs.")
-            announcement_msg = "🎊 Les statistiques ont été remises à zéro pour la nouvelle année ! Merci pour votre participation à SomniCorp."
+            announcement_msg = "🎊 Les statistiques ont été remises à zéro pour la nouvelle année ! Merci pour votre participation à GotValis."
 
             for server_id, server_conf in config.items():
                 channel_id = server_conf.get("leaderboard_channel_id")
@@ -421,7 +421,7 @@ async def virus_damage_loop():
                                 embed_ko = discord.Embed(
                                     title="💀 KO viral détecté",
                                     description=(
-                                        f"**SomniCorp** détecte une chute à 0 PV pour {member.mention}.\n"
+                                        f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
                                         f"🦠 Effondrement dû à une **charge virale critique**.\n"
                                         f"🔄 {member.mention} est **stabilisé à 100 PV**."
                                     ),
@@ -494,7 +494,7 @@ async def poison_damage_loop():
                                 embed_ko = discord.Embed(
                                     title="💀 KO toxique détecté",
                                     description=(
-                                        f"**SomniCorp** détecte une chute à 0 PV pour {member.mention}.\n"
+                                        f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
                                         f"🧪 Effondrement dû à une **intoxication sévère**.\n"
                                         f"🔄 {member.mention} est **stabilisé à 100 PV**."
                                     ),
@@ -568,7 +568,7 @@ async def infection_damage_loop():
                                 ko_embed = discord.Embed(
                                     title="💀 KO infectieux détecté",
                                     description=(
-                                        f"**SomniCorp** détecte une chute à 0 PV pour {member.mention}.\n"
+                                        f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
                                         f"🧟 Effondrement dû à une infection invasive.\n"
                                         f"🔄 Le patient est stabilisé à **100 PV**."
                                     ),
