@@ -29,7 +29,7 @@ def register_heal_command(bot):
             return await interaction.followup.send("❌ Objet inconnu ou non spécifié.", ephemeral=True)
 
         if item not in user_inv:
-            return await interaction.followup.send(f"🚫 SomniCorp ne détecte pas {item} dans ton inventaire.", ephemeral=True)
+            return await interaction.followup.send(f"🚫 GotValis ne détecte pas {item} dans ton inventaire.", ephemeral=True)
 
         if OBJETS[item]["type"] != "soin" and item not in SPECIAL_HEAL_ITEMS:
             return await interaction.followup.send("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
@@ -46,7 +46,7 @@ def register_heal_command(bot):
                 description = f"💉 Aucun virus détecté chez {member.mention}. L’injection était inutile."
             user_inv.remove("💉")
             sauvegarder()
-            return await interaction.followup.send(embed=discord.Embed(title="📢 Vaccination SomniCorp", description=description, color=discord.Color.green()))
+            return await interaction.followup.send(embed=discord.Embed(title="📢 Vaccination GotValis", description=description, color=discord.Color.green()))
 
         # ⭐️ Immunité
         if item == "⭐️":
