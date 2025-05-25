@@ -11,7 +11,7 @@ from data import (
 from embeds import build_embed_from_item
 
 def register_profile_command(bot):
-    @bot.tree.command(name="info", description="Affiche le profil SomniCorp d’un membre.")
+    @bot.tree.command(name="info", description="Affiche le profil GotValis d’un membre.")
     @app_commands.describe(user="Le membre à inspecter")
     async def profile_slash(interaction: discord.Interaction, user: discord.Member = None):
         await interaction.response.defer(thinking=True)
@@ -40,7 +40,7 @@ def register_profile_command(bot):
         hp_display = f"{user_hp} / 100" + (f" + 🛡 {shield_amt}" if shield_amt > 0 else "")
 
         embed = discord.Embed(
-            title=f"📄 Profil SomniCorp de {member.display_name}",
+            title=f"📄 Profil GotValis de {member.display_name}",
             description="Analyse médicale et opérationnelle en cours...",
             color=discord.Color.purple()
         )
