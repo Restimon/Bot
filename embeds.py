@@ -28,7 +28,7 @@ GIFS = {
 
 def build_embed_from_item(item, description, is_heal_other=False, is_crit=False):
     embed = discord.Embed(
-        title=f"{item} Action de SomniCorp",
+        title=f"{item} Action de GotValis",
         description=description,
         color=discord.Color.green() if is_heal_other else discord.Color.red()
     )
