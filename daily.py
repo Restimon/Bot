@@ -6,7 +6,7 @@ from data import sauvegarder, last_daily_claim
 from embeds import build_embed_from_item
 
 def register_daily_command(bot):
-    @bot.tree.command(name="daily", description="Réclame ta récompense quotidienne SomniCorp")
+    @bot.tree.command(name="daily", description="Réclame ta récompense quotidienne GotValis")
     async def daily_slash(interaction: discord.Interaction):
         guild_id = str(interaction.guild_id)
         user_id = str(interaction.user.id)
@@ -20,7 +20,7 @@ def register_daily_command(bot):
             hours = int(remaining // 3600)
             minutes = int((remaining % 3600) // 60)
             return await interaction.response.send_message(
-                f"⏳ Tu as déjà réclamé ta récompense aujourd’hui offert par SomniCorp ! Reviens dans **{hours}h {minutes}min**.",
+                f"⏳ Tu as déjà réclamé ta récompense aujourd’hui offert par GotValis ! Reviens dans **{hours}h {minutes}min**.",
                 ephemeral=True
             )
 
@@ -35,8 +35,8 @@ def register_daily_command(bot):
         sauvegarder()  # sauvegarde globale
 
         embed = discord.Embed(
-            title="🎁 Récompense quotidienne de SomniCorp",
-            description=f"{interaction.user.mention} a reçu : {reward1} et {reward2} !\nMerci pour ta fidélité à **SomniCorp**.",
+            title="🎁 Récompense quotidienne de GotValis",
+            description=f"{interaction.user.mention} a reçu : {reward1} et {reward2} !\nMerci pour ta fidélité à **GotValis**.",
             color=discord.Color.green()
         )
         embed.set_footer(text="À réutiliser dans 24h.")
