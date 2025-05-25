@@ -8,7 +8,7 @@ from data import (
 from embeds import build_embed_from_item
 
 def register_status_command(bot):
-    @bot.tree.command(name="status", description="Voir si un membre est affecté par un virus ou un poison SomniCorp")
+    @bot.tree.command(name="status", description="Voir si un membre est affecté par un virus ou un poison GotValis")
     @app_commands.describe(user="Membre à inspecter (optionnel)")
     async def status_command(interaction: discord.Interaction, user: discord.Member = None):
         member = user or interaction.user
@@ -17,7 +17,7 @@ def register_status_command(bot):
         now = time.time()
 
         embed = discord.Embed(
-            title=f"🧬 Rapport médical SomniCorp — {member.display_name}",
+            title=f"🧬 Rapport médical GotValis — {member.display_name}",
             color=discord.Color.orange()
         )
 
@@ -77,7 +77,7 @@ def register_status_command(bot):
                 inline=False
             )
         else:
-            embed.add_field(name="🦠 Infection virale", value="✅ Aucun virus détecté par SomniCorp", inline=False)
+            embed.add_field(name="🦠 Infection virale", value="✅ Aucun virus détecté par GotValis", inline=False)
 
         # 🧪 Poison
         p_stat = poison_status.get(guild_id, {}).get(user_id)
@@ -102,7 +102,7 @@ def register_status_command(bot):
                 inline=False
             )
         else:
-            embed.add_field(name="🧪 Empoisonnement", value="✅ Aucun poison détecté par SomniCorp", inline=False)
+            embed.add_field(name="🧪 Empoisonnement", value="✅ Aucun poison détecté par GotValis", inline=False)
 
         # 🧟 Infection
         i_stat = infection_status.get(guild_id, {}).get(user_id)
@@ -129,5 +129,5 @@ def register_status_command(bot):
         else:
             embed.add_field(name="🧟 Infection", value="✅ Aucun agent infectieux détecté", inline=False)
 
-        embed.set_footer(text="📡 Données scannées et transmises par les serveurs de SomniCorp.")
+        embed.set_footer(text="📡 Données scannées et transmises par les serveurs de GotValis.")
         await interaction.response.send_message(embed=embed)
