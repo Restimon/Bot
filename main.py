@@ -112,6 +112,9 @@ async def on_ready():
     asyncio.create_task(poison_damage_loop())
     asyncio.create_task(infection_damage_loop())
 
+    activity = discord.Activity(type=discord.ActivityType.watching, name="en /help | https://discord.gg/jkbfFRqzZP")
+    await bot.change_presence(status=discord.Status.online, activity=activity)
+
     for guild in bot.guilds:
         gid = str(guild.id)
         if supply_data.get(gid, {}).get("is_open", False):
