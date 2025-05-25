@@ -22,7 +22,7 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     embed = discord.Embed(color=discord.Color.blurple())
 
     if not item_counts:
-        embed.description = "📦 SomniCorp ne détecte aucun objet dans l'inventaire."
+        embed.description = "📦 GotValis ne détecte aucun objet dans l'inventaire."
     else:
         rows = []
         for emoji, count in sorted(item_counts.items(), key=lambda x: -x[1]):
@@ -92,8 +92,8 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
     user = guild.get_member(int(user_id)) if guild else None
     name = user.display_name if user else f"ID {user_id}"
     if user:
-        embed.set_author(name=f"Inventaire SomniCorp de {name}", icon_url=user.display_avatar.url)
+        embed.set_author(name=f"Inventaire GotValis de {name}", icon_url=user.display_avatar.url)
     else:
-        embed.set_author(name=f"Inventaire SomniCorp de {name}")
+        embed.set_author(name=f"Inventaire GotValis de {name}")
 
     return embed
