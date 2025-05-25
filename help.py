@@ -7,7 +7,7 @@ def register_help_commands(bot):
         embed = build_help_embed()
         await ctx.send(embed=embed)
 
-    @bot.tree.command(name="help", description="📘 Affiche toutes les commandes de SomniCorp")
+    @bot.tree.command(name="help", description="📘 Affiche toutes les commandes de GotValis")
     async def help_slash(interaction: discord.Interaction):
         await interaction.response.defer(thinking=False)
         embed = build_help_embed()
@@ -15,8 +15,8 @@ def register_help_commands(bot):
 
 def build_help_embed():
     embed = discord.Embed(
-        title="📘 Manuel Opérationnel - SomniCorp",
-        description="Toutes les fonctionnalités mises à disposition par l’infrastructure **SomniCorp**.",
+        title="📘 Manuel Opérationnel - GotValis",
+        description="Toutes les fonctionnalités mises à disposition par l’infrastructure **GotValis**.",
         color=discord.Color.teal()
     )
 
@@ -38,7 +38,7 @@ def build_help_embed():
     )
 
     embed.add_field(
-        name="🧪 Statuts et effets SomniCorp",
+        name="🧪 Statuts et effets GotValis",
         value=(
             "• **🧪 Poison** : -3 PV toutes les 30min pendant 3h. Réduit de 1 les dégâts infligés.\n"
             "• **🦠 Virus** : -5 PV immédiats, puis -5 PV par heure pendant 6h. Transmissible à chaque attaque. L’attaquant subit 2 dégâts.\n"
@@ -66,7 +66,7 @@ def build_help_embed():
 
     embed.add_field(
         name="🎁 Récompense Quotidienne",
-        value="`/daily` — Récupère des objets chaque jour grâce à SomniCorp.",
+        value="`/daily` — Récupère des objets chaque jour grâce à GotValis.",
         inline=False
     )
 
@@ -89,5 +89,5 @@ def build_help_embed():
         inline=False
     )
 
-    embed.set_footer(text="☁️ Propulsé par SomniCorp — La technologie au service de vos rêves.")
+    embed.set_footer(text="☁️ Propulsé par GotValis — La technologie au service de vos rêves.")
     return embed
