@@ -520,6 +520,7 @@ async def infection_damage_loop():
                 continue
 
             for uid, status in list(infection_status[gid].items()):
+                hp.setdefault(gid, {})
                 start = status.get("start")
                 duration = status.get("duration")
                 last_tick = status.get("last_tick", 0)
