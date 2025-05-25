@@ -109,7 +109,7 @@ async def send_special_supply(bot, force=False):
 
         # 📦 Envoi du ravitaillement
         embed = discord.Embed(
-            title="📦 Ravitaillement spécial SomniCorp",
+            title="📦 Ravitaillement spécial GotValis",
             description="Réagissez avec 📦 pour récupérer une récompense surprise !\n"
                         "⏳ Disponible pendant 5 minutes, maximum 5 personnes.",
             color=discord.Color.gold()
@@ -193,7 +193,7 @@ async def send_special_supply(bot, force=False):
                 )
             )
         else:
-            await channel.send("💥 Le ravitaillement spécial SomniCorp s’est auto-détruit. 💣")
+            await channel.send("💥 Le ravitaillement spécial GotValis s’est auto-détruit. 💣")
 
         # 🔁 Mise à jour des compteurs et cooldown
         supply_daily_counter[gid] = (today, supply_daily_counter[gid][1] + 1)
