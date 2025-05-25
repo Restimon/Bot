@@ -60,9 +60,9 @@ def register_admin_commands(bot):
             rank += 1
 
         content = (
-            "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+            "> 🏆 __**CLASSEMENT GotValis - ÉDITION SPÉCIALE**__ 🏆\n\n" +
             "\n".join([f"> {line}" for line in lines]) +
-            "\n\n> 📌 Classement mis à jour automatiquement par SomniCorp."
+            "\n\n> 📌 Classement mis à jour automatiquement par GotValis."
         )
 
         msg = await channel.send(content=content)
@@ -276,9 +276,9 @@ def register_admin_commands(bot):
             rank += 1
 
         content = (
-            "> 🏆 __**CLASSEMENT SOMNICORP - ÉDITION SPÉCIALE**__ 🏆\n\n" +
+            "> 🏆 __**CLASSEMENT GotValis - ÉDITION SPÉCIALE**__ 🏆\n\n" +
             "\n".join([f"> {line}" for line in lines]) +
-            "\n\n 📌 Classement mis à jour automatiquement par SomniCorp."
+            "\n\n 📌 Classement mis à jour automatiquement par GotValis."
         ) if lines else "*Aucune donnée disponible.*"
 
         try:
@@ -305,7 +305,7 @@ def register_admin_commands(bot):
         poison_status.get(guild_id, {}).pop(user_id, None)
 
         await interaction.response.send_message(
-            f"🧼 Tous les effets négatifs ont été supprimés de {user.mention}. SomniCorp confirme la purification.",
+            f"🧼 Tous les effets négatifs ont été supprimés de {user.mention}. GotValis confirme la purification.",
             ephemeral=True
     )
     
