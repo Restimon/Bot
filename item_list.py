@@ -4,6 +4,38 @@ from discord.ext import commands
 from utils import OBJETS
 import asyncio
 
+def generate_description(obj):
+    typ = obj.get("type")
+    if typ == "attaque":
+        return f"🗡️ Inflige {obj.get('degats')} dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
+    if typ == "attaque_chaine":
+        return f"☠️ Attaque en chaîne : {obj.get('degats_principal')} + 2×{obj.get('degats_secondaire')} dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
+    if typ == "virus":
+        return "🦠 Virus : 5 dégâts initiaux, puis 5/h pendant 6h."
+    if typ == "poison":
+        return "🧪 Poison : 3 dégâts toutes les 30 min pendant 3h."
+    if typ == "infection":
+        return "🧟 Infection : 5 dégâts initiaux + 2/30min pendant 3h. 25 % de propagation."
+    if typ == "soin":
+        return f"💚 Restaure {obj.get('soin')} PV. (Crit {int(obj.get('crit', 0)*100)}%)"
+    if typ == "regen":
+        return "✨ Régénère 3 PV toutes les 30 min pendant 3h."
+    if typ == "mysterybox":
+        return "📦 Boîte surprise : 1 à 3 objets aléatoires."
+    if typ == "vol":
+        return "🔍 Vole un objet aléatoire à un autre joueur."
+    if typ == "vaccin":
+        return "💉 Utilisable via /heal pour soigner virus/poison."
+    if typ == "bouclier":
+        return "🛡 Ajoute un bouclier de 20 PV."
+    if typ == "esquive+":
+        return "👟 Augmente les chances d’esquive pendant 3h."
+    if typ == "reduction":
+        return "🪖 Réduit les dégâts subis de moitié pendant 4h."
+    if typ == "immunite":
+        return "⭐️ Immunité : ignore tous les dégâts pendant 2h."
+    return "❓ Effet inconnu."
+    
 def register_item_command(bot: commands.Bot):
     @bot.tree.command(name="item", description="Voir les objets disponibles")
     @app_commands.describe(option="Option à afficher")
