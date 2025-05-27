@@ -15,8 +15,8 @@ from embeds import build_embed_from_item
 last_supply_time = {}
 supply_daily_counter = {}  # {guild_id: (date, count)}
 last_active_channel = {}   # {guild_id: channel_id}
-SUPPLY_MIN_DELAY = 2 * 3600
-SUPPLY_MAX_DELAY = 8 * 3600
+SUPPLY_MIN_DELAY = 1 * 3600
+SUPPLY_MAX_DELAY = 6 * 3600
 SUPPLY_DATA_FILE = "supply_data.json"
 
 def load_supply_data():
@@ -99,12 +99,6 @@ async def send_special_supply(bot, force=False):
             continue
         channel = bot.get_channel(channel_id)
         if not channel:
-            continue
-
-        # 🕒 Vérifie le cooldown
-        last_time = last_supply_time.get(gid, 0)
-        delay = random.randint(SUPPLY_MIN_DELAY, SUPPLY_MAX_DELAY)
-        if not force and (now - last_time < delay):
             continue
 
         # 📦 Envoi du ravitaillement
@@ -196,7 +190,6 @@ async def send_special_supply(bot, force=False):
             await channel.send("💥 Le ravitaillement spécial GotValis s’est auto-détruit. 💣")
 
         # 🔁 Mise à jour des compteurs et cooldown
-        supply_daily_counter[gid] = (today, supply_daily_counter[gid][1] + 1)
         last_supply_time[gid] = now
         save_supply_data()
 
