@@ -288,7 +288,8 @@ async def update_leaderboard_loop():
                 if message_id:
                     print(f"✏️ Modification du message {message_id} dans {channel.name}")
                     msg = await channel.fetch_message(message_id)
-                    await msg.edit(content=content)
+                    if msg.content != content:
+                        await msg.edit(content=content)
                 else:
                     raise discord.NotFound(response=None, message="No message ID")
             except (discord.NotFound, discord.HTTPException):
