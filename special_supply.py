@@ -13,10 +13,7 @@ from embeds import build_embed_from_item
 
 # Variables globales
 last_supply_time = {}
-supply_daily_counter = {}  # {guild_id: (date, count)}
-last_active_channel = {}   # {guild_id: channel_id}
-SUPPLY_MIN_DELAY = 1 * 3600
-SUPPLY_MAX_DELAY = 6 * 3600
+last_active_channel = {}  # {guild_id: channel_id}
 SUPPLY_DATA_FILE = "supply_data.json"
 
 def load_supply_data():
@@ -85,8 +82,8 @@ def choose_reward(user_id, guild_id):
         return "regen", True
 
 async def send_special_supply(bot, force=False):
-    global last_supply_time, supply_daily_counter
-
+    global last_supply_time
+    
     now = time.time()
     today = time.strftime("%Y-%m-%d")
 
