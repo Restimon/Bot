@@ -29,7 +29,7 @@ def load_supply_data():
 def save_supply_data(data):
     with open(SUPPLY_DATA_FILE, "w") as f:
         json.dump(data, f)
-load_supply_data()
+last_supply_time = load_supply_data()
 
 def get_random_item():
     pool = []
@@ -188,7 +188,7 @@ async def send_special_supply(bot, force=False):
 
         # 🔁 Mise à jour des compteurs et cooldown
         last_supply_time[gid] = now
-        save_supply_data()
+        save_supply_data(last_supply_time)
 
 def update_last_active_channel(message):
     if message.guild and not message.author.bot:
