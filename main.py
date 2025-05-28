@@ -635,23 +635,31 @@ async def special_supply_loop(bot):
     for guild in bot.guilds:
         gid = str(guild.id)
 
-        # Ignorer si un ravitaillement est déjà ouvert
-        if supply_data.get(gid, {}).get("is_open", False):
+        # Salon actif enregistré ?
+        channel_id = last_active_channel.get(gid)
+        channel = bot.get_channel(channel_id) if channel_id else None
+        if not channel or not channel.permissions_for(guild.me).send_messages:
             continue
 
+        # Données actuelles
         last_time = supply_data.get(gid, {}).get("last_supply_time", 0)
-        delay = random.randint(1800, 3600)  # 30 à 60 min
+        delay = supply_data.get(gid, {}).get("next_delay", random.randint(3600, 21600))  # 1h à 6h
 
-        if now - last_time >= delay:
-            print(f"📦 Ravitaillement déclenché pour {guild.name}")
-            await send_special_supply(bot, guild)
+        # Assez de temps écoulé ?
+        if now - last_time < delay:
+            continue
 
-            supply_data[gid] = {
-                "last_supply_time": now,
-                "is_open": True
-            }
-            save_supply_data(supply_data)
-            break  # Un seul ravitaillement par boucle
+        print(f"📦 Ravitaillement déclenché pour {guild.name}")
+        await send_special_supply(bot, force=True)
+
+        # Mise à jour des données du serveur
+        supply_data[gid] = {
+            "last_supply_time": now,
+            "next_delay": random.randint(3600, 21600),  # Prochaine fenêtre 1–6h
+            "is_open": True
+        }
+        save_supply_data(supply_data)
+        break  # Un ravitaillement par boucle globale
             
 async def close_special_supply(guild_id):
     supply_data = load_supply_data()
