@@ -66,11 +66,15 @@ def register_heal_command(bot):
             shields.setdefault(guild_id, {})[tid] = 20
             user_inv.remove("🛡")
             sauvegarder()
-            return await interaction.followup.send(embed=discord.Embed(
+
+            embed = discord.Embed(
                 title="🛡 Bouclier activé",
-                description=f"{member.mention} a activé un **bouclier de 20 points** pour {target.mention} !",
+                description=f"{member.mention} a utilisé un **bouclier de protection** !",
                 color=discord.Color.blue()
-            ))
+            )
+            embed.set_image(url="https://media.tenor.com/IfL3PSOX8FgAAAAC/force-field.gif")  # ✅ GIF cool de bouclier
+
+            return await interaction.followup.send(embed=embed)
 
         # 🪖 Casque
         if item == "🪖":
