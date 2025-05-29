@@ -171,7 +171,9 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
         total_dmg = base_dmg + bonus_dmg
         total_dmg = apply_casque_reduction(guild_id, target_id, total_dmg)
+        pb_before = shields.get(guild_id, {}).get(target_id, 0)
         total_dmg, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
+        pb_after = shields.get(guild_id, {}).get(target_id, 0)
 
         before = hp[guild_id].get(target_id, 100)
         after = max(before - total_dmg, 0)
@@ -199,12 +201,12 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         if lost_pb and real_dmg == 0:
             description = (
                 f"{user_mention} inflige {lost_pb} dégâts à {target_mention} avec {item} !\n"
-                f"{target_mention} perd **{lost_pb} PB** *(Points de Bouclier)* | ❤️ {before} PV / 🛡️ {lost_pb} - {lost_pb} PB = ❤️ {before} PV"
+                f"{target_mention} perd **{lost_pb} PB** et **{real_dmg} PV** | ❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
             )
         elif lost_pb and real_dmg > 0:
             description = (
                 f"{user_mention} inflige {real_dmg + lost_pb} dégâts à {target_mention} avec {item} !\n"
-                f"{target_mention} perd **{lost_pb} PB** et **{real_dmg} PV** | ❤️ {before} - {real_dmg} PV / 🛡️ {lost_pb} - {lost_pb} PB = ❤️ {after} PV"
+                f"{target_mention} perd **{lost_pb} PB** et **{real_dmg} PV** | ❤️ {before} - {real_dmg} PV / 🛡️ {pb_before - {lost_pb} PB = ❤️ {after} PV"
             )
         else:
             description = (
@@ -587,12 +589,12 @@ def apply_shield(guild_id, target_id, dmg):
     if shield > 0:
         if dmg <= shield:
             shields[guild_id][target_id] -= dmg
-            return 0, dmg, False  # 0 PV subis, tout en PB, pas cassé
+            return 0, dmg, False
         else:
             restante = dmg - shield
             shields[guild_id][target_id] = 0
-            return restante, shield, True  # une partie passe en PV, bouclier cassé
-    return dmg, 0, False  # pas de bouclier
+            return restante, shield, True
+    return dmg, 0, False
 
 def apply_crit(dmg, crit_chance):
     """Applique un coup critique si applicable."""
