@@ -16,7 +16,7 @@ from data import charger, sauvegarder, virus_status, poison_status, infection_st
 from utils import get_random_item, OBJETS, handle_death  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
-from combat import apply_item_with_cooldown
+from combat import apply_item_with_cooldown, apply_shield
 from inventory import build_inventory_embed
 from leaderboard import build_leaderboard_embed
 from help import register_help_commands
