@@ -12,7 +12,7 @@ import random
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
-from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status
+from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields
 from utils import get_random_item, OBJETS, handle_death  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
@@ -38,12 +38,14 @@ os.makedirs("/persistent", exist_ok=True)
 load_dotenv()
 charger()
 
+shields.setdefault(gid, {})
 intents = discord.Intents.default()
 intents.message_content = True
 intents.messages = True
 intents.reactions = True
 intents.guilds = True
 intents.members = True
+
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 message_counter = 0
