@@ -416,7 +416,7 @@ async def virus_damage_loop():
                             if lost_pb and real_dmg == 0:
                                 desc = (
                                     f"🦠 {member.mention} subit **{lost_pb} dégâts** *(Virus)*.\n"
-                                    f"🛡️ {pb_before} - {lost_pb} PB = 🛡️ {pb_after} PB | ❤️ {hp_after} PV"
+                                    f"🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} / PV 🛡️ {pb_after} PB"
                                 )
                             elif lost_pb and real_dmg > 0:
                                 desc = (
@@ -426,7 +426,7 @@ async def virus_damage_loop():
                             else:
                                 desc = (
                                     f"🦠 {member.mention} subit **{real_dmg} dégâts** *(Virus)*.\n"
-                                    f"❤️ {hp_before} → {hp_after} PV"
+                                    f"❤️ {hp_before} - {real_dmg} PV = {hp_after} PV"
                                 )
 
                             desc += f"\n⏳ Temps restant : **{remaining_min} min**"
@@ -523,7 +523,7 @@ async def poison_damage_loop():
                             if lost_pb and real_dmg == 0:
                                 desc = (
                                     f"🧪 {member.mention} subit **{lost_pb} dégâts** *(Poison)*.\n"
-                                    f"🛡️ {pb_before} - {lost_pb} PB = 🛡️ {pb_after} PB | ❤️ {after} PV"
+                                    f"🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
                                 )
                             elif lost_pb and real_dmg > 0:
                                 desc = (
@@ -533,7 +533,7 @@ async def poison_damage_loop():
                             else:
                                 desc = (
                                     f"🧪 {member.mention} subit **{real_dmg} dégâts** *(Poison)*.\n"
-                                    f"❤️ {before} → {after} PV"
+                                    f"❤️ {hp_before} - {real_dmg} PV = {hp_after} PV"
                                 )
 
                             desc += f"\n⏳ Temps restant : **{remaining_min} min**"
@@ -628,7 +628,7 @@ async def infection_damage_loop():
                             if lost_pb and real_dmg == 0:
                                 desc = (
                                     f"🧟 {member.mention} subit **{lost_pb} dégâts** *(Infection)*.\n"
-                                    f"🛡️ {pb_before} - {lost_pb} PB = 🛡️ {pb_after} PB | ❤️ {hp_after} PV"
+                                    f"🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB | "
                                 )
                             elif lost_pb and real_dmg > 0:
                                 desc = (
@@ -638,7 +638,7 @@ async def infection_damage_loop():
                             else:
                                 desc = (
                                     f"🧟 {member.mention} subit **{real_dmg} dégâts** *(Infection)*.\n"
-                                    f"❤️ {hp_before} → {hp_after} PV"
+                                    f"❤️ {hp_before} - {real_dmg} PV = {hp_after} PV"
                                 )
 
                             desc += f"\n⏳ Temps restant : **{remaining_min} min**"
