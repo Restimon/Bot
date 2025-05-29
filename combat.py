@@ -202,20 +202,21 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             description = (
                 f"{user_mention} inflige {lost_pb} dégâts à {target_mention} avec {item} !\n"
                 f"{target_mention} perd **{lost_pb} PB** .\n"
-                f"❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
+                f"❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB | {crit_txt}{reset_txt}"
             )
         elif lost_pb and real_dmg > 0:
             description = (
                 f"{user_mention} inflige {real_dmg + lost_pb} dégâts à {target_mention} avec {item} !\n"
                 f"{target_mention} perd **{lost_pb} PB** et **{real_dmg} PV** .\n"
-                f"❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV"
+                f"❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV | {crit_txt}{reset_txt}"
             )
         else:
             description = (
                 f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-                f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
+                f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after} | {crit_txt}{reset_txt}"
             )
 
+        # 🛡 Bouclier détruit ?
         if shield_broken:
             await ctx.channel.send(embed=discord.Embed(
                 title="🛡 Bouclier détruit",
@@ -223,10 +224,12 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 color=discord.Color.dark_blue()
             ))
 
+        # 📤 Envoi final avec image
         embed = build_embed_from_item(item, description, is_crit=is_crit)
         if gif_url:
             embed.set_image(url=gif_url)
         return embed, True
+
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
