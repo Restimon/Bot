@@ -240,7 +240,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         base_dmg = action.get("degats", 3)
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
         base_dmg = apply_casque_reduction(guild_id, target_id, base_dmg)
-        dmg_final = apply_shield(guild_id, target_id, base_dmg)
+        dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, base_dmg)
 
         before = hp[guild_id].get(target_id, 100)
         after = max(before - dmg_final, 0)
@@ -276,7 +276,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         base_dmg = action.get("degats", 5)
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
         base_dmg = apply_casque_reduction(guild_id, target_id, base_dmg)
-        dmg_final = apply_shield(guild_id, target_id, base_dmg)
+        dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, base_dmg)
 
         before = hp[guild_id].get(target_id, 100)
         after = max(before - dmg_final, 0)
@@ -341,7 +341,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         base_dmg = action.get("degats", 5)
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
         base_dmg = apply_casque_reduction(guild_id, target_id, base_dmg)
-        dmg_final = apply_shield(guild_id, target_id, base_dmg)
+        dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, base_dmg)
 
         before = hp[guild_id].get(target_id, 100)
         after = max(before - dmg_final, 0)
