@@ -9,7 +9,7 @@ def generate_description(obj):
     if typ == "attaque":
         return f"🗡️ Inflige {obj.get('degats')} dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
     if typ == "attaque_chaine":
-        return f"☠️ Attaque en chaîne : {obj.get('degats_principal')} + 2×{obj.get('degats_secondaire')} dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
+        return f"☠️ Attaque en chaîne : 24 + 2×12 dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
     if typ == "virus":
         return "🦠 Virus : 5 dégâts initiaux, puis 5/h pendant 6h."
     if typ == "poison":
@@ -35,15 +35,10 @@ def generate_description(obj):
     if typ == "immunite":
         return "⭐️ Immunité : ignore tous les dégâts pendant 2h."
     return "❓ Effet inconnu."
-    
-def register_item_command(bot: commands.Bot):
-    @bot.tree.command(name="item", description="Voir les objets disponibles")
-    @app_commands.describe(option="Option à afficher")
-    async def item_slash(interaction: discord.Interaction, option: str):
-        if option.lower() != "liste":
-            await interaction.response.send_message("❌ Utilisez `/item liste` pour voir tous les objets.", ephemeral=True)
-            return
 
+def register_item_command(bot: commands.Bot):
+    @bot.tree.command(name="item", description="Voir tous les objets disponibles")
+    async def item_liste(interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
 
         objets_par_page = 10
@@ -62,7 +57,7 @@ def register_item_command(bot: commands.Bot):
                 color=discord.Color.blurple()
             )
             for nom, data in objets_page:
-                desc = data.get("description", "Aucune description.")
+                desc = generate_description(data)
                 embed.add_field(name=nom, value=desc, inline=False)
 
             embeds.append(embed)
