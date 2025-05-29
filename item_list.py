@@ -7,9 +7,9 @@ import asyncio
 def generate_description(obj):
     typ = obj.get("type")
     if typ == "attaque":
-        return f"🗡Inflige {obj.get('degats')} dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
+        return f"Inflige {obj.get('degats')} dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
     if typ == "attaque_chaine":
-        return f"☠Attaque en chaîne : 24 + 2×12 dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
+        return f"Attaque en chaîne : 24 + 2×12 dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
     if typ == "virus":
         return "Virus : 5 dégâts initiaux, puis 5/h pendant 6h."
     if typ == "poison":
