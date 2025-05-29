@@ -232,9 +232,9 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         # 📤 Envoi final avec image
         embed = build_embed_from_item(item, description, is_crit=is_crit)
         if gif_url:
-            embed.set_image(url=gif_url)
-        return embed, True
+            embed.set_image(url=gif_url)  # ⚠️ ceci est ignoré si build_embed_from_item met déjà une image
 
+        return embed, True
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
