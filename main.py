@@ -627,7 +627,7 @@ async def regeneration_loop():
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=30)
 async def special_supply_loop(bot):
     now = time.time()
     supply_data = load_supply_data()
@@ -643,10 +643,16 @@ async def special_supply_loop(bot):
 
         # Données actuelles
         last_time = supply_data.get(gid, {}).get("last_supply_time", 0)
-        delay = supply_data.get(gid, {}).get("next_delay", random.randint(3600, 21600))  # 1h à 6h
+        last_activity = supply_data.get(gid, {}).get("last_activity_time", 0)
+        delay_since_last = now - last_time
+        delay_since_activity = now - last_activity
 
-        # Assez de temps écoulé ?
-        if now - last_time < delay:
+        # Conditions de déclenchement :
+        if delay_since_last < 7200:  # ⛔ moins de 2h depuis dernier ravitaillement
+            continue
+        if delay_since_activity > 7200:  # ⛔ pas de message récent depuis +2h
+            continue
+        if supply_data.get(gid, {}).get("is_open", False):  # ⛔ un ravitaillement est encore ouvert
             continue
 
         print(f"📦 Ravitaillement déclenché pour {guild.name}")
@@ -655,11 +661,11 @@ async def special_supply_loop(bot):
         # Mise à jour des données du serveur
         supply_data[gid] = {
             "last_supply_time": now,
-            "next_delay": random.randint(3600, 21600),  # Prochaine fenêtre 1–6h
+            "last_activity_time": now,
             "is_open": True
         }
         save_supply_data(supply_data)
-        break  # Un ravitaillement par boucle globale
+        break  # ✅ Un seul ravitaillement par passage de boucle
             
 async def close_special_supply(guild_id):
     supply_data = load_supply_data()
