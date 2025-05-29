@@ -266,12 +266,34 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         effect_txt = "\n🧪 Un poison s'est propagé dans ton corps. 3 dégâts toutes les 30 minutes pendant 3h."
 
-        return build_embed_from_item(
-            item,
-            f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-            f"**{before} → {after} PV**{crit_txt}{reset_txt}{effect_txt}"
-        ), True
-        
+        if lost_pb and real_dmg == 0:
+            desc = (
+                f"{user_mention} inflige {lost_pb} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd **{lost_pb} PB** (Points de Bouclier) | ❤️ {after} PV / 🛡️ {before_pb} - {lost_pb} PB = 🛡️ {pb_after} PB"
+            )
+        elif lost_pb and real_dmg > 0:
+            desc = (
+                f"{user_mention} inflige {real_dmg + lost_pb} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd **{lost_pb} PB** et **{real_dmg} PV** .\n"
+                f"❤️ {before} - {real_dmg} PV / 🛡️ {before_pb} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
+            )
+        else:
+            desc = (
+                f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
+                f"**{before} → {after} PV**{crit_txt}"
+            )
+
+        desc += f"{reset_txt}{effect_txt}"
+
+        if shield_broken:
+            await ctx.channel.send(embed=discord.Embed(
+                title="🛡 Bouclier détruit",
+                description=f"Le bouclier de {target_mention} a été **détruit** sous l'impact.",
+                color=discord.Color.dark_blue()
+            ))
+
+        return build_embed_from_item(item, desc), True
+      
     elif action["type"] == "virus":
         base_dmg = action.get("degats", 5)
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
@@ -331,18 +353,41 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             "\n⚔️ Lors d’une attaque : -2 PV et possible transmission."
         )
 
-        return build_embed_from_item(
-            item,
-            f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-            f"**{before} → {after} PV**{crit_txt}{reset_txt}{effect_txt}"
-        ), True
-        
+        if lost_pb and real_dmg == 0:
+            desc = (
+                f"{user_mention} inflige {lost_pb} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd **{lost_pb} PB** (Points de Bouclier) | ❤️ {after} PV / 🛡️ {before_pb} - {lost_pb} PB = 🛡️ {pb_after} PB"
+            )
+        elif lost_pb and real_dmg > 0:
+            desc = (
+                f"{user_mention} inflige {real_dmg + lost_pb} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd **{lost_pb} PB** et **{real_dmg} PV** .\n"
+                f"❤️ {before} - {real_dmg} PV / 🛡️ {before_pb} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
+            )
+        else:
+            desc = (
+                f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
+                f"**{before} → {after} PV**{crit_txt}"
+            )
+
+        desc += f"{reset_txt}{effect_txt}"
+
+        if shield_broken:
+            await ctx.channel.send(embed=discord.Embed(
+                title="🛡 Bouclier détruit",
+                description=f"Le bouclier de {target_mention} a été **détruit** sous l'impact.",
+                color=discord.Color.dark_blue()
+            ))
+
+        return build_embed_from_item(item, desc), True
+  
     elif action["type"].strip() == "infection":
         base_dmg = action.get("degats", 5)
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
         base_dmg = apply_casque_reduction(guild_id, target_id, base_dmg)
         dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, base_dmg)
-
+        before_pb = shields.get(guild_id, {}).get(target_id, 0)
+        pb_after = before_pb - lost_pb
         before = hp[guild_id].get(target_id, 100)
         after = max(before - dmg_final, 0)
         hp[guild_id][target_id] = after
@@ -383,16 +428,33 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         )
 
         # Embed secondaire pour le message d'infection
-        embed_info = discord.Embed(
-            title="🧬 Infection",
-            description=(
-                f"**GotValis** détecte un nouveau infecté : {target_mention}.\n"
-                f"Il subit immédiatement **5 dégâts 🧟**."
-            ),
-            color=0x880088
-        )
-        await ctx.channel.send(embed=embed_info)
+        if lost_pb and real_dmg == 0:
+            desc = (
+                f"{user_mention} inflige {lost_pb} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd **{lost_pb} PB** (Points de Bouclier) | ❤️ {after} PV / 🛡️ {before_pb} - {lost_pb} PB = 🛡️ {pb_after} PB"
+            )
+        elif lost_pb and real_dmg > 0:
+            desc = (
+                f"{user_mention} inflige {real_dmg + lost_pb} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd **{lost_pb} PB** et **{real_dmg} PV** .\n"
+                f"❤️ {before} - {real_dmg} PV / 🛡️ {before_pb} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
+            )
+        else:
+            desc = (
+                f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
+                f"**{before} → {after} PV**{crit_txt}"
+            )
 
+        desc += f"{reset_txt}{effect_txt}"
+
+        if shield_broken:
+            await ctx.channel.send(embed=discord.Embed(
+                title="🛡 Bouclier détruit",
+                description=f"Le bouclier de {target_mention} a été **détruit** sous l'impact.",
+                color=discord.Color.dark_blue()
+            ))
+
+        embed_attack = build_embed_from_item(item, desc)
         return embed_attack, True
 
     elif action["type"] == "vol":
