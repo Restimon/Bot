@@ -200,7 +200,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
         # 💥 Critique ?
         is_crit = "Coup critique" in crit_txt
-        gif_url = "https://media.tenor.com/OUts7rGkfLMAAAAd/slash-critique.gif" if is_crit else OBJETS[item].get("gif")
+        gif_url = "https://media.giphy.com/media/o2TqK6vEzhp96/giphy.gif" if is_crit else OBJETS[item].get("gif")
 
         # 🔷 Embed personnalisé avec GIF adapté
         if lost_pb and real_dmg == 0:
