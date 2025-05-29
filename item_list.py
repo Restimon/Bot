@@ -25,7 +25,7 @@ def generate_description(obj):
     if typ == "vol":
         return "Vole un objet aléatoire à un autre joueur."
     if typ == "vaccin":
-        return "Utilisable via /heal pour soigner virus/poison."
+        return "Utilisable via /heal pour soigner du virus."
     if typ == "bouclier":
         return "Ajoute un bouclier de 20 PV."
     if typ == "esquive+":
