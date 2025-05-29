@@ -99,7 +99,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         bonus_dmg = 0
         bonus_info = ""
     
-        # 🦠 Virus : auto-dégâts et transmission (pas de bonus dégâts à la cible)
+        # 🦠 Virus : auto-dégâts et transmission
         virus_stat = virus_status.get(guild_id, {}).get(user_id)
         if virus_stat:
             virus_source = virus_stat.get("source", user_id)
@@ -113,6 +113,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 leaderboard.setdefault(guild_id, {}).setdefault(virus_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                 leaderboard[guild_id][virus_source]["degats"] += lost_hp
 
+            # Transfert du virus
             virus_status[guild_id][target_id] = virus_stat.copy()
             del virus_status[guild_id][user_id]
 
@@ -126,7 +127,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             )
             await ctx.channel.send(embed=embed_virus)
 
-        # 🧠 Infection
+        # 🧠 Infection : +2 dégâts et propagation potentielle
         infect_stat = infection_status.get(guild_id, {}).get(user_id)
         if infect_stat and target_id not in infection_status.get(guild_id, {}):
             infect_source = infect_stat.get("source", user_id)
@@ -147,6 +148,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 inf_before = hp[guild_id].get(target_id, 100)
                 inf_after = max(inf_before - 5, 0)
                 hp[guild_id][target_id] = inf_after
+
                 if target_id != infect_source:
                     leaderboard[guild_id][infect_source]["degats"] += 5
                 if inf_after == 0:
@@ -162,15 +164,17 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 )
                 await ctx.channel.send(embed=embed_info)
 
-        # 🧪 Poison
+        # 🧪 Poison : -1 dégât
         if poison_status.get(guild_id, {}).get(user_id):
             bonus_dmg -= 1
             bonus_info += "-1 🧪 "
 
-        # Calcul des dégâts
+        # ✅ Calcul des dégâts
+        base_dmg = action.get("degats", 0)
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
         total_dmg = base_dmg + bonus_dmg
         total_dmg = apply_casque_reduction(guild_id, target_id, total_dmg)
+
         pb_before = shields.get(guild_id, {}).get(target_id, 0)
         total_dmg, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
         pb_after = shields.get(guild_id, {}).get(target_id, 0)
@@ -189,6 +193,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             reset_txt = ""
 
         bonus_info_str = f" ({bonus_info.strip()})" if bonus_info else ""
+
 
         # ✅ Enregistrement du cooldown (important)
         set_cooldown(guild_id, (user_id, target_id), "attack", OBJETS[item].get("cooldown", 30))
