@@ -70,14 +70,14 @@ def register_heal_command(bot):
             if uid == tid:
                 description = f"{member.mention} a utilisé un **bouclier de protection** !"
             else:
-                description = f"{member.mention} a activé un **bouclier pour {target.mention}** !"
+                description = f"{member.mention} a activé un **bouclier** pour {target.mention} !"
 
             embed = discord.Embed(
                 title="🛡 Bouclier activé",
                 description=description,
                 color=discord.Color.blue()
             )
-            embed.set_image(url="https://media.tenor.com/IfL3PSOX8FgAAAAC/force-field.gif")  # ✅ GIF cool
+            embed.set_image(url="https://media.tenor.com/IfL3PSOX8FgAAAAC/force-field.gif")
 
             return await interaction.followup.send(embed=embed)
 
