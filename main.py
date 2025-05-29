@@ -38,7 +38,6 @@ os.makedirs("/persistent", exist_ok=True)
 load_dotenv()
 charger()
 
-shields.setdefault(gid, {})
 intents = discord.Intents.default()
 intents.message_content = True
 intents.messages = True
