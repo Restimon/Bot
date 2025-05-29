@@ -202,7 +202,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             description = (
                 f"{user_mention} inflige {lost_pb} dégâts à {target_mention} avec {item} !\n"
                 f"{target_mention} perd **{lost_pb} PB** .\n"
-                f"❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB | {crit_txt}{reset_txt}"
+                f"🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB | {crit_txt}{reset_txt}"
             )
         elif lost_pb and real_dmg > 0:
             description = (
