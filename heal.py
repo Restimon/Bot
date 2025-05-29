@@ -77,7 +77,7 @@ def register_heal_command(bot):
                 description=description,
                 color=discord.Color.blue()
             )
-            embed.set_image(url="https://media.tenor.com/IfL3PSOX8FgAAAAC/force-field.gif")
+            embed.set_image(url="https://media.giphy.com/media/rR7wrU76zfWnf7xBDR/giphy.gif")
 
             return await interaction.followup.send(embed=embed)
 
