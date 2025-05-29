@@ -171,7 +171,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
         total_dmg = base_dmg + bonus_dmg
         total_dmg = apply_casque_reduction(guild_id, target_id, total_dmg)
-        total_dmg = apply_shield(guild_id, target_id, total_dmg)
+        total_dmg, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
 
         before = hp[guild_id].get(target_id, 100)
         after = max(before - total_dmg, 0)
@@ -196,13 +196,33 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         gif_url = "https://media.tenor.com/OUts7rGkfLMAAAAd/slash-critique.gif" if is_crit else OBJETS[item].get("gif")
 
         # 🔷 Embed personnalisé avec GIF adapté
-        description = (
-            f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-            f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
-        )
+        if lost_pb and real_dmg == 0:
+            description = (
+                f"{user_mention} inflige {lost_pb} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd **{lost_pb} PB** *(Points de Bouclier)* | ❤️ {before} PV / 🛡️ {lost_pb} - {lost_pb} PB = ❤️ {before} PV"
+            )
+        elif lost_pb and real_dmg > 0:
+            description = (
+                f"{user_mention} inflige {real_dmg + lost_pb} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd **{lost_pb} PB** et **{real_dmg} PV** | ❤️ {before} - {real_dmg} PV / 🛡️ {lost_pb} - {lost_pb} PB = ❤️ {after} PV"
+            )
+        else:
+            description = (
+                f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
+                f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after}{crit_txt}{reset_txt}"
+            )
 
-        return build_embed_from_item(item, description, is_crit=is_crit), True
+        if shield_broken:
+            await ctx.channel.send(embed=discord.Embed(
+                title="🛡 Bouclier détruit",
+                description=f"Le bouclier de {target_mention} a été **détruit** sous l'impact.",
+                color=discord.Color.dark_blue()
+            ))
 
+        embed = build_embed_from_item(item, description, is_crit=is_crit)
+        if gif_url:
+            embed.set_image(url=gif_url)
+        return embed, True
 
     elif action["type"] == "poison":
         base_dmg = action.get("degats", 3)
@@ -562,16 +582,17 @@ def apply_casque_reduction(guild_id, target_id, dmg):
     return dmg
 
 def apply_shield(guild_id, target_id, dmg):
-    """Applique le bouclier et retourne le reste des dégâts (0 si tout absorbé)."""
+    """Renvoie (dmg_restant, pb_perdus, shield_cassé_bool)"""
     shield = shields.get(guild_id, {}).get(target_id, 0)
     if shield > 0:
         if dmg <= shield:
             shields[guild_id][target_id] -= dmg
-            return 0
+            return 0, dmg, False  # 0 PV subis, tout en PB, pas cassé
         else:
+            restante = dmg - shield
             shields[guild_id][target_id] = 0
-            return dmg - shield
-    return dmg
+            return restante, shield, True  # une partie passe en PV, bouclier cassé
+    return dmg, 0, False  # pas de bouclier
 
 def apply_crit(dmg, crit_chance):
     """Applique un coup critique si applicable."""
