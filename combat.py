@@ -534,8 +534,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
             dmg = base_dmg + bonus_dmg
             dmg = apply_casque_reduction(guild_id, tid, dmg)
-            dmg = apply_shield(guild_id, tid, dmg)
-
+            dmg, lost_pb, shield_broken = apply_shield(guild_id, tid, dmg)
             end_hp = max(start_hp - dmg, 0)
             hp[guild_id][tid] = end_hp
             real_dmg = start_hp - end_hp
