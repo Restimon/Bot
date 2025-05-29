@@ -365,13 +365,13 @@ async def virus_damage_loop():
 
         for guild in bot.guilds:
             gid = str(guild.id)
-            await asyncio.sleep(0)  # Laisse respirer la boucle
+            await asyncio.sleep(0)
 
             if gid not in virus_status:
                 continue
 
             for uid, status in list(virus_status[gid].items()):
-                await asyncio.sleep(0)  # Permet au loop de ne pas se bloquer
+                await asyncio.sleep(0)
 
                 start = status.get("start")
                 duration = status.get("duration")
@@ -388,14 +388,20 @@ async def virus_damage_loop():
 
                 if tick_count > last_tick:
                     dmg = 5
-                    current_hp = hp[gid].get(uid, 100)
-                    new_hp = max(current_hp - dmg, 0)
-                    hp[gid][uid] = new_hp
+                    hp_before = hp[gid].get(uid, 100)
+                    pb_before = shields.setdefault(gid, {}).get(uid, 0)
+
+                    dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
+                    pb_after = shields[gid].get(uid, 0)
+                    hp_after = max(hp_before - dmg_final, 0)
+                    hp[gid][uid] = hp_after
+
+                    real_dmg = hp_before - hp_after
                     virus_status[gid][uid]["last_tick"] = tick_count
 
                     if uid != source_id:
                         leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][source_id]["degats"] += dmg
+                        leaderboard[gid][source_id]["degats"] += real_dmg
 
                     remaining = max(0, duration - elapsed)
                     remaining_min = int(remaining // 60)
@@ -406,19 +412,37 @@ async def virus_damage_loop():
                             member = await bot.fetch_user(int(uid))
                             await asyncio.sleep(0.05)
 
-                            embed = discord.Embed(
-                                description=(
-                                    f"🦠 {member.mention} subit **-{dmg} PV** *(Virus)*.\n"
-                                    f"⏳ Temps restant : **{remaining_min} min** | ❤️ PV : **{new_hp}/100**"
-                                ),
-                                color=discord.Color.dark_purple()
-                            )
+                            if lost_pb and real_dmg == 0:
+                                desc = (
+                                    f"🦠 {member.mention} subit **{lost_pb} dégâts** *(Virus)*.\n"
+                                    f"🛡️ {pb_before} - {lost_pb} PB = 🛡️ {pb_after} PB | ❤️ {hp_after} PV"
+                                )
+                            elif lost_pb and real_dmg > 0:
+                                desc = (
+                                    f"🦠 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Virus)*.\n"
+                                    f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
+                                )
+                            else:
+                                desc = (
+                                    f"🦠 {member.mention} subit **{real_dmg} dégâts** *(Virus)*.\n"
+                                    f"❤️ {hp_before} → {hp_after} PV"
+                                )
+
+                            desc += f"\n⏳ Temps restant : **{remaining_min} min**"
+
+                            embed = discord.Embed(description=desc, color=discord.Color.dark_purple())
                             await channel.send(embed=embed)
                             await asyncio.sleep(0.05)
 
-                            if new_hp == 0:
-                                handle_death(gid, uid, source_id)
+                            if shield_broken:
+                                await channel.send(embed=discord.Embed(
+                                    title="🛡 Bouclier détruit",
+                                    description=f"Le bouclier de {member.mention} a été **détruit** par le virus.",
+                                    color=discord.Color.dark_blue()
+                                ))
 
+                            if hp_after == 0:
+                                handle_death(gid, uid, source_id)
                                 embed_ko = discord.Embed(
                                     title="💀 KO viral détecté",
                                     description=(
@@ -433,7 +457,7 @@ async def virus_damage_loop():
                         print(f"[virus_damage_loop] Erreur d’envoi embed : {e}")
 
         await asyncio.sleep(60)
-
+        
 async def poison_damage_loop():
     await bot.wait_until_ready()
     print("🧪 Boucle de dégâts de poison démarrée.")
@@ -443,10 +467,14 @@ async def poison_damage_loop():
 
         for guild in bot.guilds:
             gid = str(guild.id)
+            await asyncio.sleep(0)  # respiration loop
+
             if gid not in poison_status:
                 continue
 
             for uid, status in list(poison_status[gid].items()):
+                await asyncio.sleep(0)  # respiration par joueur
+
                 start = status.get("start")
                 duration = status.get("duration")
                 last_tick = status.get("last_tick", 0)
@@ -462,14 +490,24 @@ async def poison_damage_loop():
 
                 if tick_count > last_tick:
                     dmg = 3
-                    current_hp = hp[gid].get(uid, 100)
-                    new_hp = max(current_hp - dmg, 0)
-                    hp[gid][uid] = new_hp
+                    hp.setdefault(gid, {})
+                    shields.setdefault(gid, {})
+
+                    before = hp[gid].get(uid, 100)
+                    pb_before = shields[gid].get(uid, 0)
+
+                    dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
+                    pb_after = shields[gid].get(uid, 0)
+                    after = max(before - dmg_final, 0)
+                    hp[gid][uid] = after
+
+                    real_dmg = before - after
+
                     poison_status[gid][uid]["last_tick"] = tick_count
 
                     if uid != source_id:
                         leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][source_id]["degats"] += dmg
+                        leaderboard[gid][source_id]["degats"] += real_dmg
 
                     remaining = max(0, duration - elapsed)
                     remaining_min = int(remaining // 60)
@@ -479,18 +517,38 @@ async def poison_damage_loop():
                         if channel:
                             member = await bot.fetch_user(int(uid))
                             await asyncio.sleep(0.05)
-                            
-                            embed = discord.Embed(
-                                description=(
-                                    f"🧪 {member.mention} subit **-{dmg} PV** *(Poison)*.\n"
-                                    f"⏳ Temps restant : **{remaining_min} min** | ❤️ PV : **{new_hp}/100**"
-                                ),
-                                color=discord.Color.dark_green()
-                            )
+
+                            # 💬 Description formatée avec PB/PV
+                            if lost_pb and real_dmg == 0:
+                                desc = (
+                                    f"🧪 {member.mention} subit **{lost_pb} dégâts** *(Poison)*.\n"
+                                    f"🛡️ {pb_before} - {lost_pb} PB = 🛡️ {pb_after} PB | ❤️ {after} PV"
+                                )
+                            elif lost_pb and real_dmg > 0:
+                                desc = (
+                                    f"🧪 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Poison)*.\n"
+                                    f"❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
+                                )
+                            else:
+                                desc = (
+                                    f"🧪 {member.mention} subit **{real_dmg} dégâts** *(Poison)*.\n"
+                                    f"❤️ {before} → {after} PV"
+                                )
+
+                            desc += f"\n⏳ Temps restant : **{remaining_min} min**"
+
+                            embed = discord.Embed(description=desc, color=discord.Color.dark_green())
                             await channel.send(embed=embed)
                             await asyncio.sleep(0.05)
-                            
-                            if new_hp == 0:
+
+                            if shield_broken:
+                                await channel.send(embed=discord.Embed(
+                                    title="🛡 Bouclier détruit",
+                                    description=f"Le bouclier de {member.mention} a été **détruit** sous l'effet du poison.",
+                                    color=discord.Color.dark_blue()
+                                ))
+
+                            if after == 0:
                                 handle_death(gid, uid, source_id)
                                 embed_ko = discord.Embed(
                                     title="💀 KO toxique détecté",
@@ -507,7 +565,6 @@ async def poison_damage_loop():
 
         await asyncio.sleep(60)
 
-
 async def infection_damage_loop():
     await bot.wait_until_ready()
     print("🧟 Boucle de dégâts d'infection démarrée.")
@@ -517,11 +574,17 @@ async def infection_damage_loop():
 
         for guild in bot.guilds:
             gid = str(guild.id)
+            await asyncio.sleep(0)
+
             if gid not in infection_status:
                 continue
 
             for uid, status in list(infection_status[gid].items()):
+                await asyncio.sleep(0)
+
                 hp.setdefault(gid, {})
+                shields.setdefault(gid, {})
+
                 start = status.get("start")
                 duration = status.get("duration")
                 last_tick = status.get("last_tick", 0)
@@ -537,14 +600,20 @@ async def infection_damage_loop():
 
                 if tick_count > last_tick:
                     dmg = 2
-                    current_hp = hp[gid].get(uid, 100)
-                    new_hp = max(current_hp - dmg, 0)
-                    hp[gid][uid] = new_hp
+                    hp_before = hp[gid].get(uid, 100)
+                    pb_before = shields[gid].get(uid, 0)
+
+                    dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
+                    pb_after = shields[gid].get(uid, 0)
+                    hp_after = max(hp_before - dmg_final, 0)
+                    hp[gid][uid] = hp_after
+
+                    real_dmg = hp_before - hp_after
                     infection_status[gid][uid]["last_tick"] = tick_count
 
                     if uid != source_id:
                         leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][source_id]["degats"] += dmg
+                        leaderboard[gid][source_id]["degats"] += real_dmg
 
                     remaining = max(0, duration - elapsed)
                     remaining_min = int(remaining // 60)
@@ -554,18 +623,37 @@ async def infection_damage_loop():
                         if channel:
                             member = await bot.fetch_user(int(uid))
                             await asyncio.sleep(0.05)
-                            
-                            embed = discord.Embed(
-                                description=(
-                                    f"🧟 {member.mention} subit **-{dmg} PV** *(Infection)*.\n"
-                                    f"⏳ Temps restant : **{remaining_min} min** | ❤️ PV : **{new_hp}/100**"
-                                ),
-                                color=discord.Color.dark_green()
-                            )
+
+                            if lost_pb and real_dmg == 0:
+                                desc = (
+                                    f"🧟 {member.mention} subit **{lost_pb} dégâts** *(Infection)*.\n"
+                                    f"🛡️ {pb_before} - {lost_pb} PB = 🛡️ {pb_after} PB | ❤️ {hp_after} PV"
+                                )
+                            elif lost_pb and real_dmg > 0:
+                                desc = (
+                                    f"🧟 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Infection)*.\n"
+                                    f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
+                                )
+                            else:
+                                desc = (
+                                    f"🧟 {member.mention} subit **{real_dmg} dégâts** *(Infection)*.\n"
+                                    f"❤️ {hp_before} → {hp_after} PV"
+                                )
+
+                            desc += f"\n⏳ Temps restant : **{remaining_min} min**"
+
+                            embed = discord.Embed(description=desc, color=discord.Color.dark_green())
                             await channel.send(embed=embed)
                             await asyncio.sleep(0.05)
-                            
-                            if new_hp == 0:
+
+                            if shield_broken:
+                                await channel.send(embed=discord.Embed(
+                                    title="🛡 Bouclier détruit",
+                                    description=f"Le bouclier de {member.mention} a été **détruit** par l'infection.",
+                                    color=discord.Color.dark_blue()
+                                ))
+
+                            if hp_after == 0:
                                 handle_death(gid, uid, source_id)
                                 ko_embed = discord.Embed(
                                     title="💀 KO infectieux détecté",
