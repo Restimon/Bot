@@ -253,15 +253,28 @@ async def update_leaderboard_loop():
             medals = ["🥇", "🥈", "🥉"]
             server_lb = leaderboard.get(guild_id, {})
             server_hp = hp.get(guild_id, {})
-            sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]['degats'] + x[1]['soin'], reverse=True)
+
+            # Tri sécurisé
+            def get_score(entry):
+                stats = entry[1]
+                return stats.get("degats", 0) + stats.get("soin", 0)
+
+            sorted_lb = sorted(server_lb.items(), key=get_score, reverse=True)
 
             lines = []
             rank = 0
 
             for uid, stats in sorted_lb:
-                user = bot.get_user(int(uid))
-                if not user:
+                # Vérifie que uid est un entier valide
+                try:
+                    int_uid = int(uid)
+                    user = bot.get_user(int_uid)
+                    if not user:
+                        continue
+                except (ValueError, TypeError):
+                    print(f"⚠️ UID non valide ignoré : {uid}")
                     continue
+
                 if rank >= 10:
                     break
 
@@ -270,7 +283,7 @@ async def update_leaderboard_loop():
                 kills = stats.get("kills", 0)
                 morts = stats.get("morts", 0)
                 total = degats + soin + kills * 50 - morts * 25
-                pv = hp.get(guild_id, {}).get(uid, 100)
+                pv = server_hp.get(uid, 100)
 
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
                 lines.append(
@@ -293,11 +306,14 @@ async def update_leaderboard_loop():
                         await msg.edit(content=content)
                 else:
                     raise discord.NotFound(response=None, message="No message ID")
-            except (discord.NotFound, discord.HTTPException):
-                print(f"📤 Envoi d’un nouveau message dans {channel.name}")
-                msg = await channel.send(content=content)
-                guild_config["special_leaderboard_message_id"] = msg.id
-                save_config()
+            except (discord.NotFound, discord.HTTPException) as e:
+                print(f"📤 Envoi d’un nouveau message dans {channel.name} ({e})")
+                try:
+                    msg = await channel.send(content=content)
+                    guild_config["special_leaderboard_message_id"] = msg.id
+                    save_config()
+                except Exception as e:
+                    print(f"❌ Échec de l’envoi du message dans {channel.name} : {e}")
 
         await asyncio.sleep(60)
         
