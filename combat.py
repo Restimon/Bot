@@ -658,9 +658,12 @@ def apply_shield(guild_id, target_id, dmg):
     """Renvoie (dmg_restant, pb_perdus, shield_cassé_bool)"""
     shield = shields.get(guild_id, {}).get(target_id, 0)
     if shield > 0:
-        if dmg <= shield:
+        if dmg < shield:
             shields[guild_id][target_id] -= dmg
             return 0, dmg, False
+        elif dmg == shield:
+            shields[guild_id][target_id] = 0
+            return 0, dmg, True  # ✅ considère comme cassé si exactement 0
         else:
             restante = dmg - shield
             shields[guild_id][target_id] = 0
