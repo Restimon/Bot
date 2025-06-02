@@ -163,16 +163,15 @@ async def on_message(message):
     # 📦 Ravitaillement spécial
     global message_counter, random_threshold, last_drop_time
 
-    current_time = asyncio.get_event_loop().time()
-    if current_time - last_drop_time < 30:
-        return
-
     message_counter += 1
     if message_counter >= random_threshold:
+        current_time = asyncio.get_event_loop().time()
+        if current_time - last_drop_time < 30:
+            return
+
         last_drop_time = current_time
         item = get_random_item()
         await message.add_reaction(item)
-
         collected_users = []
 
         def check(reaction, user):
