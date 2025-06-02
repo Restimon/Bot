@@ -191,12 +191,15 @@ async def send_special_supply(bot, force=False):
         save_supply_data(last_supply_time)
 
 def update_last_active_channel(message):
-    if message.guild and not message.author.bot:
-        gid = str(message.guild.id)
-        last_active_channel[gid] = message.channel.id
+    from config import get_guild_config
 
-        # Mise à jour de l'activité
-        supply_data = load_supply_data()
-        supply_data.setdefault(gid, {})
-        supply_data[gid]["last_activity_time"] = time.time()
-        save_supply_data(supply_data)
+    if message.author.bot:
+        return
+
+    gid = str(message.guild.id)
+
+    if gid not in supply_data or not isinstance(supply_data[gid], dict):
+        supply_data[gid] = {}
+
+    supply_data[gid]["last_activity_time"] = time.time()
+    supply_data[gid]["last_active_channel_id"] = message.channel.id
