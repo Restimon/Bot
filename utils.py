@@ -40,8 +40,12 @@ def check_crit(chance):
 def get_random_item():
     pool = []
     for emoji, data in OBJETS.items():
-        pool.extend([emoji] * (26 - data["rarete"]))
-    return random.choice(pool)
+        poids = 26 - data["rarete"]
+        if poids > 0:
+            pool.extend([emoji] * poids)
+
+    print(f"[get_random_item] Pool = {pool}")
+    return random.choice(pool) if pool else None
 
 def handle_death(guild_id, target_id, source_id=None):
     hp[guild_id][target_id] = 100  # Remise à 100 PV
