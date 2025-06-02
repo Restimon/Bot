@@ -190,16 +190,19 @@ async def send_special_supply(bot, force=False):
         last_supply_time[gid] = now
         save_supply_data(last_supply_time)
 
-def update_last_active_channel(message):
-    from config import get_guild_config
 
-    if message.author.bot:
-        return
+def update_last_active_channel(message):
+    from special_supply import load_supply_data, save_supply_data
 
     gid = str(message.guild.id)
+    supply_data = load_supply_data()  # ✅ CHARGE les données ici
 
     if gid not in supply_data or not isinstance(supply_data[gid], dict):
         supply_data[gid] = {}
+
+    supply_data[gid]["last_activity_time"] = time.time()
+
+    save_supply_data(supply_data)
 
     supply_data[gid]["last_activity_time"] = time.time()
     supply_data[gid]["last_active_channel_id"] = message.channel.id
