@@ -8,7 +8,7 @@ from discord.ext import tasks
 
 from utils import OBJETS
 from storage import get_user_data, hp, leaderboard
-from data import virus_status, poison_status, infection_status, regeneration_status
+from data import virus_status, poison_status, infection_status, regeneration_status, sauvegarder
 from embeds import build_embed_from_item
 
 # Variables globales
@@ -192,17 +192,18 @@ async def send_special_supply(bot, force=False):
 
 
 def update_last_active_channel(message):
-    from special_supply import load_supply_data, save_supply_data
-
     gid = str(message.guild.id)
-    supply_data = load_supply_data()  # ✅ CHARGE les données ici
 
+    # Chargement sécurisé du dictionnaire supply_data
+    supply_data = load_supply_data()
+
+    # Si ce serveur n'a pas encore d'entrée ou si l'entrée n'est pas un dictionnaire, on la crée
     if gid not in supply_data or not isinstance(supply_data[gid], dict):
         supply_data[gid] = {}
 
+    # On met à jour la dernière activité
     supply_data[gid]["last_activity_time"] = time.time()
+    supply_data[gid]["last_channel_id"] = message.channel.id
 
+    # Sauvegarde les modifications
     save_supply_data(supply_data)
-
-    supply_data[gid]["last_activity_time"] = time.time()
-    supply_data[gid]["last_active_channel_id"] = message.channel.id
