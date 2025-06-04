@@ -109,7 +109,7 @@ async def on_ready():
     load_config()
     supply_data = load_supply_data()  # ✅ à ajouter
     register_all_commands(bot)
-    special_supply_loop.start(bot)
+    asyncio.create_task(special_supply_loop(bot))
     asyncio.create_task(virus_damage_loop())
     asyncio.create_task(poison_damage_loop())
     asyncio.create_task(infection_damage_loop())
