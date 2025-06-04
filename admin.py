@@ -221,10 +221,10 @@ def register_admin_commands(bot):
         last_active_channel[guild_id] = interaction.channel.id
 
         try:
-            await interaction.response.defer(thinking=False)
+            await interaction.response.defer(thinking=False)  # ✅ pour éviter le chargement "infini"
             await send_special_supply(bot, force=True)
 
-            # ⛔ Empêche le déclenchement d'un ravitaillement automatique juste après
+            # ⛔ Empêche le déclenchement automatique dans la foulée
             last_supply_time[guild_id] = time.time()
 
             await interaction.followup.send("📦 Ravitaillement spécial déclenché avec succès.")
