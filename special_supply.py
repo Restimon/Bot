@@ -19,11 +19,27 @@ SUPPLY_DATA_FILE = "supply_data.json"
 def load_supply_data():
     if not os.path.exists(SUPPLY_DATA_FILE):
         return {}
+
     try:
         with open(SUPPLY_DATA_FILE, "r") as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        print("⚠️ Fichier supply_data.json corrompu ou vide. Réinitialisation...")
+            data = json.load(f)
+
+        # Correction automatique si certaines valeurs sont des float (ex : ancienne structure)
+        corrected = {}
+        for gid, val in data.items():
+            if isinstance(val, dict):
+                corrected[gid] = val
+            else:
+                corrected[gid] = {
+                    "last_supply_time": val if isinstance(val, (int, float)) else 0,
+                    "supply_count_today": 0,
+                    "last_activity_time": 0
+                }
+
+        return corrected
+
+    except Exception as e:
+        print(f"[ERREUR] Impossible de charger supply_data.json : {e}")
         return {}
 
 def save_supply_data(data):
@@ -207,3 +223,4 @@ def update_last_active_channel(message):
 
     # Sauvegarde les modifications
     save_supply_data(supply_data)
+
