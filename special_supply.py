@@ -24,7 +24,7 @@ def load_supply_data():
         with open(SUPPLY_DATA_FILE, "r") as f:
             data = json.load(f)
 
-        # Correction automatique si certaines valeurs sont des float (ex : ancienne structure)
+        # Correction automatique si certaines valeurs sont des float (ancienne structure)
         corrected = {}
         for gid, val in data.items():
             if isinstance(val, dict):
@@ -33,8 +33,17 @@ def load_supply_data():
                 corrected[gid] = {
                     "last_supply_time": val if isinstance(val, (int, float)) else 0,
                     "supply_count_today": 0,
-                    "last_activity_time": 0
+                    "last_activity_time": 0,
+                    "last_channel_id": None
                 }
+
+        # 🔄 Met à jour last_active_channel global
+        global last_active_channel
+        last_active_channel = {
+            gid: val["last_channel_id"]
+            for gid, val in corrected.items()
+            if isinstance(val, dict) and "last_channel_id" in val and val["last_channel_id"] is not None
+        }
 
         return corrected
 
