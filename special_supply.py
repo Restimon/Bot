@@ -54,7 +54,11 @@ def load_supply_data():
 def save_supply_data(data):
     with open(SUPPLY_DATA_FILE, "w") as f:
         json.dump(data, f)
-last_supply_time = load_supply_data()
+supply_data = load_supply_data()
+last_supply_time = {
+    gid: val.get("last_supply_time", 0)
+    for gid, val in supply_data.items()
+}
 
 def get_random_item():
     pool = []
