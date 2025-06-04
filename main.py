@@ -50,6 +50,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 message_counter = 0
 random_threshold = 5
 last_drop_time = 0 
+MAX_SUPPLIES_PER_DAY = 5
 
 # ===================== Slash Commands ======================
 @bot.command()
@@ -146,6 +147,7 @@ async def on_ready():
     bot.loop.create_task(virus_damage_loop())
     bot.loop.create_task(poison_damage_loop())
     bot.loop.create_task(infection_damage_loop())
+    bot.loop.create_task(special_supply_loop())
     regeneration_loop.start()
     
 @bot.event
@@ -732,45 +734,57 @@ async def regeneration_loop():
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
 
-@tasks.loop(minutes=30)
-async def special_supply_loop(bot):
-    now = time.time()
-    supply_data = load_supply_data()
+async def special_supply_loop():
+    await bot.wait_until_ready()
+    print("🎁 Boucle de ravitaillement spécial lancée")
 
-    for guild in bot.guilds:
-        gid = str(guild.id)
+    while not bot.is_closed():
+        for guild in bot.guilds:
+            gid = str(guild.id)
+            now = time.time()
 
-        # Salon actif enregistré ?
-        channel_id = last_active_channel.get(gid)
-        channel = bot.get_channel(channel_id) if channel_id else None
-        if not channel or not channel.permissions_for(guild.me).send_messages:
-            continue
+            # Initialiser les données si absentes
+            if gid not in supply_data or not isinstance(supply_data[gid], dict):
+                supply_data[gid] = {
+                    "last_supply_time": 0,
+                    "supply_count_today": 0,
+                    "last_activity_time": 0
+                }
 
-        # Données actuelles
-        last_time = supply_data.get(gid, {}).get("last_supply_time", 0)
-        last_activity = supply_data.get(gid, {}).get("last_activity_time", 0)
-        delay_since_last = now - last_time
-        delay_since_activity = now - last_activity
+            data = supply_data[gid]
 
-        # Conditions de déclenchement :
-        if delay_since_last < 7200:  # ⛔ moins de 2h depuis dernier ravitaillement
-            continue
-        if delay_since_activity > 7200:  # ⛔ pas de message récent depuis +2h
-            continue
-        if supply_data.get(gid, {}).get("is_open", False):  # ⛔ un ravitaillement est encore ouvert
-            continue
+            # Reset si date passée
+            if time.localtime(data["last_supply_time"]).tm_mday != time.localtime(now).tm_mday:
+                data["supply_count_today"] = 0
 
-        print(f"📦 Ravitaillement déclenché pour {guild.name}")
-        await send_special_supply(bot, force=True)
+            # Condition : pas plus de 3 par jour
+            if data["supply_count_today"] >= MAX_SUPPLIES_PER_DAY:
+                continue
 
-        # Mise à jour des données du serveur
-        supply_data[gid] = {
-            "last_supply_time": now,
-            "last_activity_time": now,
-            "is_open": True
-        }
-        save_supply_data(supply_data)
-        break  # ✅ Un seul ravitaillement par passage de boucle
+            # Attente minimale entre deux drops : 1h
+            min_interval = 3600
+            if now - data["last_supply_time"] < min_interval:
+                continue
+
+            # Vérifier si un salon actif est défini
+            channel_id = last_active_channel.get(gid)
+            if not channel_id:
+                continue
+
+            channel = bot.get_channel(channel_id)
+            if not channel or not channel.permissions_for(channel.guild.me).send_messages:
+                continue
+
+            # Tirage aléatoire d'apparition (ex: 1 chance sur 4 à chaque boucle)
+            if random.random() < 0.25:
+                await send_special_supply(bot, guild_id=gid, force=True)
+
+                # Mise à jour
+                supply_data[gid]["last_supply_time"] = now
+                supply_data[gid]["supply_count_today"] += 1
+                save_supply_data()
+
+        await asyncio.sleep(60 * 10)  # boucle toutes les 10 minutes
             
 async def close_special_supply(guild_id):
     supply_data = load_supply_data()
