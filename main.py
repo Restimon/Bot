@@ -734,7 +734,7 @@ async def regeneration_loop():
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
 
-sync def special_supply_loop(bot):
+async def special_supply_loop(bot):
     await bot.wait_until_ready()
     print("🎁 Boucle de ravitaillement spécial lancée")
 
