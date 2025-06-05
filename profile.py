@@ -100,7 +100,7 @@ def register_profile_command(bot):
 
         for bonus, emoji, label, extra in [
             (esquive_bonus, "💨", "Esquive améliorée", "+20%"),
-            (casque_bonus, "🪖", "Casque", "dégâts reçus ÷2"),
+            (casque_status, "🪖", "Casque", "dégâts reçus ÷2"),
             (immunite_status, "⭐️", "Immunité totale", "")
         ]:
             data = bonus.get(guild_id, {}).get(uid)
