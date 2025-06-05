@@ -216,9 +216,10 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 f"❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV {crit_txt}{reset_txt}"
             )
         else:
-            description = (
+            desc = (
                 f"{user_mention} inflige {real_dmg} dégâts à {target_mention} avec {item} !\n"
-                f"{target_mention} perd {base_dmg} PV{bonus_info_str} | {before} - {real_dmg} = {after} PV {crit_txt}{reset_txt}"
+                f"{target_mention} perd **{real_dmg} PV** .\n"
+                f"❤️ {before} - {real_dmg} PV = ❤️ {after} PV"
             )
 
         # 🛡 Bouclier détruit ?
