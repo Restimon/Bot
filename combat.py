@@ -593,6 +593,8 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 hp[guild_id][tid] = end_hp
                 real_dmg = start_hp - end_hp
                 user_stats["degats"] += real_dmg
+                display_base_dmg = base_dmg  # ex: 12
+                display_bonus = f" (+{' '.join(bonus_info)})" if bonus_info else ""
 
                 if end_hp == 0:
                     handle_death(guild_id, tid, user_id)
@@ -604,18 +606,18 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 if lost_pb and real_dmg == 0:
                     desc = (
                         f"@{user_mention} inflige {lost_pb} dégâts à {mention} avec {item} !\n"
-                        f"🛡️ {before_pb} - {lost_pb} = 🛡️ {pb_after} PB"
+                        f"🛡️ {before_pb} - {lost_pb} PB{display_bonus} = 🛡️ {pb_after} PB"
                     )
                 elif lost_pb and real_dmg > 0:
                     desc = (
                         f"@{user_mention} inflige {real_dmg + lost_pb} dégâts à {mention} avec {item} !\n"
-                        f"❤️ {start_hp} - {real_dmg} PV{bonus_str} = ❤️ {end_hp} PV / "
+                        f"❤️ {start_hp} - {display_base_dmg} PV{bonus_str} = ❤️ {end_hp} PV / "
                         f"🛡️ {before_pb} - {lost_pb} = 🛡️ {pb_after} PB{crit_txt}"
                     )
                 else:
                     desc = (
                         f"@{user_mention} inflige {real_dmg} dégâts à {mention} avec {item} !\n"
-                        f"❤️ {start_hp} - {real_dmg} PV{bonus_str} = ❤️ {end_hp} PV{crit_txt}"
+                        f"❤️ {start_hp} - {display_base_dmg} PV{display_bonus} = ❤️ {end_hp} PV"
                     )
 
                 desc += reset_txt
