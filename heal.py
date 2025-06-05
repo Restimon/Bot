@@ -1,3 +1,4 @@
+
 import discord
 import time
 from discord import app_commands
@@ -34,19 +35,42 @@ def register_heal_command(bot):
         if OBJETS[item]["type"] != "soin" and item not in SPECIAL_HEAL_ITEMS:
             return await interaction.followup.send("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
 
-        # 💉 Vaccin
+        # 💉 Vaccin — soigne tous les statuts
         if item == "💉":
             if tid != uid:
                 return await interaction.followup.send("💉 Le vaccin ne peut être utilisé que **sur toi-même**.", ephemeral=True)
+
+            from data import virus_status, poison_status, infection_status
             virus_status.setdefault(guild_id, {})
+            poison_status.setdefault(guild_id, {})
+            infection_status.setdefault(guild_id, {})
+
+            effaces = []
+
             if uid in virus_status[guild_id]:
                 del virus_status[guild_id][uid]
-                description = f"💉 {member.mention} s’est administré un vaccin.\n🦠 Le virus a été **éradiqué** avec succès !"
-            else:
-                description = f"💉 Aucun virus détecté chez {member.mention}. L’injection était inutile."
+                effaces.append("🦠 virus")
+            if uid in poison_status[guild_id]:
+                del poison_status[guild_id][uid]
+                effaces.append("🧪 poison")
+            if uid in infection_status[guild_id]:
+                del infection_status[guild_id][uid]
+                effaces.append("🧟 infection")
+
             user_inv.remove("💉")
             sauvegarder()
-            return await interaction.followup.send(embed=discord.Embed(title="📢 Vaccination GotValis", description=description, color=discord.Color.green()))
+
+            if effaces:
+                description = f"💉 {member.mention} s’est administré un vaccin.\n" \
+                              f"{' + '.join(effaces).capitalize()} éradiqué(s) avec succès !"
+            else:
+                description = f"💉 Aucun virus, poison ou infection détecté chez {member.mention}. L’injection était inutile."
+
+            return await interaction.followup.send(embed=discord.Embed(
+                title="📢 Vaccination GotValis",
+                description=description,
+                color=discord.Color.green()
+            ))
 
         # ⭐️ Immunité
         if item == "⭐️":
@@ -147,7 +171,7 @@ def register_heal_command(bot):
             typ = o.get("type", "inconnu")
             if typ == "soin":
                 return f"{emoji} {o.get('soin')} PV (🎯 {int(o.get('crit',0)*100)}%)"
-            if emoji == "💉": return f"{emoji} Vaccin : soigne les virus (🦠)"
+            if emoji == "💉": return f"{emoji} Vaccin : soigne les virus, poison ou infection"
             if emoji == "🛡": return f"{emoji} Bouclier : +20 PV absorbants"
             if emoji == "👟": return f"{emoji} Esquive : +20% pendant 3h"
             if emoji == "🪖": return f"{emoji} Casque : dégâts ÷2 pendant 4h"
