@@ -15,7 +15,8 @@ def register_fight_command(bot):
         guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
         tid = str(target.id)
-
+        action = OBJETS.get(item, {})
+        
         if target.bot:
             return await interaction.followup.send(
                 "🤖 Tu ne peux pas attaquer un bot, même s’il a l’air louche.", ephemeral=True
@@ -33,7 +34,9 @@ def register_fight_command(bot):
                 "⚠️ Cet objet n’est pas une arme valide !", ephemeral=True
             )
 
-        embed, success = await apply_item_with_cooldown(attacker_id, target_id, item, interaction, action)
+        # ✅ Ligne corrigée ici
+        embed, success = await apply_item_with_cooldown(uid, tid, item, interaction, action)
+
         if success:
             user_inv.remove(item)
             sauvegarder()
@@ -41,7 +44,6 @@ def register_fight_command(bot):
                 await interaction.followup.send(embed=embed)
             else:
                 await interaction.followup.send("☠️ Attaque en chaîne exécutée.")
-
         else:
             await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -52,7 +54,6 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        # 👇 Ajout du type "vol" ici
         attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection", "vol"]
 
         attack_items = sorted(set(
