@@ -105,8 +105,8 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
         virus_data = virus_status[guild_id][user_id]
         source = virus_data["source"]
 
-        # Ne rien faire si la cible est immunisée
         if not is_immune(guild_id, target_id):
+
             # Appliquer le virus à la cible
             virus_status.setdefault(guild_id, {})[target_id] = {
                 "start": time.time(),
@@ -116,30 +116,26 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 "channel_id": channel_id,
             }
 
-            effets_embed.append(build_embed_from_item(
-                "🦠",
-                f"**GotValis** détecte une contamination :\n<@{target_id}> est désormais porteur du virus."
-            ))
-
-            # L'attaquant perd 2 PV
+            # Dégâts sur l'attaquant
             start_hp = hp[guild_id].get(user_id, 100)
             end_hp = max(0, start_hp - 2)
             hp[guild_id][user_id] = end_hp
             pertes = start_hp - end_hp
 
-            # Attribuer les 2 PV à la source initiale
             if source != user_id:
                 update_leaderboard_dmg(guild_id, source, pertes)
-
-            effets_embed.append(build_embed_from_item(
-                "🦠",
-                f"<@{user_id}> perd **{pertes} PV** en transférant le virus à <@{target_id}>."
-            ))
 
             # Supprimer le virus de l’attaquant
             del virus_status[guild_id][user_id]
 
-            # Si l'attaquant meurt
+            # Créer l'embed fusionné
+            effets_embed.append(build_embed_transmission_virale(
+                from_user_mention=get_mention(channel_id, user_id),
+                to_user_mention=get_mention(channel_id, target_id),
+                pv_avant=start_hp,
+                pv_apres=end_hp
+            ))
+
             if end_hp == 0:
                 handle_death(guild_id, user_id, source)
                 effets_embed.append(build_embed_from_item(
