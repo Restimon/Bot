@@ -206,7 +206,7 @@ def register_admin_commands(bot):
 
     @give_item.autocomplete("item")
     async def autocomplete_item(interaction: discord.Interaction, current: str):
-        from data import OBJETS
+        from utils import OBJETS
         print("DEBUG OBJETS :", list(OBJETS.keys()))  # Ajoute ça pour vérifier
         results = []
         for emoji, data in OBJETS.items():
