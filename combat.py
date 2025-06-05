@@ -501,32 +501,30 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         ), True
         
     elif action["type"] == "attaque_chaine":
-        main_dmg = 24
-        splash_dmg = 12
-        all_targets = [target_id]
-        extra_targets = [m.id for m in ctx.guild.members if str(m.id) != user_id and str(m.id) != target_id and not m.bot]
+    main_dmg = 24
+    splash_dmg = 12
+    all_targets = [target_id]
+    extra_targets = [m.id for m in ctx.guild.members if str(m.id) != user_id and str(m.id) != target_id and not m.bot]
+    random.shuffle(extra_targets)
+    all_targets += extra_targets[:2]
 
-        random.shuffle(extra_targets)
-        all_targets += extra_targets[:2]
+    embeds = []
+    gif_url = "https://media.giphy.com/media/o2TqK6vEzhp96/giphy.gif"
 
-        embed_lines = [f"{user_mention} a attaqué {target_mention} avec {item}"]
+    for i, tid in enumerate(all_targets):
+        is_main = i == 0
+        base_dmg = main_dmg if is_main else splash_dmg
+        bonus_dmg = 0
+        bonus_info = []
+        mention = get_mention(ctx, tid)
+        start_hp = hp[guild_id].get(tid, 100)
 
-        for i, tid in enumerate(all_targets):
-            is_main = i == 0
-            base_dmg = main_dmg if is_main else splash_dmg
-            bonus_dmg = 0
-            bonus_info = []
-            mention = get_mention(ctx, tid)
-            start_hp = hp[guild_id].get(tid, 100)
-
-            if is_immune(guild_id, tid):
-                embed_lines.append(f"⭐ {mention} est **invulnérable**.")
-                continue
-
-            if random.random() < get_evade_chance(guild_id, tid):
-                embed_lines.append(f"💨 {mention} esquive l’attaque !")
-                continue
-
+        if is_immune(guild_id, tid):
+            desc = f"⭐ {mention} est **invulnérable**."
+        elif random.random() < get_evade_chance(guild_id, tid):
+            desc = f"💨 {mention} esquive l’attaque !"
+        else:
+            # Infection
             infect_stat = infection_status.get(guild_id, {}).get(user_id)
             already_infected = tid in infection_status.get(guild_id, {})
             if infect_stat and not already_infected:
@@ -537,58 +535,45 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 leaderboard[guild_id][infect_source]["degats"] += 2
 
                 if random.random() < 0.25:
-                    infection_status[guild_id][target_id] = {
+                    infection_status[guild_id][tid] = {
                         "start": now,
                         "duration": 3 * 3600,
                         "last_tick": 0,
                         "source": infect_source,
                         "channel_id": ctx.channel.id
                     }
-
-                    inf_before = hp[guild_id].get(target_id, 100)
+                    inf_before = hp[guild_id].get(tid, 100)
                     inf_after = max(inf_before - 5, 0)
-                    hp[guild_id][target_id] = inf_after
-                    if target_id != infect_source:
+                    hp[guild_id][tid] = inf_after
+                    if tid != infect_source:
                         leaderboard[guild_id][infect_source]["degats"] += 5
                     if inf_after == 0:
-                        handle_death(guild_id, target_id, infect_source)
+                        handle_death(guild_id, tid, infect_source)
 
                     embed_info = discord.Embed(
                         title="🧬 Infection propagée",
-                        description=(
-                            f"**GotValis** détecte un nouveau infecté : {target_mention}.\n"
-                            f"Il subit immédiatement **5 dégâts 🧟**."
-                        ),
+                        description=f"**GotValis** détecte un nouveau infecté : {mention}.\nIl subit immédiatement **5 dégâts 🧟**.",
                         color=0x880088
                     )
                     await ctx.channel.send(embed=embed_info)
 
-            # 🦠 Virus : auto-dégâts et transmission (pas de bonus dégâts à la cible)
+            # Virus
             virus_stat = virus_status.get(guild_id, {}).get(user_id)
-            if virus_stat:
+            if virus_stat and is_main:
                 virus_source = virus_stat.get("source", user_id)
-
-                # 💉 Auto-dégâts
                 before_self = hp[guild_id].get(user_id, 100)
                 after_self = max(before_self - 2, 0)
                 hp[guild_id][user_id] = after_self
                 lost_hp = before_self - after_self
-
-                # Attribution des points à la source du virus
                 if virus_source != user_id:
                     leaderboard.setdefault(guild_id, {}).setdefault(virus_source, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                     leaderboard[guild_id][virus_source]["degats"] += lost_hp
 
-                # ✅ Transmission
-                virus_status[guild_id][target_id] = virus_stat.copy()
+                virus_status[guild_id][tid] = virus_stat.copy()
                 del virus_status[guild_id][user_id]
-
                 embed_virus = discord.Embed(
                     title="💉 Transmission virale",
-                    description=(
-                        f"**GotValis** confirme une transmission virale : {target_mention} est désormais infecté.\n"
-                        f"🦠 Le virus a été retiré de {user_mention}, qui perd **{lost_hp} PV** ({before_self} → {after_self})."
-                    ),
+                    description=f"**GotValis** confirme une transmission virale : {mention} est désormais infecté.\n🦠 Le virus a été retiré de {user_mention}, qui perd **{lost_hp} PV** ({before_self} → {after_self}).",
                     color=0x2288FF
                 )
                 await ctx.channel.send(embed=embed_virus)
@@ -609,18 +594,25 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 reset_txt = ""
 
             bonus_str = f" (+{' '.join(bonus_info)})" if bonus_info else ""
-            header = f"{mention} perd {real_dmg} PV{crit_txt} | {base_dmg} de base{bonus_str} ➝ {start_hp} → {end_hp}{reset_txt}"
-            if is_main:
-                embed_lines.insert(1, f"**GotValis** : {header}")
-                embed_lines.append("L’attaque rebondit !")
-            else:
-                embed_lines.append(f"{header} (attaque secondaire)")
+            desc = f"{mention} perd {real_dmg} PV{crit_txt} | {base_dmg} de base{bonus_str} ➝ {start_hp} → {end_hp}{reset_txt}"
 
-        # On sort de la boucle for et on retourne l'embed
-        return build_embed_from_item(item, "\n".join(embed_lines)), True
+        if is_main:
+            desc = f"{user_mention} a attaqué {mention} avec {item}\n**GotValis** : {desc}\nL’attaque rebondit !"
+            embed = build_embed_from_item(item, desc)
+            embed.set_image(url=gif_url)
+            embeds.append(embed)
+        else:
+            embed = discord.Embed(
+                title="☠️ Attaque secondaire",
+                description=desc,
+                color=discord.Color.dark_purple()
+            )
+            embeds.append(embed)
 
-    # Aucun type reconnu : fail-safe
-    return build_embed_from_item("❓", f"⚠️ Type d'effet inconnu pour l’objet {item}."), False
+    for e in embeds[1:]:
+        await ctx.channel.send(embed=e)
+
+    return embeds[0], True
 
 def is_immune(guild_id, target_id):
     """Vérifie si la cible a une immunité active."""
