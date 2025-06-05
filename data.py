@@ -26,7 +26,7 @@ regeneration_status = {}      # idem
 immunite_status = {}          # guild_id -> user_id -> expire_time
 shields = {}                  # guild_id -> user_id -> valeur
 esquive_bonus = {}            # guild_id -> user_id -> expire_time
-casque_bonus = {}             # guild_id -> user_id -> True
+casque_status = {}             # guild_id -> user_id -> True
 last_daily_claim = {}         # guild_id -> user_id -> timestamp
 supply_data = {}              # autres données diverses
 
@@ -82,7 +82,7 @@ def sauvegarder():
                 "immunite_status": immunite_status,
                 "shields": shields,
                 "esquive_bonus": esquive_bonus,
-                "casque_status": casque_bonus,
+                "casque_status": casque_status,
                 "last_daily_claim": last_daily_claim,
                 "supply_data": supply_data
             }, f, indent=4, ensure_ascii=False)
@@ -136,8 +136,8 @@ def charger():
         esquive_bonus.clear()
         esquive_bonus.update(data.get("esquive_bonus", {}))
 
-        casque_bonus.clear()
-        casque_bonus.update(data.get("casque_status", {}))
+        casque_status.clear()
+        casque_status.update(data.get("casque_status", {}))
 
         supply_data.clear()
         supply_data.update(data.get("supply_data", {}))
