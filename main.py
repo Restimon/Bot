@@ -36,6 +36,7 @@ from kiss import register_kiss_command
 from hug import register_hug_command
 from pat import register_pat_command
 from punch import register_punch_command
+from slap import register_slap_command
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -107,6 +108,7 @@ def register_all_commands(bot):
     register_hug_command(bot)
     register_pat_command(bot)
     register_punch_command(bot)
+    register_slap_command(bot)
 
 # ===================== Events ======================
 
