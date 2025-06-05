@@ -370,7 +370,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     if result["lost_pb"] and result["real_dmg"] == 0:
         # Dégâts entièrement absorbés par le bouclier
         ligne2 = f"{target_mention} perd {result['lost_pb']} PB"
-        ligne3 = f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = 🛡️ {result['after_pb']} PB"
+        ligne3 = f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = ❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
         # Bouclier cassé : dégâts restants infligés aux PV (avec bonus éventuel)
