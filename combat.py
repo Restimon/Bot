@@ -236,6 +236,33 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
         # Supprime le virus de l’attaquant (transfert effectué)
         if user_id in virus_status.get(guild_id, {}):
             del virus_status[guild_id][user_id]
+    if virus_status.get(guild_id, {}).get(attacker_id) and not is_immune(guild_id, target_id):
+        # Si la cible n'est pas déjà infectée
+        if target_id not in virus_status[guild_id]:
+            pv_avant = hp[guild_id][attacker_id]
+            hp[guild_id][attacker_id] = max(0, pv_avant - 2)
+            pv_apres = hp[guild_id][attacker_id]
+
+            # Retirer le virus de l'attaquant
+            virus_status[guild_id].pop(attacker_id, None)
+
+            # Appliquer le virus à la cible
+            virus_status[guild_id][target_id] = {
+                "expire": time.time() + OBJETS["🦠"]["duree"],
+                "source": attacker_id,
+                "channel": channel_id
+            }
+
+            embed = build_embed_transmission_virale(
+                get_mention(attacker_id), get_mention(target_id),
+                pv_avant, pv_apres
+            )
+            await interaction.followup.send(embed=embed)
+
+            # Gestion KO si PV = 0
+            if hp[guild_id][attacker_id] <= 0:
+                await interaction.followup.send(embed=build_embed_ko(attacker_id, "virus", hp=0))
+                handle_death(guild_id, attacker_id, source_id=attacker_id)
 
 ### 🎯 APPLICATION D’OBJET À UNE CIBLE
 
