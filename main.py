@@ -116,6 +116,7 @@ def register_all_commands(bot):
 
 @bot.event
 async def on_ready():
+    await bot.tree.sync(guild=discord.Object(id=1269384239254605856))
     print("🤖 Bot prêt. Synchronisation des commandes...")
 
     # Enregistrement des commandes (une seule fois)
