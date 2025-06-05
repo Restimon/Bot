@@ -58,7 +58,6 @@ def build_help_embed():
         value=(
             "`/leaderboard` — Classement global (avec kills et morts).\n"
             "`/info [@membre]` — Voir les PV, stats, statuts et classement personnel.\n"
-            "`/setleaderboardchannel #salon` *(admin)* — Définit le salon du classement **spécial** mis à jour automatiquement.\n"
             "`/status [@membre]` — Voir les effets persistants d’un joueur (virus, poison, etc.)."
         ),
         inline=False
@@ -67,25 +66,6 @@ def build_help_embed():
     embed.add_field(
         name="🎁 Récompense Quotidienne",
         value="`/daily` — Récupère des objets chaque jour grâce à GotValis.",
-        inline=False
-    )
-
-    embed.add_field(
-        name="🛠️ Outils Admin (modérateurs uniquement)",
-        value=(
-            "`/reset @membre` — Réinitialise les stats d’un joueur.\n"
-            "`/resetinv @membre` — Vide l’inventaire d’un joueur.\n"
-            "`/resethp @membre` — Remet les PV à 100.\n"
-            "`/resetall` — Réinitialise tous les joueurs (PV, stats, inventaire, statuts).\n"
-            "`/resetleaderboard` — Réinitialise tout le classement.\n"
-            "`/setleaderboardchannel #salon` — Définit le salon pour le leaderboard spécial.\n"
-            "`/get_leaderboard_channel` — Affiche le salon actuel du leaderboard spécial.\n"
-            "`/stopleaderboard` — Supprime le message et stoppe la MAJ automatique.\n"
-            "`/supply` — Force l’apparition d’un ravitaillement spécial.\n"
-            "`/forcer_lb_temp` — Met à jour manuellement le leaderboard spécial.\n"
-            "`/giveitem @membre 🪓` — Donne un objet à un joueur.\n"
-            "`/purge_status @membre` — Supprime les effets (virus, poison, infection) d’un joueur."
-        ),
         inline=False
     )
 
