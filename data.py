@@ -124,6 +124,7 @@ def charger():
         print(f"❌ Erreur inattendue lors du chargement : {e}")
 
 @bot.tree.command(name="backup", description="💾 Sauvegarde les données de ce serveur")
+@app_commands.checks.has_permissions(administrator=True)
 async def backup_server(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         return await interaction.response.send_message("❌ Seuls les administrateurs peuvent utiliser cette commande.", ephemeral=True)
