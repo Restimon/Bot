@@ -116,6 +116,14 @@ def register_all_commands(bot):
 
 @bot.event
 async def on_ready():
+    print("🤖 Bot prêt. Synchronisation des commandes...")
+
+    register_admin_commands(bot)
+    register_all_commands(bot)
+
+    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+    print("✅ Commandes slash synchronisées pour le serveur.")
+    
     now = time.time()
     charger()
     load_config()
@@ -139,12 +147,6 @@ async def on_ready():
                 asyncio.create_task(wait_and_close_supply(gid, delay))  # ✅
             else:
                 asyncio.create_task(close_special_supply(gid))  # ✅
-                                    
-    try:
-        await bot.tree.sync()
-        print("✅ Commandes slash synchronisées globalement.")
-    except Exception as e:
-        print(f"❌ Erreur pendant la synchronisation des slash commands : {e}")
 
     print(f"✅ GotValis Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
