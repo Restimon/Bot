@@ -8,6 +8,7 @@ GIFS = {
     "⚡": "https://act-webstatic.hoyoverse.com/upload/contentweb/2023/02/02/9ed221220865a923de00661f5f9e7dea_7010733949792563480.gif",
     "🔫": "https://media3.giphy.com/media/10ZuedtImbopos/giphy.gif",
     "🧨": "https://media.giphy.com/media/oe33xf3B50fsc/giphy.gif",
+    "☠️": "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExYm1kMTg4OWw0Y2s0cjludThsajgycmlsbHNoM2Ixc3k0MTdncG1obSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/e37RbTLYjfc1q/giphy.gif",
     "🦠": "https://media.giphy.com/media/7htcRg2IORvgKBKryu/giphy.gif",
     "🧪": "https://media.giphy.com/media/9lHsP26ijVJwylXsff/giphy.gif",
     "🧟": "https://media.giphy.com/media/10bKG23wIFlKmc/giphy.gif",
