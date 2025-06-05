@@ -118,17 +118,18 @@ def register_all_commands(bot):
 async def on_ready():
     print("🤖 Bot prêt. Synchronisation des commandes...")
 
-    # Appelle soit ici directement :
-    # register_admin_commands(bot)
-    
-    # Soit dans register_all_commands(bot), mais pas les deux.
-    register_all_commands(bot)
+    # Enregistre les commandes
+    register_all_commands(bot)  # ✅ UNE SEULE FOIS
 
     await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-    
+
     now = time.time()
     charger()
     load_config()
+
+    # ➤ Supprime ce deuxième appel inutile :
+    # register_all_commands(bot)
+
     asyncio.create_task(special_supply_loop(bot))
     asyncio.create_task(virus_damage_loop())
     asyncio.create_task(poison_damage_loop())
@@ -145,9 +146,9 @@ async def on_ready():
             if elapsed < 300:
                 delay = 300 - elapsed
                 print(f"🔁 Ravito en cours sur {guild.name}, fermeture dans {int(delay)} sec.")
-                asyncio.create_task(wait_and_close_supply(gid, delay))  # ✅
+                asyncio.create_task(wait_and_close_supply(gid, delay))
             else:
-                asyncio.create_task(close_special_supply(gid))  # ✅
+                asyncio.create_task(close_special_supply(gid))
 
     print(f"✅ GotValis Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
@@ -163,6 +164,7 @@ async def on_ready():
     bot.loop.create_task(infection_damage_loop())
     asyncio.create_task(special_supply_loop(bot))
     regeneration_loop.start()
+
     
 @bot.event
 async def on_message(message):
