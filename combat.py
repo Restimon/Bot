@@ -43,7 +43,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         else:
             description = f"🔍 {get_mention(ctx.guild, user_id)} a tenté de voler {get_mention(ctx.guild, target_id)} mais n’a rien trouvé."
         embed = build_embed_from_item(item, description)
-        await ctx.send(embed=embed)
+        await ctx.followup.send(embed=embed)
         return None, True
 
     # 🎯 Calcul des dégâts
@@ -61,7 +61,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         is_heal_other=False,
         is_crit=("💥" in result["crit_txt"])
     )
-    await ctx.send(embed=embed)
+    await ctx.followup.send(embed=embed)
 
     # 🔄 Effets secondaires (virus, infection…)
     for effet_embed in result["effets_embeds"]:
@@ -381,14 +381,14 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
         if is_immune(guild_id, victim_id):
             description = f"⭐ {victim_mention} est protégé par une immunité. Aucun effet."
             embed = build_embed_from_item(item, description)
-            await ctx.send(embed=embed)
+            await ctx.followup.send(embed=embed)
             continue
 
         # 💨 Esquive
         if random.random() < get_evade_chance(guild_id, victim_id):
             description = f"💨 {victim_mention} esquive l’attaque de {user_mention} !"
             embed = build_embed_from_item("💨", description)
-            await ctx.send(embed=embed)
+            await ctx.followup.send(embed=embed)
             continue
 
         # 🎯 Dégâts
@@ -407,7 +407,7 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
             f"**{ligne_type}** : {desc}",
             is_crit=("💥" in result["crit_txt"])
         )
-        await ctx.send(embed=embed)
+        await ctx.followup.send(embed=embed)
 
         # 📤 Effets secondaires
         for effet_embed in result["effets_embeds"]:
