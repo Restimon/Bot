@@ -118,16 +118,17 @@ def register_all_commands(bot):
 async def on_ready():
     print("🤖 Bot prêt. Synchronisation des commandes...")
 
-    register_admin_commands(bot)
+    # Appelle soit ici directement :
+    # register_admin_commands(bot)
+    
+    # Soit dans register_all_commands(bot), mais pas les deux.
     register_all_commands(bot)
 
     await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-    print("✅ Commandes slash synchronisées pour le serveur.")
     
     now = time.time()
     charger()
     load_config()
-    register_all_commands(bot)
     asyncio.create_task(special_supply_loop(bot))
     asyncio.create_task(virus_damage_loop())
     asyncio.create_task(poison_damage_loop())
