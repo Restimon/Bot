@@ -289,7 +289,15 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     # 🧪 Appliquer statut
     await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action["type"], index=0)
 
+
+    if action["type"] not in ["attaque", "poison", "virus", "infection", "vol", "soin"]:
+        await ctx.send(f"⚠️ Type d’objet inconnu : `{action['type']}` pour l’objet {item}.")
+        return None, False
+
+    sauvegarder()  # <— à ajouter ici si pas déjà fait
+
     return None, True
+
 
 ### 🎯 FORMATTEUR DE MESSAGE
 
