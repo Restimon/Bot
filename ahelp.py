@@ -5,7 +5,7 @@ def register_ahelp_command(bot):
     @bot.tree.command(name="ahelp", description="📙 Commandes admin GotValis")
     @app_commands.checks.has_permissions(administrator=True)
     async def help_admin(interaction: discord.Interaction):
-        embed = build_admin_help_embed()
+        embed = build_ahelp_embed()
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 def build_ahelp_embed():
