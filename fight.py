@@ -37,7 +37,7 @@ def register_fight_command(bot):
         # ✅ Ligne corrigée ici
         embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
 
-        if success:
+        if success and item == "☠️":
             user_inv.remove(item)
             sauvegarder()
             if embed:
