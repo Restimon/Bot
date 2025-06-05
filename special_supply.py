@@ -94,6 +94,26 @@ def choose_reward(user_id, guild_id):
         return "soin", random.randint(1, 10)
     else:
         return "regen", True
+        
+# ========================== Recherche de salon compatible ==========================
+
+def find_valid_channel(bot, guild, config):
+    """Renvoie un salon valide où le bot peut envoyer un message et ajouter une réaction."""
+    last_id = config.get("last_channel_id")
+    if last_id:
+        ch = bot.get_channel(last_id)
+        if ch:
+            perms = ch.permissions_for(guild.me)
+            if perms.send_messages and perms.add_reactions and perms.read_messages:
+                return ch
+
+    # Sinon, on parcourt tous les salons textuels disponibles
+    for ch in guild.text_channels:
+        perms = ch.permissions_for(guild.me)
+        if perms.send_messages and perms.add_reactions and perms.read_messages:
+            return ch
+
+    return None  # Aucun salon trouvé
 
 # ========================== Envoi du ravitaillement ==========================
 
@@ -105,13 +125,9 @@ async def send_special_supply(bot, force=False):
         gid = str(guild.id)
         config = supply_data.get(gid, {})
 
-        channel_id = config.get("last_channel_id")
-        if not channel_id:
-            continue
-
-        channel = bot.get_channel(channel_id)
-        if not channel or not channel.permissions_for(channel.guild.me).send_messages:
-            continue
+        channel = find_valid_channel(bot, guild, config)
+        if not channel:
+            continue  # Aucun salon compatible trouvé
 
         # 📦 Envoi du message principal
         embed = discord.Embed(
