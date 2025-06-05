@@ -321,20 +321,25 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     bonus_str = f" ({' '.join(result['bonus_info'])})" if result['bonus_info'] else ""
 
     if result["lost_pb"] and result["real_dmg"] == 0:
+        # Tout le dégât a été absorbé par le bouclier
         desc = (
             f"{user_mention} inflige {result['lost_pb']} dégâts à {target_mention} avec {item} !\n"
             f"🛡️ {result['before_pb']} - {result['lost_pb']} PB{bonus_str} = 🛡️ {result['after_pb']} PB"
         )
+
     elif result["lost_pb"] and result["real_dmg"] > 0:
+        # Bouclier partiellement absorbé, reste sur PV
         desc = (
             f"{user_mention} inflige {result['real_dmg'] + result['lost_pb']} dégâts à {target_mention} avec {item} !\n"
             f"❤️ {result['start_hp']} - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV / "
             f"🛡️ {result['before_pb']} - {result['lost_pb']} PB = 🛡️ {result['after_pb']} PB{result['crit_txt']}"
         )
+
     else:
+        # Aucun bouclier, dégâts directs aux PV
         desc = (
             f"{user_mention} inflige {result['real_dmg']} dégâts à {target_mention} avec {item} !\n"
-            f"❤️ {result['start_hp']} - {result['dmg_total_affiche']} PV{bonus_str} = ❤️ {result['end_hp']} PV{result['crit_txt']}"
+            f"❤️ {result['start_hp']} - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV{result['crit_txt']}"
         )
 
     return f"**{type_cible.capitalize()}** : {desc}{result['reset_txt']}"
