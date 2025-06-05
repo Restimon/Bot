@@ -2,7 +2,7 @@ import discord
 import random
 from discord import app_commands
 
-# Liste des liens GIFs à compléter/modifier par toi
+# Liste des GIFs de câlins
 HUG_GIFS = [
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbzFrZmNjOTd6bWRnOGQ5bjUzMHZibGpvbnV0Z2NwNTBsbGhrN2pidiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/9d3LQ6TdV2Flo8ODTU/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbzFrZmNjOTd6bWRnOGQ5bjUzMHZibGpvbnV0Z2NwNTBsbGhrN2pidiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/xT39CXg70nNS0MFNLy/giphy.gif",
@@ -18,18 +18,16 @@ HUG_GIFS = [
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NzIwNXF5dXF1YXNhNjlrdHA5ZWFpMGVxeWdmeDEyYjgwdGhvNTBjcCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3bqtLDeiDtwhq/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NzIwNXF5dXF1YXNhNjlrdHA5ZWFpMGVxeWdmeDEyYjgwdGhvNTBjcCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/u9BxQbM5bxvwY/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NzIwNXF5dXF1YXNhNjlrdHA5ZWFpMGVxeWdmeDEyYjgwdGhvNTBjcCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/LIqFOpO9Qh0uA/giphy.gif",
-    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExb2xlMnlubXBpbDdmcjZpNmNtN2cwNjQxb3llZGpwOWc1MnN4YWk5dyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kvKFM3UWg2P04/giphy.gif",
-    # ajoute tes propres liens ici
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExb2xlMnlubXBpbDdmcjZpNmNtN2cwNjQxb3llZGpwOWc1MnN4YWk5dyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kvKFM3UWg2P04/giphy.gif"
 ]
 
 def register_hug_command(bot):
-    @bot.tree.command(name="hug", description="Fais un câlin à quelqu'un")
+    @bot.tree.command(name="hug", description="Fais un câlin à quelqu’un")
     @app_commands.describe(target="La personne que tu veux câliner")
     async def hug(interaction: discord.Interaction, target: discord.Member):
         if target.bot:
-            return await interaction.response.send_message(
-                "🤖 Les bots n’ont pas besoin de câlins... sauf si ?", ephemeral=True
-            )
+            await interaction.response.send_message("🤖 Les bots n’ont pas besoin de câlins... sauf si ?", ephemeral=True)
+            return
 
         gif_url = random.choice(HUG_GIFS)
         embed = discord.Embed(
