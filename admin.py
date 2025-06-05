@@ -318,9 +318,8 @@ def register_admin_commands(bot):
         await interaction.response.send_message(
             f"🧼 Tous les effets négatifs ont été supprimés de {user.mention}. GotValis confirme la purification.",
             ephemeral=True
-    )
-    
-def register_admin_commands(bot):
+        )
+
     @bot.tree.command(name="restore", description="🔁 Restaurer une sauvegarde pour ce serveur (admin seulement)")
     @app_commands.describe(filename="Nom exact de la sauvegarde à restaurer")
     async def restore(interaction: discord.Interaction, filename: str):
@@ -336,8 +335,6 @@ def register_admin_commands(bot):
         try:
             with open(backup_path, "r", encoding="utf-8") as f:
                 backup_data = json.load(f)
-
-            from data import inventaire, hp, leaderboard, sauvegarder
 
             # 🔄 Remplace uniquement les données de ce serveur
             inventaire[guild_id] = backup_data.get("inventaire", {})
@@ -356,7 +353,7 @@ def register_admin_commands(bot):
 
         guild_id = str(interaction.guild.id)
         prefix = f"data_backup_{guild_id}_"
-    
+
         files = sorted(f for f in os.listdir(BACKUP_DIR) if f.startswith(prefix))
         if not files:
             return await interaction.response.send_message("📁 Aucune sauvegarde disponible pour ce serveur.", ephemeral=True)
