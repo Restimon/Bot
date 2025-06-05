@@ -25,7 +25,7 @@ shields = {}                  # guild_id -> user_id -> valeur
 esquive_bonus = {}            # guild_id -> user_id -> expire_time
 casque_bonus = {}             # guild_id -> user_id -> True
 last_daily_claim = {}         # guild_id -> user_id -> timestamp
-supply_data = {}
+supply_data = {}              # autres données diverses
 
 def sauvegarder():
     """Sauvegarde toutes les données dans un seul fichier JSON."""
@@ -44,7 +44,7 @@ def sauvegarder():
                 "immunite_status": immunite_status,
                 "shields": shields,
                 "esquive_bonus": esquive_bonus,
-                "casque_status": casque_status,
+                "casque_status": casque_bonus,
                 "last_daily_claim": last_daily_claim,
                 "supply_data": supply_data
             }, f, indent=4, ensure_ascii=False)
@@ -106,7 +106,7 @@ def charger():
         last_daily_claim.clear()
         last_daily_claim.update(data.get("last_daily_claim", {}))
 
-        print("✅ Données chargées depuis data.json.")
+        print(f"✅ Données chargées depuis data.json : {len(inventaire)} serveurs | {sum(len(u) for u in inventaire.values())} joueurs.")
     except json.JSONDecodeError:
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
     except Exception as e:
