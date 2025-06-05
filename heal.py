@@ -107,8 +107,8 @@ def register_heal_command(bot):
 
         # 🪖 Casque
         if item == "🪖":
-            from data import casque_bonus
-            casque_bonus.setdefault(guild_id, {})[uid] = {"start": time.time(), "duration": 4 * 3600}
+            from data import casque_status
+            casque_status.setdefault(guild_id, {})[uid] = {"start": time.time(), "duration": 4 * 3600}
             user_inv.remove("🪖")
             sauvegarder()
             return await interaction.followup.send(embed=discord.Embed(
