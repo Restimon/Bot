@@ -11,11 +11,12 @@ from cooldowns import is_on_cooldown, set_cooldown
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
 async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
+    await ctx.response.defer(thinking=True)  # Nécessaire pour utiliser followup
     guild_id = str(ctx.guild.id)
 
     # 🩹 SOIN
     if action["type"] == "soin":
-        action["item"] = item  # 👈 Pour que le soin sache quel emoji utiliser
+        action["item"] = item
         embed = await appliquer_soin(ctx, user_id, target_id, action)
         return embed, True
 
@@ -23,14 +24,14 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     if is_immune(guild_id, target_id):
         description = f"⭐ {get_mention(ctx.guild, target_id)} est protégé par une **immunité**."
         embed = build_embed_from_item(item, description)
-        await ctx.send(embed=embed)
+        await ctx.followup.send(embed=embed)
         return None, False
 
     # 💨 Esquive
     if random.random() < get_evade_chance(guild_id, target_id):
         description = f"💨 {get_mention(ctx.guild, target_id)} esquive habilement l’attaque de {get_mention(ctx.guild, user_id)} !"
         embed = build_embed_from_item("💨", description)
-        await ctx.send(embed=embed)
+        await ctx.followup.send(embed=embed)
         return None, False
 
     if action["type"] == "vol":
