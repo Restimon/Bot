@@ -118,26 +118,32 @@ def register_all_commands(bot):
 async def on_ready():
     print("🤖 Bot prêt. Synchronisation des commandes...")
 
-    # Enregistre les commandes
-    register_all_commands(bot)  # ✅ UNE SEULE FOIS
+    # Enregistrement des commandes (une seule fois)
+    register_all_commands(bot)
 
-    await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+    # Synchronisation globale (sans GUILD_ID)
+    try:
+        await bot.tree.sync()
+        print("✅ Commandes slash synchronisées globalement.")
+    except Exception as e:
+        print(f"❌ Erreur de synchronisation globale : {e}")
 
+    # Chargement des données
     now = time.time()
     charger()
     load_config()
 
-    # ➤ Supprime ce deuxième appel inutile :
-    # register_all_commands(bot)
-
+    # Boucles de statut & ravitaillement
     asyncio.create_task(special_supply_loop(bot))
     asyncio.create_task(virus_damage_loop())
     asyncio.create_task(poison_damage_loop())
     asyncio.create_task(infection_damage_loop())
 
+    # Présence du bot
     activity = discord.Activity(type=discord.ActivityType.watching, name="en /help | https://discord.gg/jkbfFRqzZP")
     await bot.change_presence(status=discord.Status.online, activity=activity)
 
+    # Gestion du ravitaillement en cours (si redémarrage pendant un ravitaillement actif)
     for guild in bot.guilds:
         gid = str(guild.id)
         if supply_data.get(gid, {}).get("is_open", False):
@@ -155,16 +161,12 @@ async def on_ready():
     for command in bot.tree.get_commands():
         print(f" - /{command.name}")
 
+    # Boucles principales
     bot.loop.create_task(update_leaderboard_loop())
     bot.loop.create_task(yearly_reset_loop())
     bot.loop.create_task(autosave_data_loop())
     bot.loop.create_task(daily_restart_loop())
-    bot.loop.create_task(virus_damage_loop())
-    bot.loop.create_task(poison_damage_loop())
-    bot.loop.create_task(infection_damage_loop())
-    asyncio.create_task(special_supply_loop(bot))
     regeneration_loop.start()
-
     
 @bot.event
 async def on_message(message):
