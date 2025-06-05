@@ -117,22 +117,24 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
     source_to_credit = None
     effets_embed = []
 
-    # Poison
+    # --- 🧪 Poison ---
     if target_id in poison_status.get(guild_id, {}):
         bonus_dmg -= 1
         bonus_info.append("-1 🧪")
 
-    # Infection
-    if user_id in infection_status.get(guild_id, {}):
-        infect_data = infection_status[guild_id][user_id]
-        source = infect_data["source"]
+    # --- 🧟 Infection ---
+    infection_data = infection_status.get(guild_id, {}).get(user_id)
+    if infection_data:
+        source = infection_data.get("source")
         if source != target_id:
             bonus_dmg += 2
             bonus_info.append("+2 🧟")
             if source != user_id:
                 source_to_credit = source
 
-            if target_id not in infection_status.get(guild_id, {}) and random.random() < 0.25:
+            # Transmission potentielle
+            target_already_infected = target_id in infection_status.get(guild_id, {})
+            if not target_already_infected and random.random() < 0.25:
                 infection_status.setdefault(guild_id, {})[target_id] = {
                     "start": time.time(),
                     "duration": 3 * 3600,
@@ -140,10 +142,13 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                     "source": source,
                     "channel_id": channel_id,
                 }
-                infect_dmg = apply_casque_reduction(guild_id, target_id, 5)
+
+                # Dégâts immédiats
+                dmg = apply_casque_reduction(guild_id, target_id, 5)
                 start_hp = hp[guild_id].get(target_id, 100)
-                end_hp = max(0, start_hp - infect_dmg)
+                end_hp = max(0, start_hp - dmg)
                 hp[guild_id][target_id] = end_hp
+
                 effets_embed.append(build_embed_from_item(
                     "🧟",
                     f"**GotValis** signale une propagation.\n<@{target_id}> a été infecté et perd {start_hp - end_hp} PV."
@@ -159,14 +164,13 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 if source != target_id:
                     update_leaderboard_dmg(guild_id, source, start_hp - end_hp)
 
-    # Virus
+    # --- 🦠 Virus ---
     if action_type == "attaque" and user_id in virus_status.get(guild_id, {}):
         virus_data = virus_status[guild_id][user_id]
-        source = virus_data["source"]
+        source = virus_data.get("source")
 
         if not is_immune(guild_id, target_id):
-
-            # Appliquer le virus à la cible
+            # Transmission
             virus_status.setdefault(guild_id, {})[target_id] = {
                 "start": time.time(),
                 "duration": 3 * 3600,
@@ -175,7 +179,7 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 "channel_id": channel_id,
             }
 
-            # Dégâts sur l'attaquant
+            # Auto-dégâts
             start_hp = hp[guild_id].get(user_id, 100)
             end_hp = max(0, start_hp - 2)
             hp[guild_id][user_id] = end_hp
@@ -184,10 +188,8 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
             if source != user_id:
                 update_leaderboard_dmg(guild_id, source, pertes)
 
-            # Supprimer le virus de l’attaquant
             del virus_status[guild_id][user_id]
 
-            # Créer l'embed fusionné
             effets_embed.append(build_embed_transmission_virale(
                 from_user_mention=get_mention(channel_id, user_id),
                 to_user_mention=get_mention(channel_id, target_id),
@@ -201,6 +203,11 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                     "🦠",
                     f"**GotValis** confirme la fin de cycle infectieux de <@{user_id}>."
                 ))
+
+    # --- ✅ Retour sécurisé ---
+    bonus_summary = " ".join(bonus_info)
+    return bonus_dmg, bonus_summary, source_to_credit, effets_embed
+
 
 ### 🎯 SOINS
 
