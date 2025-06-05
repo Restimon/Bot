@@ -60,3 +60,8 @@ def handle_death(guild_id, target_id, source_id=None):
         update_leaderboard(guild_id, target_id, -25, death=1)
     else:
         update_leaderboard(guild_id, target_id, -25, death=1)
+
+def get_mention(guild, user_id):
+    """Renvoie la mention d'un utilisateur à partir de son ID et du serveur."""
+    member = guild.get_member(int(user_id))
+    return member.mention if member else f"<@{user_id}>"
