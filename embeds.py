@@ -49,3 +49,13 @@ def build_embed_from_item(item, description, is_heal_other=False, is_crit=False)
         embed.set_image(url=gif_url)
 
     return embed
+
+def build_embed_transmission_virale(attacker, target, pv_avant, pv_apres):
+    return discord.Embed(
+        title="💉 Transmission virale",
+        description=(
+            f"{attacker} confirme une transmission virale : {target} est désormais infecté.\n"
+            f"🦠 Le virus a été retiré de {attacker}, qui perd 2 PV ({pv_avant} → {pv_apres})."
+        ),
+        color=0x55ffff
+    )
