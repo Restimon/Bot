@@ -37,7 +37,7 @@ from hug import register_hug_command
 from pat import register_pat_command
 from punch import register_punch_command
 from slap import register_slap_command
-from help_admin import register_admin_help_command
+from ahelp import register_admin_help_command
 
 os.makedirs("/persistent", exist_ok=True)
 
