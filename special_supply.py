@@ -1,34 +1,12 @@
 import discord
 import random
 import time
-import json
 import asyncio
-import os
 
-from data import virus_status, poison_status, infection_status, regeneration_status, sauvegarder
+from data import virus_status, poison_status, infection_status, regeneration_status, supply_data, sauvegarder
 from storage import get_user_data, hp
 from utils import get_random_item, OBJETS
 from embeds import build_embed_from_item
-
-SUPPLY_DATA_FILE = "supply_data.json"
-
-# ========================== Chargement/Sauvegarde ==========================
-
-def load_supply_data():
-    if not os.path.exists(SUPPLY_DATA_FILE):
-        return {}
-
-    try:
-        with open(SUPPLY_DATA_FILE, "r") as f:
-            data = json.load(f)
-        return data
-    except Exception as e:
-        print(f"[load_supply_data] Erreur : {e}")
-        return {}
-
-def save_supply_data(data):
-    with open(SUPPLY_DATA_FILE, "w") as f:
-        json.dump(data, f)
 
 # ========================== Mise à jour du salon actif ==========================
 
@@ -37,15 +15,13 @@ def update_last_active_channel(message):
         return
 
     guild_id = str(message.guild.id)
-    supply_data = load_supply_data()
 
     if guild_id not in supply_data or not isinstance(supply_data[guild_id], dict):
         supply_data[guild_id] = {}
 
     supply_data[guild_id]["last_channel_id"] = message.channel.id
     supply_data[guild_id]["last_activity_time"] = time.time()
-
-    save_supply_data(supply_data)
+    sauvegarder()
 
 # ========================== Description des objets ==========================
 
@@ -84,21 +60,20 @@ def describe_item(emoji):
 
 def choose_reward(user_id, guild_id):
     r = random.random()
-    if r < 0.7:
+    if r < 0.60:
         return "objet", get_random_item()
-    elif r < 0.8:
+    elif r < 0.70:
         return "status", random.choice(["virus", "poison", "infection"])
-    elif r < 0.9:
+    elif r < 0.80:
         return "degats", random.randint(1, 15)
-    elif r < 0.97:
+    elif r < 0.95:
         return "soin", random.randint(1, 10)
     else:
         return "regen", True
-        
+
 # ========================== Recherche de salon compatible ==========================
 
 def find_valid_channel(bot, guild, config):
-    """Renvoie un salon valide où le bot peut envoyer un message et ajouter une réaction."""
     last_id = config.get("last_channel_id")
     if last_id:
         ch = bot.get_channel(last_id)
@@ -107,35 +82,36 @@ def find_valid_channel(bot, guild, config):
             if perms.send_messages and perms.add_reactions and perms.read_messages:
                 return ch
 
-    # Sinon, on parcourt tous les salons textuels disponibles
     for ch in guild.text_channels:
         perms = ch.permissions_for(guild.me)
         if perms.send_messages and perms.add_reactions and perms.read_messages:
             return ch
 
-    return None  # Aucun salon trouvé
+    return None
 
 # ========================== Envoi du ravitaillement ==========================
 
 async def send_special_supply(bot, force=False):
     now = time.time()
-    supply_data = load_supply_data()
 
     for guild in bot.guilds:
         gid = str(guild.id)
         config = supply_data.get(gid, {})
 
+        # Vérifie cooldown (sauf si force)
+        if not force:
+            last_time = config.get("last_supply_time", 0)
+            count_today = config.get("supply_count_today", 0)
+            if now - last_time < 3600 or count_today >= 3:
+                continue
+
         channel = find_valid_channel(bot, guild, config)
         if not channel:
-            continue  # Aucun salon compatible trouvé
+            continue
 
-        # 📦 Envoi du message principal
         embed = discord.Embed(
             title="📦 Ravitaillement spécial GotValis",
-            description=(
-                "Réagissez avec 📦 pour récupérer une récompense surprise !\n"
-                "⏳ Disponible pendant 5 minutes, maximum 5 personnes."
-            ),
+            description="Réagissez avec 📦 pour récupérer une récompense surprise !\n⏳ Disponible pendant 5 minutes, maximum 5 personnes.",
             color=discord.Color.gold()
         )
         msg = await channel.send(embed=embed)
@@ -211,7 +187,6 @@ async def send_special_supply(bot, force=False):
                 }
                 results.append(f"✨ {user.mention} bénéficie d’une **régénération** pendant 3h.")
 
-        # Envoi du récap
         if results:
             recap = discord.Embed(
                 title="📦 Récapitulatif du ravitaillement",
@@ -222,8 +197,7 @@ async def send_special_supply(bot, force=False):
         else:
             await channel.send("💣 Le ravitaillement spécial s’est auto-détruit. Aucune réaction détectée.")
 
-        # Mise à jour de la base
         supply_data[gid]["last_supply_time"] = now
         supply_data[gid]["is_open"] = False
-        supply_data[gid]["supply_count_today"] = supply_data[gid].get("supply_count_today", 0) + 1
-        save_supply_data(supply_data)
+        supply_data[gid]["supply_count_today"] = config.get("supply_count_today", 0) + 1
+        sauvegarder()
