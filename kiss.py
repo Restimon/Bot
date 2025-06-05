@@ -21,7 +21,7 @@ class Kiss(commands.Cog):
 
         gif = random.choice(self.kiss_gifs)
         embed = discord.Embed(
-            title="💋 GotValis : transfert de données émotionnelles détecté",
+            title="💋 GotValis : transfert d'amour détecté",
             description=f"{interaction.user.mention} embrasse {membre.mention}... protocole affectif enclenché.",
             color=discord.Color.pink()
         )
