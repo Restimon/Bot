@@ -509,7 +509,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
         all_targets += extra_targets[:2]
 
         embeds = []
-        gif_url = "https://media.giphy.com/media/o2TqK6vEzhp96/giphy.gif"
+        gif_url = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExYm1kMTg4OWw0Y2s0cjludThsajgycmlsbHNoM2Ixc3k0MTdncG1obSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/e37RbTLYjfc1q/giphy.gif"
 
         for i, tid in enumerate(all_targets):
             is_main = i == 0
