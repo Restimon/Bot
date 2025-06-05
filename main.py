@@ -111,6 +111,7 @@ def register_all_commands(bot):
     register_punch_command(bot)
     register_slap_command(bot)
     register_admin_help_command(bot)
+    register_backup_command(bot)   
     
 # ===================== Events ======================
 
