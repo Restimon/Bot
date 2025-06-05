@@ -150,7 +150,8 @@ def register_heal_command(bot):
 
         # ✅ Objets de soin classiques
         from combat import apply_item_with_cooldown
-        embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
+        action = OBJETS.get(item)
+        embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
         if success:
             user_inv.remove(item)
         sauvegarder()
