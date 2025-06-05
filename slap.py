@@ -25,6 +25,11 @@ def register_slap_command(bot):
                 "🤖 Les bots n’ont pas peur des baffes numériques.", ephemeral=True
             )
 
+        if target.id == interaction.user.id:
+            return await interaction.response.send_message(
+                "🙃 Tu ne peux pas te gifler toi-même… enfin, techniquement si, mais pourquoi ?", ephemeral=True
+            )
+
         gif_url = random.choice(SLAP_GIFS)
         embed = discord.Embed(
             title="GotValis : sanction comportementale appliquée 🖐️",
