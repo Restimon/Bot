@@ -6,17 +6,21 @@ from utils import handle_death
 
 # GIFs pour coups normaux (99%)
 PUNCH_GIFS = [
-    "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-    "https://media.giphy.com/media/xUNd9HZq1itMkiK652/giphy.gif",
-    "https://media.giphy.com/media/13HXKG2qk3xjIY/giphy.gif",
-    "https://media.giphy.com/media/5t9wJjyHAOxvnDnH3X/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdTB2eXk4cDRmd3kwdXpxeHVxbmYyMWY2ZzU1N3VkMzAybGF3bW5weiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/wiaoWlW17fqIo/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3MDE3czhhbnowcXl0cjd0dnFvd2FkMW9rc2RlamJ6eHNyN3ZpczhneSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/11HeubLHnQJSAU/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3anFrbTdsNnh6ZXNmM3BkeG1wNXA5ZWJ0Y2tmeW5iMW82Ym90YXNweCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/oNEJo2QnbZUkPNyv4F/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3eXVrOXQwdWpnN3ZiMDRjNHB2MWl2amJyeXVpMmVicWV3N2cyd2U0dSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/NY3tXwOBUwQYq7lbXx/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdHY2ZWdibDQ5eDQ1N2RheXFtNjB2cHVwaWJ3aWVkaHhxbzBoZDVhaCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/NuiEoMDbstN0J2KAiH/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdHY2ZWdibDQ5eDQ1N2RheXFtNjB2cHVwaWJ3aWVkaHhxbzBoZDVhaCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/uLklwTDvckBW27wqmU/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NTUzazRhbWF1Ympxem0wZXNqbG8zN3FpMXgxZnppNDE4YzMzMWxsMyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/zkpLdM8u8aLabkR6m9/giphy.gif",
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExYXk3dXc3YTdud2w0bndxZTRjaDljMmIyM2M2czRjdHg0NWpmemZsdCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/xUNd9HZq1itMkiK652/giphy.gif",
 ]
 
 # GIFs spéciaux pour le coup qui fait 1 dégât (1%)
 PUNCH_CRIT_GIFS = [
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExaDVzdXAzbG9saHR5ZTJwd2piNmVna2R0dTlhenluYXJld3R5MWtsdSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/qPzZQtsv21zjy/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3MzFyeXY0ZnNqZWh3eW95MnA2MWJwbnA1eHE0a3g0bmptNHgxdmZpNyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/g0tSbN7zqTwwpYqQge/giphy.gif",
-    "https://media.giphy.com/media/l2JJKs3I69qfaQleE/giphy.gif",
+    "https://media.giphy.com/media/o2TqK6vEzhp96/giphy.gif",
     # Ajoute ici d'autres GIFs épiques pour coup spécial
 ]
 
