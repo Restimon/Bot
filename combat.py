@@ -11,18 +11,78 @@ from cooldowns import is_on_cooldown, set_cooldown
 
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
-# ⏳ Vérification du cooldown
-if action["type"] == "attaque":
-    on_cd, remaining = is_on_cooldown(guild_id, user_id, "attack")
-    if on_cd:
-        await ctx.send(f"⏳ {ctx.author.mention}, vous devez attendre encore {remaining}s avant d'attaquer {get_mention(ctx.guild, target_id)}.")
+async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
+    guild_id = str(ctx.guild.id)
+
+    # 🩹 SOIN
+    if action["type"] == "soin":
+        action["item"] = item  # 👈 Pour que le soin sache quel emoji utiliser
+        embed = await appliquer_soin(ctx, user_id, target_id, action)
+        return embed, True
+
+    # ⭐ Immunité
+    if is_immune(guild_id, target_id):
+        description = f"⭐ {get_mention(ctx.guild, target_id)} est protégé par une **immunité**."
+        embed = build_embed_from_item(item, description)
+        await ctx.send(embed=embed)
         return None, False
 
-elif action["type"] == "soin":
-    on_cd, remaining = is_on_cooldown(guild_id, (user_id, target_id), "heal")
-    if on_cd:
-        await ctx.send(f"⏳ {ctx.author.mention}, vous devez attendre encore {remaining}s avant de soigner {get_mention(ctx.guild, target_id)}.")
+    # 💨 Esquive
+    if random.random() < get_evade_chance(guild_id, target_id):
+        description = f"💨 {get_mention(ctx.guild, target_id)} esquive habilement l’attaque de {get_mention(ctx.guild, user_id)} !"
+        embed = build_embed_from_item("💨", description)
+        await ctx.send(embed=embed)
         return None, False
+
+    if action["type"] == "vol":
+        # Test d'esquive et immunité déjà passés
+        from inventory import voler_objet
+        vol_result = voler_objet(ctx.guild.id, target_id, user_id)
+        if vol_result:
+            description = f"🔍 {get_mention(ctx.guild, user_id)} a volé **{vol_result}** à {get_mention(ctx.guild, target_id)}."
+        else:
+            description = f"🔍 {get_mention(ctx.guild, user_id)} a tenté de voler {get_mention(ctx.guild, target_id)} mais n’a rien trouvé."
+        embed = build_embed_from_item(item, description)
+        await ctx.send(embed=embed)
+        return None, True
+
+    # 🎯 Calcul des dégâts
+    result = await calculer_degats_complets(
+        ctx, guild_id, user_id, target_id,
+        action.get("degats", 0), action["type"],
+        action.get("crit", 0), item
+    )
+
+    # 📝 Message principal
+    description = afficher_degats(ctx, user_id, target_id, item, result)
+    embed = build_embed_from_item(
+        item,
+        description,
+        is_heal_other=False,
+        is_crit=("💥" in result["crit_txt"])
+    )
+    await ctx.send(embed=embed)
+
+    # 🔄 Effets secondaires (virus, infection…)
+    for effet_embed in result["effets_embeds"]:
+        await ctx.send(embed=effet_embed)
+
+    # 💥 Bouclier détruit
+    if result["shield_broken"]:
+        shield_embed = build_embed_from_item("🛡", f"Le bouclier de {get_mention(ctx.guild, target_id)} a été **détruit**.")
+        await ctx.send(embed=shield_embed)
+
+    # 🧪 Appliquer statut
+    await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action["type"], index=0)
+
+
+    if action["type"] not in ["attaque", "poison", "virus", "infection", "vol", "soin"]:
+        await ctx.send(f"⚠️ Type d’objet inconnu : `{action['type']}` pour l’objet {item}.")
+        return None, False
+
+    sauvegarder()  # <— à ajouter ici si pas déjà fait
+
+    return None, True
         
 def is_immune(guild_id, user_id):
     return user_id in immunite_status.get(guild_id, {})
@@ -261,79 +321,6 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
                 handle_death(guild_id, attacker_id, source_id=attacker_id)
 
 ### 🎯 APPLICATION D’OBJET À UNE CIBLE
-
-async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
-    guild_id = str(ctx.guild.id)
-
-    # 🩹 SOIN
-    if action["type"] == "soin":
-        action["item"] = item  # 👈 Pour que le soin sache quel emoji utiliser
-        embed = await appliquer_soin(ctx, user_id, target_id, action)
-        return embed, True
-
-    # ⭐ Immunité
-    if is_immune(guild_id, target_id):
-        description = f"⭐ {get_mention(ctx.guild, target_id)} est protégé par une **immunité**."
-        embed = build_embed_from_item(item, description)
-        await ctx.send(embed=embed)
-        return None, False
-
-    # 💨 Esquive
-    if random.random() < get_evade_chance(guild_id, target_id):
-        description = f"💨 {get_mention(ctx.guild, target_id)} esquive habilement l’attaque de {get_mention(ctx.guild, user_id)} !"
-        embed = build_embed_from_item("💨", description)
-        await ctx.send(embed=embed)
-        return None, False
-
-    if action["type"] == "vol":
-        # Test d'esquive et immunité déjà passés
-        from inventory import voler_objet
-        vol_result = voler_objet(ctx.guild.id, target_id, user_id)
-        if vol_result:
-            description = f"🔍 {get_mention(ctx.guild, user_id)} a volé **{vol_result}** à {get_mention(ctx.guild, target_id)}."
-        else:
-            description = f"🔍 {get_mention(ctx.guild, user_id)} a tenté de voler {get_mention(ctx.guild, target_id)} mais n’a rien trouvé."
-        embed = build_embed_from_item(item, description)
-        await ctx.send(embed=embed)
-        return None, True
-
-    # 🎯 Calcul des dégâts
-    result = await calculer_degats_complets(
-        ctx, guild_id, user_id, target_id,
-        action.get("degats", 0), action["type"],
-        action.get("crit", 0), item
-    )
-
-    # 📝 Message principal
-    description = afficher_degats(ctx, user_id, target_id, item, result)
-    embed = build_embed_from_item(
-        item,
-        description,
-        is_heal_other=False,
-        is_crit=("💥" in result["crit_txt"])
-    )
-    await ctx.send(embed=embed)
-
-    # 🔄 Effets secondaires (virus, infection…)
-    for effet_embed in result["effets_embeds"]:
-        await ctx.send(embed=effet_embed)
-
-    # 💥 Bouclier détruit
-    if result["shield_broken"]:
-        shield_embed = build_embed_from_item("🛡", f"Le bouclier de {get_mention(ctx.guild, target_id)} a été **détruit**.")
-        await ctx.send(embed=shield_embed)
-
-    # 🧪 Appliquer statut
-    await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action["type"], index=0)
-
-
-    if action["type"] not in ["attaque", "poison", "virus", "infection", "vol", "soin"]:
-        await ctx.send(f"⚠️ Type d’objet inconnu : `{action['type']}` pour l’objet {item}.")
-        return None, False
-
-    sauvegarder()  # <— à ajouter ici si pas déjà fait
-
-    return None, True
 
 
 ### 🎯 FORMATTEUR DE MESSAGE
