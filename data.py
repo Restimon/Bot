@@ -5,33 +5,36 @@ import time
 from storage import inventaire, hp, leaderboard
 from embeds import build_embed_from_item
 
-# ✅ Utilisation du disk persistant monté via Render
+# ✅ Utilisation du disque persistant
 PERSISTENT_PATH = "/persistent"
 DATA_FILE = os.path.join(PERSISTENT_PATH, "data.json")
 
-cooldowns = {"attack": {}, "heal": {}}
+# Cooldowns par action
+cooldowns = {
+    "attack": {},  # cooldowns["attack"][guild_id][user_id]
+    "heal": {}     # cooldowns["heal"][(guild_id, user_id, target_id)]
+}
 
 # États persistants
-infection_status = {} 
-virus_status = {}
-poison_status = {}
-last_daily_claim = {}
-shields = {}
-esquive_bonus = {}  
-casque_status = {}  # guild_id -> {user_id: True}
-regeneration_status = {}  
-immunite_status = {} 
+virus_status = {}             # guild_id -> user_id -> {start_time, source, channel_id}
+poison_status = {}            # idem
+infection_status = {}         # idem
+regeneration_status = {}      # idem
+immunite_status = {}          # guild_id -> user_id -> expire_time
+shields = {}                  # guild_id -> user_id -> valeur
+esquive_bonus = {}            # guild_id -> user_id -> expire_time
+casque_status = {}            # guild_id -> user_id -> True
+last_daily_claim = {}         # guild_id -> user_id -> timestamp
 
 def sauvegarder():
-    """Sauvegarde toutes les données GotValis dans un seul fichier JSON."""
+    """Sauvegarde toutes les données dans un seul fichier JSON."""
     try:
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-        with open(os.path.join(PERSISTENT_PATH, "data.json"), "w") as f:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({
                 "inventaire": inventaire,
                 "hp": hp,
                 "leaderboard": leaderboard,
-                "last_daily_claim": last_daily_claim,
                 "cooldowns": cooldowns,
                 "virus_status": virus_status,
                 "poison_status": poison_status,
@@ -40,14 +43,15 @@ def sauvegarder():
                 "immunite_status": immunite_status,
                 "shields": shields,
                 "esquive_bonus": esquive_bonus,
-                "casque_bonus": casque_bonus
+                "casque_status": casque_status,
+                "last_daily_claim": last_daily_claim
             }, f, indent=4, ensure_ascii=False)
-        print("💾 Données sauvegardées dans data.json.")  
+        print("💾 Données sauvegardées dans data.json.")
     except Exception as e:
         print(f"❌ Erreur lors de la sauvegarde : {e}")
 
 def charger():
-    """Charge toutes les données GotValis depuis un seul fichier JSON."""
+    """Charge toutes les données depuis le fichier JSON."""
     global last_daily_claim
     if not os.path.exists(DATA_FILE):
         print("ℹ️ Aucun fichier data.json trouvé — initialisation d'une nouvelle base.")
@@ -58,18 +62,16 @@ def charger():
             data = json.load(f)
 
         inventaire.clear()
-        hp.clear()
-        leaderboard.clear()
-        cooldowns["attack"].clear()
-        cooldowns["heal"].clear()
-
         inventaire.update(data.get("inventaire", {}))
+
+        hp.clear()
         hp.update(data.get("hp", {}))
+
+        leaderboard.clear()
         leaderboard.update(data.get("leaderboard", {}))
 
-        last_daily_claim.clear()
-        last_daily_claim.update(data.get("last_daily_claim", {}))
-
+        cooldowns["attack"].clear()
+        cooldowns["heal"].clear()
         cooldowns.update(data.get("cooldowns", {"attack": {}, "heal": {}}))
 
         virus_status.clear()
@@ -78,11 +80,11 @@ def charger():
         poison_status.clear()
         poison_status.update(data.get("poison_status", {}))
 
-        regeneration_status.clear()
-        regeneration_status.update(data.get("regeneration_status", {}))
-        
         infection_status.clear()
         infection_status.update(data.get("infection_status", {}))
+
+        regeneration_status.clear()
+        regeneration_status.update(data.get("regeneration_status", {}))
 
         immunite_status.clear()
         immunite_status.update(data.get("immunite_status", {}))
@@ -93,11 +95,13 @@ def charger():
         esquive_bonus.clear()
         esquive_bonus.update(data.get("esquive_bonus", {}))
 
-        casque_bonus.clear()
-        casque_bonus.update(data.get("casque_bonus", {}))
+        casque_status.clear()
+        casque_status.update(data.get("casque_status", {}))
+
+        last_daily_claim.clear()
+        last_daily_claim.update(data.get("last_daily_claim", {}))
 
         print("✅ Données chargées depuis data.json.")
-
     except json.JSONDecodeError:
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
     except Exception as e:
