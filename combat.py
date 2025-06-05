@@ -11,7 +11,7 @@ from cooldowns import is_on_cooldown, set_cooldown
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
 async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
-    await ctx.response.defer(thinking=True)  # Nécessaire pour utiliser followup
+    pass  # ou rien
     guild_id = str(ctx.guild.id)
 
     # 🩹 SOIN
