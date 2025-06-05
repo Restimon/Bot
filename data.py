@@ -26,7 +26,7 @@ regeneration_status = {}      # idem
 immunite_status = {}          # guild_id -> user_id -> expire_time
 shields = {}                  # guild_id -> user_id -> valeur
 esquive_bonus = {}            # guild_id -> user_id -> expire_time
-casque_bonus = {}             # guild_id -> user_id -> True
+casque_status = {}            # guild_id -> user_id -> True
 last_daily_claim = {}         # guild_id -> user_id -> timestamp
 supply_data = {}              # autres données diverses
 
