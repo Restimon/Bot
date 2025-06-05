@@ -4,7 +4,7 @@ import time
 from discord import app_commands
 from utils import OBJETS
 from storage import get_user_data
-from data import sauvegarder, virus_status
+from data import sauvegarder, virus_status, hp
 from embeds import build_embed_from_item
 
 SPECIAL_HEAL_ITEMS = ["💉", "🛡", "👟", "🪖", "💕", "⭐️"]
