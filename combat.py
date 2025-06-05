@@ -6,6 +6,7 @@ from data import hp, leaderboard, virus_status, poison_status, infection_status,
 from utils import get_mention, get_evade_chance
 from storage import sauvegarder
 from main import handle_death, appliquer_poison, appliquer_infection, appliquer_virus
+from embeds import build_embed_from_item
 
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
@@ -70,17 +71,16 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 start_hp = hp[guild_id].get(target_id, 100)
                 end_hp = max(0, start_hp - infect_dmg)
                 hp[guild_id][target_id] = end_hp
-                effets_embed.append(discord.Embed(
-                    title="🧟 Transmission infectieuse",
-                    description=f"**GotValis** signale une propagation.\n<@{target_id}> a été infecté et perd {start_hp - end_hp} PV.",
-                    color=0xAA00FF
+                effets_embed.append(build_embed_from_item(
+                    "🧟",
+                    f"**GotValis** signale une propagation.\n<@{target_id}> a été infecté et perd {start_hp - end_hp} PV."
                 ))
+
                 if end_hp == 0:
                     handle_death(guild_id, target_id, source)
-                    effets_embed.append(discord.Embed(
-                        title="☠️ KO infectieux",
-                        description=f"<@{target_id}> a succombé à une infection.",
-                        color=0xAA00FF
+                    effets_embed.append(build_embed_from_item(
+                        "🧟",
+                        f"<@{target_id}> a succombé à une infection."
                     ))
 
                 if source != target_id:
@@ -102,10 +102,9 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 "channel_id": channel_id,
             }
 
-            effets_embed.append(discord.Embed(
-                title="💉 Transmission virale",
-                description=f"**GotValis** détecte une contamination :\n<@{target_id}> est désormais porteur du virus.",
-                color=0x00CCFF
+            effets_embed.append(build_embed_from_item(
+                "🦠",
+                f"**GotValis** détecte une contamination :\n<@{target_id}> est désormais porteur du virus."
             ))
 
             # L'attaquant perd 2 PV
@@ -118,10 +117,9 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
             if source != user_id:
                 update_leaderboard_dmg(guild_id, source, pertes)
 
-            effets_embed.append(discord.Embed(
-                title="🤒 Contrecoup viral",
-                description=f"<@{user_id}> perd **{pertes} PV** en transférant le virus à <@{target_id}>.",
-                color=0x00CCFF
+            effets_embed.append(build_embed_from_item(
+                "🦠",
+                f"<@{user_id}> perd **{pertes} PV** en transférant le virus à <@{target_id}>."
             ))
 
             # Supprimer le virus de l’attaquant
@@ -130,10 +128,9 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
             # Si l'attaquant meurt
             if end_hp == 0:
                 handle_death(guild_id, user_id, source)
-                effets_embed.append(discord.Embed(
-                    title="☠️ KO viral",
-                    description=f"**GotValis** confirme la fin de cycle infectieux de <@{user_id}>.",
-                    color=0x00CCFF
+                effets_embed.append(build_embed_from_item(
+                    "🦠",
+                    f"**GotValis** confirme la fin de cycle infectieux de <@{user_id}>."
                 ))
 
 ### 🎯 SOINS
@@ -152,10 +149,11 @@ async def appliquer_soin(ctx, user_id, target_id, action):
     leaderboard.setdefault(guild_id, {}).setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
     leaderboard[guild_id][user_id]["soin"] += real_heal
 
-    return discord.Embed(
-        title="💊 Soins administrés",
+    return build_embed_from_item(
+        item=action["item"],  # ← Assure-toi que l’item (ex: "💊") est bien passé dans action
         description=f"<@{user_id}> soigne <@{target_id}> de **{real_heal} PV**.{crit_txt}",
-        color=discord.Color.green()
+        is_heal_other=(user_id != target_id),
+        is_crit=("💥" in crit_txt)
     )
 
 ### 🎯 CALCUL DES DÉGÂTS
@@ -230,34 +228,65 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     guild_id = str(ctx.guild.id)
 
+    # 🩹 SOIN
     if action["type"] == "soin":
+        action["item"] = item  # 👈 Pour que le soin sache quel emoji utiliser
         embed = await appliquer_soin(ctx, user_id, target_id, action)
         return embed, True
 
+    # ⭐ Immunité
     if is_immune(guild_id, target_id):
-        await ctx.send(f"🛡 {get_mention(ctx.guild, target_id)} est protégé par une **immunité**.")
+        description = f"⭐ {get_mention(ctx.guild, target_id)} est protégé par une **immunité**."
+        embed = build_embed_from_item(item, description)
+        await ctx.send(embed=embed)
         return None, False
 
+    # 💨 Esquive
     if random.random() < get_evade_chance(guild_id, target_id):
-        await ctx.send(f"🌀 {get_mention(ctx.guild, target_id)} esquive habilement l’attaque de {get_mention(ctx.guild, user_id)} !")
+        description = f"💨 {get_mention(ctx.guild, target_id)} esquive habilement l’attaque de {get_mention(ctx.guild, user_id)} !"
+        embed = build_embed_from_item("💨", description)
+        await ctx.send(embed=embed)
         return None, False
 
+    if action["type"] == "vol":
+        # Test d'esquive et immunité déjà passés
+        from inventory import voler_objet
+        vol_result = voler_objet(ctx.guild.id, target_id, user_id)
+        if vol_result:
+            description = f"🔍 {get_mention(ctx.guild, user_id)} a volé **{vol_result}** à {get_mention(ctx.guild, target_id)}."
+        else:
+            description = f"🔍 {get_mention(ctx.guild, user_id)} a tenté de voler {get_mention(ctx.guild, target_id)} mais n’a rien trouvé."
+        embed = build_embed_from_item(item, description)
+        await ctx.send(embed=embed)
+        return None, True
+
+    # 🎯 Calcul des dégâts
     result = await calculer_degats_complets(
-        ctx, guild_id, user_id, target_id, action.get("degats", 0), action["type"], action.get("crit", 0), item
+        ctx, guild_id, user_id, target_id,
+        action.get("degats", 0), action["type"],
+        action.get("crit", 0), item
     )
 
-    await ctx.send(afficher_degats(ctx, user_id, target_id, item, result))
+    # 📝 Message principal
+    description = afficher_degats(ctx, user_id, target_id, item, result)
+    embed = build_embed_from_item(
+        item,
+        description,
+        is_heal_other=False,
+        is_crit=("💥" in result["crit_txt"])
+    )
+    await ctx.send(embed=embed)
 
-    for embed in result["effets_embeds"]:
-        await ctx.send(embed=embed)
+    # 🔄 Effets secondaires (virus, infection…)
+    for effet_embed in result["effets_embeds"]:
+        await ctx.send(embed=effet_embed)
 
+    # 💥 Bouclier détruit
     if result["shield_broken"]:
-        await ctx.send(embed=discord.Embed(
-            title="🛡 Bouclier détruit",
-            description=f"Le bouclier de {get_mention(ctx.guild, target_id)} a été **détruit**.",
-            color=discord.Color.dark_blue()
-        ))
+        shield_embed = build_embed_from_item("🛡", f"Le bouclier de {get_mention(ctx.guild, target_id)} a été **détruit**.")
+        await ctx.send(embed=shield_embed)
 
+    # 🧪 Appliquer statut
     await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action["type"], index=0)
 
     return None, True
@@ -294,64 +323,59 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
     guild_id = str(ctx.guild.id)
     user_mention = get_mention(ctx.guild, user_id)
 
-    # Liste des cibles secondaires
+    # 🎯 Sélection des cibles secondaires
     all_members = [m for m in ctx.guild.members if not m.bot and m.id != target_id and m.id != user_id]
     random.shuffle(all_members)
     secondary_targets = all_members[:2]
 
+    # 📦 Cibles complètes
     cibles = [(target_id, "principale")] + [(m.id, "secondaire") for m in secondary_targets]
-    total_embeds = []
 
     for i, (victim_id, type_cible) in enumerate(cibles):
+        victim_mention = get_mention(ctx.guild, victim_id)
+
+        # ⭐ Immunité
         if is_immune(guild_id, victim_id):
-            await ctx.send(f"🛡 {get_mention(ctx.guild, victim_id)} est protégé par une immunité. Aucun effet.")
+            description = f"⭐ {victim_mention} est protégé par une immunité. Aucun effet."
+            embed = build_embed_from_item(item, description)
+            await ctx.send(embed=embed)
             continue
 
+        # 💨 Esquive
         if random.random() < get_evade_chance(guild_id, victim_id):
-            await ctx.send(f"🌀 {get_mention(ctx.guild, victim_id)} esquive l’attaque de {user_mention} !")
+            description = f"💨 {victim_mention} esquive l’attaque de {user_mention} !"
+            embed = build_embed_from_item("💨", description)
+            await ctx.send(embed=embed)
             continue
 
+        # 🎯 Dégâts
         dmg = 24 if i == 0 else 12
         result = await calculer_degats_complets(
-            ctx, guild_id, user_id, victim_id, dmg, action["type"], action.get("crit", 0), item
+            ctx, guild_id, user_id, victim_id,
+            dmg, action["type"], action.get("crit", 0), item
         )
 
-        # 📣 Affichage
-        cible_mention = get_mention(ctx.guild, victim_id)
-        ligne_type = "attaque principale" if i == 0 else "attaque secondaire"
+        # 📝 Message personnalisé
+        ligne_type = "Attaque principale" if i == 0 else "Attaque secondaire"
+        desc = afficher_degats(ctx, user_id, victim_id, item, result, type_cible=ligne_type.lower())
 
-        bonus_str = f" ({' '.join(result['bonus_info'])})" if result['bonus_info'] else ""
+        embed = build_embed_from_item(
+            item,
+            f"**{ligne_type}** : {desc}",
+            is_crit=("💥" in result["crit_txt"])
+        )
+        await ctx.send(embed=embed)
 
-        if result["lost_pb"] and result["real_dmg"] == 0:
-            desc = (
-                f"**{ligne_type}** : {user_mention} inflige {result['lost_pb']} dégâts à {cible_mention} avec {item} !\n"
-                f"🛡️ {result['before_pb']} - {result['lost_pb']} PB{bonus_str} = 🛡️ {result['after_pb']} PB"
-            )
-        elif result["lost_pb"] and result["real_dmg"] > 0:
-            desc = (
-                f"**{ligne_type}** : {user_mention} inflige {result['real_dmg'] + result['lost_pb']} dégâts à {cible_mention} avec {item} !\n"
-                f"❤️ {result['start_hp']} - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV / "
-                f"🛡️ {result['before_pb']} - {result['lost_pb']} = 🛡️ {result['after_pb']} PB{result['crit_txt']}"
-            )
-        else:
-            desc = (
-                f"**{ligne_type}** : {user_mention} inflige {result['real_dmg']} dégâts à {cible_mention} avec {item} !\n"
-                f"❤️ {result['start_hp']} - {result['dmg_total_affiche']} PV{bonus_str} = ❤️ {result['end_hp']} PV{result['crit_txt']}"
-            )
+        # 📤 Effets secondaires
+        for effet_embed in result["effets_embeds"]:
+            await ctx.send(embed=effet_embed)
 
-        await ctx.send(desc + result["reset_txt"])
-
-        for embed in result["effets_embeds"]:
-            await ctx.send(embed=embed)
-
+        # 🛡 Bouclier détruit
         if result["shield_broken"]:
-            await ctx.send(embed=discord.Embed(
-                title="🛡 Bouclier détruit",
-                description=f"Le bouclier de {cible_mention} a été **détruit**.",
-                color=discord.Color.dark_blue()
-            ))
+            shield_embed = build_embed_from_item("🛡", f"Le bouclier de {victim_mention} a été **détruit**.")
+            await ctx.send(embed=shield_embed)
 
-        # Appliquer statuts
+        # 🧪 Statuts à appliquer (uniquement sur première cible pour certains)
         await appliquer_statut_si_necessaire(ctx, guild_id, user_id, victim_id, action["type"], index=i)
 
     return None, True
