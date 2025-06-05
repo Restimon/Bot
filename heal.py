@@ -106,7 +106,7 @@ def register_heal_command(bot):
                 description=f"{ligne_1}\n{ligne_2}",
                 color=discord.Color.blue()
             )
-    embed.set_image(url="https://media.giphy.com/media/rR7wrU76zfWnf7xBDR/giphy.gif")
+            embed.set_image(url="https://media.giphy.com/media/rR7wrU76zfWnf7xBDR/giphy.gif")
 
             return await interaction.followup.send(embed=embed)
 
