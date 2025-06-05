@@ -97,8 +97,8 @@ def charger():
         esquive_bonus.clear()
         esquive_bonus.update(data.get("esquive_bonus", {}))
 
-        casque_status.clear()
-        casque_status.update(data.get("casque_status", {}))
+        casque_bonus.clear()
+        casque_bonus.update(data.get("casque_status", {}))
 
         supply_data.clear()
         supply_data.update(data.get("supply_data", {}))
