@@ -299,7 +299,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
         # Supprime le virus de l’attaquant (transfert effectué)
         if user_id in virus_status.get(guild_id, {}):
             del virus_status[guild_id][user_id]
-    if virus_status.get(guild_id, {}).get(attacker_id) and not is_immune(guild_id, target_id):
+    if virus_status.get(guild_id, {}).get(user_id) and not is_immune(guild_id, target_id):
         # Si la cible n'est pas déjà infectée
         if target_id not in virus_status[guild_id]:
             pv_avant = hp[guild_id][attacker_id]
