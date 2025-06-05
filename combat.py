@@ -251,7 +251,7 @@ async def appliquer_soin(ctx, user_id, target_id, action):
         ligne_1 += f" {crit_txt}"
 
     # Ligne 2 : calcul des PV
-    ligne_2 = f"❤️ PV + {real_heal} = {new_hp} PV"
+    ligne_2 = f"❤️ {start_hp} PV + {real_heal} = {new_hp} PV"
 
     return build_embed_from_item(
         item=item,
