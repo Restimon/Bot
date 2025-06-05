@@ -18,7 +18,7 @@ poison_status = {}
 last_daily_claim = {}
 shields = {}
 esquive_bonus = {}  
-casque_bonus = {}
+casque_status = {}  # guild_id -> {user_id: True}
 regeneration_status = {}  
 immunite_status = {} 
 
