@@ -1,7 +1,7 @@
 import discord
 import random
 from discord import app_commands
-from storage import hp, sauvegarder
+from storage import hp
 from utils import handle_death
 
 # GIFs pour coups normaux (99%)
