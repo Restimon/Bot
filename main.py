@@ -12,7 +12,7 @@ import random
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
-from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields
+from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data
 from utils import get_random_item, OBJETS, handle_death  
 from storage import get_user_data  
 from storage import inventaire, hp, leaderboard
@@ -117,7 +117,6 @@ async def on_ready():
     now = time.time()
     charger()
     load_config()
-    supply_data = load_supply_data()  # ✅ à ajouter
     register_all_commands(bot)
     asyncio.create_task(special_supply_loop(bot))
     asyncio.create_task(virus_damage_loop())
@@ -749,7 +748,6 @@ async def special_supply_loop(bot):
     print("🎁 Boucle de ravitaillement spécial lancée")
 
     while not bot.is_closed():
-        supply_data = load_supply_data()
         now = time.time()
 
         for guild in bot.guilds:
@@ -760,7 +758,9 @@ async def special_supply_loop(bot):
                 supply_data[gid] = {
                     "last_supply_time": 0,
                     "supply_count_today": 0,
-                    "last_activity_time": 0
+                    "last_activity_time": 0,
+                    "last_channel_id": None,
+                    "is_open": False
                 }
 
             data = supply_data[gid]
@@ -786,23 +786,23 @@ async def special_supply_loop(bot):
             if not channel or not channel.permissions_for(channel.guild.me).send_messages:
                 continue
 
-            # Chance aléatoire d’apparition
+            # Chance aléatoire d’apparition (25%)
             if random.random() < 0.25:
                 await send_special_supply(bot, force=True)
 
                 # Mise à jour
                 data["last_supply_time"] = now
                 data["supply_count_today"] += 1
-                supply_data[gid] = data
-                save_supply_data(supply_data)
+                data["is_open"] = True
+                sauvegarder()
 
         await asyncio.sleep(600)  # 10 minutes
             
 async def close_special_supply(guild_id):
-    supply_data = load_supply_data()
-    if str(guild_id) in supply_data:
-        supply_data[str(guild_id)]["is_open"] = False
-        save_supply_data(supply_data)
+    gid = str(guild_id)
+    if gid in supply_data:
+        supply_data[gid]["is_open"] = False
+        sauvegarder()
 
 def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
