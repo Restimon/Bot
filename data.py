@@ -1,13 +1,16 @@
 import json
 import os
 import time
+import shutil
 
 from storage import inventaire, hp, leaderboard
 from embeds import build_embed_from_item
+from datetime import datetime
 
 # ✅ Utilisation du disque persistant
 PERSISTENT_PATH = "/persistent"
 DATA_FILE = os.path.join(PERSISTENT_PATH, "data.json")
+BACKUP_DIR = os.path.join(PERSISTENT_PATH, "backups")
 
 # Cooldowns par action
 cooldowns = {
@@ -28,9 +31,16 @@ last_daily_claim = {}         # guild_id -> user_id -> timestamp
 supply_data = {}              # autres données diverses
 
 def sauvegarder():
-    """Sauvegarde toutes les données dans un seul fichier JSON."""
     try:
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+
+        # 🔁 Créer une sauvegarde horodatée
+        if os.path.exists(DATA_FILE):
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup_name = f"data_backup_{timestamp}.json"
+            shutil.copy2(DATA_FILE, os.path.join(BACKUP_DIR, backup_name))
+
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({
                 "inventaire": inventaire,
@@ -48,7 +58,8 @@ def sauvegarder():
                 "last_daily_claim": last_daily_claim,
                 "supply_data": supply_data
             }, f, indent=4, ensure_ascii=False)
-        print("💾 Données sauvegardées dans data.json.")
+
+        print("💾 Données sauvegardées avec backup horodaté.")
     except Exception as e:
         print(f"❌ Erreur lors de la sauvegarde : {e}")
 
