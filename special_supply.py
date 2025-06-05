@@ -1,20 +1,18 @@
+import discord
 import random
 import time
-import asyncio
-import discord
 import json
+import asyncio
 import os
-from discord.ext import tasks
 
-from utils import OBJETS
-from storage import get_user_data, hp, leaderboard
 from data import virus_status, poison_status, infection_status, regeneration_status, sauvegarder
+from storage import get_user_data, hp
+from utils import get_random_item, OBJETS
 from embeds import build_embed_from_item
 
-# Variables globales
-last_supply_time = {}
-last_active_channel = {}  # {guild_id: channel_id}
 SUPPLY_DATA_FILE = "supply_data.json"
+
+# ========================== Chargement/Sauvegarde ==========================
 
 def load_supply_data():
     if not os.path.exists(SUPPLY_DATA_FILE):
@@ -23,115 +21,105 @@ def load_supply_data():
     try:
         with open(SUPPLY_DATA_FILE, "r") as f:
             data = json.load(f)
-
-        # Correction automatique si certaines valeurs sont des float (ancienne structure)
-        corrected = {}
-        for gid, val in data.items():
-            if isinstance(val, dict):
-                corrected[gid] = val
-            else:
-                corrected[gid] = {
-                    "last_supply_time": val if isinstance(val, (int, float)) else 0,
-                    "supply_count_today": 0,
-                    "last_activity_time": 0,
-                    "last_channel_id": None
-                }
-
-        # 🔄 Met à jour last_active_channel global
-        global last_active_channel
-        last_active_channel = {
-            gid: val["last_channel_id"]
-            for gid, val in corrected.items()
-            if isinstance(val, dict) and "last_channel_id" in val and val["last_channel_id"] is not None
-        }
-
-        return corrected
-
+        return data
     except Exception as e:
-        print(f"[ERREUR] Impossible de charger supply_data.json : {e}")
+        print(f"[load_supply_data] Erreur : {e}")
         return {}
 
 def save_supply_data(data):
     with open(SUPPLY_DATA_FILE, "w") as f:
         json.dump(data, f)
-supply_data = load_supply_data()
-last_supply_time = {
-    gid: val.get("last_supply_time", 0)
-    for gid, val in supply_data.items()
-}
 
-def get_random_item():
-    pool = []
-    for emoji, data in OBJETS.items():
-        pool.extend([emoji] * (26 - data["rarete"]))
-    return random.choice(pool)
+# ========================== Mise à jour du salon actif ==========================
+
+def update_last_active_channel(message):
+    if message.author.bot:
+        return
+
+    guild_id = str(message.guild.id)
+    supply_data = load_supply_data()
+
+    if guild_id not in supply_data or not isinstance(supply_data[guild_id], dict):
+        supply_data[guild_id] = {}
+
+    supply_data[guild_id]["last_channel_id"] = message.channel.id
+    supply_data[guild_id]["last_activity_time"] = time.time()
+
+    save_supply_data(supply_data)
+
+# ========================== Description des objets ==========================
 
 def describe_item(emoji):
     obj = OBJETS.get(emoji, {})
-    typ = obj.get("type")
-    if typ == "attaque":
-        return f"🗡️ Inflige {obj.get('degats')} dégâts. (Crit {int(obj.get('crit', 0)*100)}%)"
-    if typ == "virus":
-        return "🦠 Virus : 5 dégâts initiaux + 5/h pendant 6h."
-    if typ == "poison":
-        return "🧪 Poison : 3 dégâts initiaux + 3/30min pendant 3h."
-    if typ == "infection":
-        return "🧟 Infection : 5 dégâts initiaux + 2/30min pendant 3h. 25% de propagation."
-    if typ == "soin":
-        return f"💚 Restaure {obj.get('soin')} PV. (Crit {int(obj.get('crit', 0)*100)}%)"
-    if typ == "regen":
+    t = obj.get("type")
+    if t == "attaque":
+        return f"🗡️ Inflige {obj['degats']} dégâts. (Crit {int(obj.get('crit', 0) * 100)}%)"
+    if t == "virus":
+        return "🦠 5 dégâts initiaux + 5/h pendant 6h."
+    if t == "poison":
+        return "🧪 3 dégâts initiaux + 3/30min pendant 3h."
+    if t == "infection":
+        return "🧟 5 dégâts initiaux + 2/30min pendant 3h (25% de propagation)."
+    if t == "soin":
+        return f"💚 Restaure {obj['soin']} PV. (Crit {int(obj.get('crit', 0) * 100)}%)"
+    if t == "regen":
         return "✨ Régénère 3 PV toutes les 30min pendant 3h."
-    if typ == "mysterybox":
-        return "📦 Boîte surprise : 1 à 3 objets aléatoires."
-    if typ == "vol":
-        return "🔍 Vole un objet aléatoire à un autre joueur."
-    if typ == "vaccin":
-        return "💉 Utilisable via /heal pour soigner du virus."
-    if typ == "bouclier":
-        return "🛡 Ajoute un bouclier de 20 PV."
-    if typ == "esquive+":
+    if t == "mysterybox":
+        return "📦 Boîte surprise : objets aléatoires."
+    if t == "vol":
+        return "🔍 Vole un objet à un autre joueur."
+    if t == "vaccin":
+        return "💉 Soigne le virus via /heal."
+    if t == "bouclier":
+        return "🛡 +20 points de bouclier."
+    if t == "esquive+":
         return "👟 Augmente les chances d’esquive pendant 3h."
-    if typ == "reduction":
-        return "🪖 Réduit les dégâts subis de moitié pendant 4h."
-    if typ == "immunite":
-        return "⭐️ Immunité : ignore tous les dégâts pendant 2h."
+    if t == "reduction":
+        return "🪖 Réduction de dégâts x0.5 pendant 4h."
+    if t == "immunite":
+        return "⭐️ Immunité totale pendant 2h."
     return "❓ Effet inconnu."
 
+# ========================== Génération des récompenses ==========================
+
 def choose_reward(user_id, guild_id):
-    roll = random.random()
-    if roll <= 0.70:
+    r = random.random()
+    if r < 0.7:
         return "objet", get_random_item()
-    elif roll <= 0.80:
-        return "status", random.choice(["poison", "virus", "infection"])
-    elif roll <= 0.90:
+    elif r < 0.8:
+        return "status", random.choice(["virus", "poison", "infection"])
+    elif r < 0.9:
         return "degats", random.randint(1, 15)
-    elif roll <= 0.97:
+    elif r < 0.97:
         return "soin", random.randint(1, 10)
     else:
         return "regen", True
 
+# ========================== Envoi du ravitaillement ==========================
+
 async def send_special_supply(bot, force=False):
-    global last_supply_time
-    
     now = time.time()
-    today = time.strftime("%Y-%m-%d")
+    supply_data = load_supply_data()
 
     for guild in bot.guilds:
         gid = str(guild.id)
+        config = supply_data.get(gid, {})
 
-        # 🔄 Détermine le bon salon (seulement si connu)
-        channel_id = last_active_channel.get(gid)
+        channel_id = config.get("last_channel_id")
         if not channel_id:
             continue
+
         channel = bot.get_channel(channel_id)
-        if not channel:
+        if not channel or not channel.permissions_for(channel.guild.me).send_messages:
             continue
 
-        # 📦 Envoi du ravitaillement
+        # 📦 Envoi du message principal
         embed = discord.Embed(
             title="📦 Ravitaillement spécial GotValis",
-            description="Réagissez avec 📦 pour récupérer une récompense surprise !\n"
-                        "⏳ Disponible pendant 5 minutes, maximum 5 personnes.",
+            description=(
+                "Réagissez avec 📦 pour récupérer une récompense surprise !\n"
+                "⏳ Disponible pendant 5 minutes, maximum 5 personnes."
+            ),
             color=discord.Color.gold()
         )
         msg = await channel.send(embed=embed)
@@ -147,19 +135,19 @@ async def send_special_supply(bot, force=False):
                 and user.id not in [u.id for u in collected_users]
             )
 
-        end_time = time.time() + 300
-        while len(collected_users) < 5 and time.time() < end_time:
+        end = time.time() + 300
+        while len(collected_users) < 5 and time.time() < end:
             try:
                 reaction, user = await asyncio.wait_for(
                     bot.wait_for("reaction_add", check=check),
-                    timeout=end_time - time.time(),
+                    timeout=end - time.time(),
                 )
                 collected_users.append(user)
             except asyncio.TimeoutError:
                 break
 
-        # 🎁 Récompenses
         results = []
+
         for user in collected_users:
             uid = str(user.id)
             reward_type, reward = choose_reward(uid, gid)
@@ -167,33 +155,36 @@ async def send_special_supply(bot, force=False):
             if reward_type == "objet":
                 inv, _, _ = get_user_data(gid, uid)
                 inv.append(reward)
-                desc = describe_item(reward)
-                results.append(f"🎁 {user.mention} a obtenu **{reward}** — {desc}")
+                results.append(f"🎁 {user.mention} a obtenu **{reward}** — {describe_item(reward)}")
+
             elif reward_type == "status":
                 status_map = {
-                    "poison": (poison_status, "🧪", "empoisonné", 3 * 3600),
                     "virus": (virus_status, "🦠", "infecté par un virus", 6 * 3600),
-                    "infection": (infection_status, "🧟", "infecté", 3 * 3600),
+                    "poison": (poison_status, "🧪", "empoisonné", 3 * 3600),
+                    "infection": (infection_status, "🧟", "infecté", 3 * 3600)
                 }
-                status_dict, emoji, label, dur = status_map[reward]
-                status_dict.setdefault(gid, {})[uid] = {
+                dico, emoji, label, duration = status_map[reward]
+                dico.setdefault(gid, {})[uid] = {
                     "start": now,
-                    "duration": dur,
+                    "duration": duration,
                     "last_tick": 0,
                     "source": None,
                     "channel_id": channel.id
                 }
                 results.append(f"{emoji} {user.mention} a été **{label}** !")
+
             elif reward_type == "degats":
-                before = hp[gid].get(uid, 100)
+                before = hp.setdefault(gid, {}).get(uid, 100)
                 after = max(before - reward, 0)
                 hp[gid][uid] = after
-                results.append(f"💥 {user.mention} a pris **{reward} dégâts** (PV: {after})")
+                results.append(f"💥 {user.mention} a subi **{reward} dégâts** (PV: {after})")
+
             elif reward_type == "soin":
-                before = hp[gid].get(uid, 100)
+                before = hp.setdefault(gid, {}).get(uid, 100)
                 after = min(before + reward, 100)
                 hp[gid][uid] = after
                 results.append(f"💚 {user.mention} a récupéré **{reward} PV** (PV: {after})")
+
             elif reward_type == "regen":
                 regeneration_status.setdefault(gid, {})[uid] = {
                     "start": now,
@@ -202,38 +193,21 @@ async def send_special_supply(bot, force=False):
                     "source": None,
                     "channel_id": channel.id
                 }
-                results.append(f"💕 {user.mention} bénéficie d'une **régénération** pendant 3h !")
+                results.append(f"✨ {user.mention} bénéficie d’une **régénération** pendant 3h.")
 
+        # Envoi du récap
         if results:
-            await channel.send(
-                embed=discord.Embed(
-                    title="📦 Récapitulatif du ravitaillement spécial",
-                    description="\n".join(results),
-                    color=discord.Color.green()
-                )
+            recap = discord.Embed(
+                title="📦 Récapitulatif du ravitaillement",
+                description="\n".join(results),
+                color=discord.Color.green()
             )
+            await channel.send(embed=recap)
         else:
-            await channel.send("💥 Le ravitaillement spécial GotValis s’est auto-détruit. 💣")
+            await channel.send("💣 Le ravitaillement spécial s’est auto-détruit. Aucune réaction détectée.")
 
-        # 🔁 Mise à jour des compteurs et cooldown
-        last_supply_time[gid] = now
-        save_supply_data(last_supply_time)
-
-
-def update_last_active_channel(message):
-    gid = str(message.guild.id)
-
-    # Chargement sécurisé du dictionnaire supply_data
-    supply_data = load_supply_data()
-
-    # Si ce serveur n'a pas encore d'entrée ou si l'entrée n'est pas un dictionnaire, on la crée
-    if gid not in supply_data or not isinstance(supply_data[gid], dict):
-        supply_data[gid] = {}
-
-    # On met à jour la dernière activité
-    supply_data[gid]["last_activity_time"] = time.time()
-    supply_data[gid]["last_channel_id"] = message.channel.id
-
-    # Sauvegarde les modifications
-    save_supply_data(supply_data)
-
+        # Mise à jour de la base
+        supply_data[gid]["last_supply_time"] = now
+        supply_data[gid]["is_open"] = False
+        supply_data[gid]["supply_count_today"] = supply_data[gid].get("supply_count_today", 0) + 1
+        save_supply_data(supply_data)
