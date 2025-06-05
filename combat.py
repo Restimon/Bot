@@ -223,15 +223,43 @@ async def appliquer_soin(ctx, user_id, target_id, action):
     hp[guild_id][target_id] = new_hp
     real_heal = new_hp - start_hp
 
+    mention_soigneur = get_mention(ctx.guild, user_id)
+    mention_cible = get_mention(ctx.guild, target_id)
+    item = action["item"]
+
+    if real_heal == 0:
+        if user_id == target_id:
+            description = f"🩹 GotValis : {mention_soigneur} tente de se soigner avec {item}...\n❤️ Mais ses PV sont déjà au maximum."
+        else:
+            description = f"🩹 GotValis : {mention_soigneur} tente de soigner {mention_cible} avec {item}...\n❤️ Mais {mention_cible} a déjà tous ses PV."
+        return build_embed_from_item(
+            item=item,
+            description=description,
+            is_heal_other=(user_id != target_id),
+            is_crit=False
+        )
+
     leaderboard.setdefault(guild_id, {}).setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
     leaderboard[guild_id][user_id]["soin"] += real_heal
 
+    # Ligne 1 : action de soin
+    if user_id == target_id:
+        ligne_1 = f"{mention_soigneur} se soigne de **{real_heal} PV** avec {item}"
+    else:
+        ligne_1 = f"{mention_soigneur} soigne de **{real_heal} PV** {mention_cible} avec {item}"
+    if crit_txt:
+        ligne_1 += f" {crit_txt}"
+
+    # Ligne 2 : calcul des PV
+    ligne_2 = f"❤️ PV + {real_heal} = {new_hp} PV"
+
     return build_embed_from_item(
-        item=action["item"],  # ← Assure-toi que l’item (ex: "💊") est bien passé dans action
-        description=f"<@{user_id}> soigne <@{target_id}> de **{real_heal} PV**.{crit_txt}",
+        item=item,
+        description=f"{ligne_1}\n{ligne_2}",
         is_heal_other=(user_id != target_id),
         is_crit=("💥" in crit_txt)
     )
+
 
 ### 🎯 CALCUL DES DÉGÂTS
 
