@@ -122,3 +122,32 @@ def charger():
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
     except Exception as e:
         print(f"❌ Erreur inattendue lors du chargement : {e}")
+
+@bot.tree.command(name="backup", description="💾 Sauvegarde les données de ce serveur")
+async def backup_server(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("❌ Seuls les administrateurs peuvent utiliser cette commande.", ephemeral=True)
+
+    try:
+        from data import inventaire, hp, leaderboard
+        guild_id = str(interaction.guild.id)
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"data_backup_{guild_id}_{timestamp}.json"
+        backup_path = os.path.join(BACKUP_DIR, filename)
+
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+
+        data = {
+            "inventaire": inventaire.get(guild_id, {}),
+            "hp": hp.get(guild_id, {}),
+            "leaderboard": leaderboard.get(guild_id, {}),
+        }
+
+        with open(backup_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+
+        await interaction.response.send_message(f"✅ Sauvegarde créée : `{filename}`", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
+
