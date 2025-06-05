@@ -91,17 +91,22 @@ def register_heal_command(bot):
             user_inv.remove("🛡")
             sauvegarder()
 
+            pv = hp[guild_id].get(tid, 100)
+            pb = shields[guild_id][tid]
+
             if uid == tid:
-                description = f"{member.mention} a utilisé un **bouclier de protection** !"
+                ligne_1 = f"{member.mention} a utilisé un **bouclier de protection** !"
             else:
-                description = f"{member.mention} a activé un **bouclier** pour {target.mention} !"
+                ligne_1 = f"{member.mention} a activé un **bouclier** pour {target.mention} !"
+
+            ligne_2 = f"🛡 Il gagne un total de **20 PB** → ❤️ {pv} PV / 🛡 {pb} PB"
 
             embed = discord.Embed(
                 title="🛡 Bouclier activé",
-                description=description,
+                description=f"{ligne_1}\n{ligne_2}",
                 color=discord.Color.blue()
             )
-            embed.set_image(url="https://media.giphy.com/media/rR7wrU76zfWnf7xBDR/giphy.gif")
+    embed.set_image(url="https://media.giphy.com/media/rR7wrU76zfWnf7xBDR/giphy.gif")
 
             return await interaction.followup.send(embed=embed)
 
