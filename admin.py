@@ -205,9 +205,14 @@ def register_admin_commands(bot):
         await interaction.response.send_message(f"✅ {quantity} × {item} donné à {user.mention}.", ephemeral=True)
 
     @give_item.autocomplete("item")
-    async def autocomplete_give_item(interaction: discord.Interaction, current: str):
-        return [app_commands.Choice(name=emoji, value=emoji) for emoji in OBJETS if current in emoji][:25]
+    async def autocomplete_item(interaction: discord.Interaction, current: str):
+        from utils import OBJETS  # Assure-toi que ce dictionnaire est importé
 
+        return [
+            app_commands.Choice(name=f"{emoji}", value=emoji)
+            for emoji in OBJETS if current in emoji
+        ][:25]
+    
     @give_item.error
     async def give_item_error(interaction: discord.Interaction, error):
         if isinstance(error, app_commands.errors.MissingPermissions):
