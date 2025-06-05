@@ -7,7 +7,7 @@ from utils import get_mention, get_evade_chance
 from storage import sauvegarder
 from main import handle_death, appliquer_poison, appliquer_infection, appliquer_virus
 from embeds import build_embed_from_item
-from cooldowns import is_on_cooldown, ATTACK_COOLDOWN, HEAL_COOLDOWN
+from cooldowns import is_on_cooldown, set_cooldown, ATTACK_COOLDOWN, HEAL_COOLDOWN
 
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
