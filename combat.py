@@ -604,20 +604,20 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 if lost_pb and real_dmg == 0:
                     desc = (
                         f"@{user_mention} inflige {lost_pb} dégâts à {mention} avec {item} !\n"
-                        f"{mention} perd **{lost_pb} PB** .\n"
-                        f"🛡️ {before_pb} - {lost_pb} = 🛡️ {pb_after} PB{crit_txt}"
+                        f"🛡️ {before_pb} - {lost_pb} = 🛡️ {pb_after} PB"
                     )
                 elif lost_pb and real_dmg > 0:
                     desc = (
                         f"@{user_mention} inflige {real_dmg + lost_pb} dégâts à {mention} avec {item} !\n"
-                        f"{mention} perd **{lost_pb} PB** et **{real_dmg} PV** .\n"
-                        f"❤️ {start_hp} - {real_dmg} = ❤️ {end_hp} PV / 🛡️ {before_pb} - {lost_pb} = 🛡️ {pb_after} PB{crit_txt}"
+                        f"❤️ {start_hp} - {real_dmg} PV{bonus_str} = ❤️ {end_hp} PV / "
+                        f"🛡️ {before_pb} - {lost_pb} = 🛡️ {pb_after} PB{crit_txt}"
                     )
                 else:
                     desc = (
                         f"@{user_mention} inflige {real_dmg} dégâts à {mention} avec {item} !\n"
-                        f"❤️ {start_hp} - {base_dmg} PV{bonus_str} = ❤️ {end_hp} PV{crit_txt}{reset_txt}"
+                        f"❤️ {start_hp} - {base_dmg} PV{bonus_str} = ❤️ {end_hp} PV{crit_txt}"
                     )
+
                 desc += reset_txt
 
                 if shield_broken:
