@@ -23,21 +23,25 @@ class Kiss(commands.Cog):
             # ➕ Tu pourras ajouter autant de GIFs que tu veux ici
         ]
 
-    @app_commands.command(name="kiss", description="Embrasse un autre utilisateur 💋")
-    async def kiss(self, interaction: discord.Interaction, membre: discord.Member):
-        if membre.bot:
-            await interaction.response.send_message("🤖 Les protocoles GotValis interdisent les interactions affectueuses avec les unités synthétiques.", ephemeral=True)
-            return
+def register_kiss_command(bot):
+    @bot.tree.command(name="kiss", description="Fais un bisou à quelqu'un")
+    @app_commands.describe(target="La personne que tu veux embrasser")
+    async def kiss(interaction: discord.Interaction, target: discord.Member):
+        if target.bot:
+            return await interaction.response.send_message(
+                "🤖 Les bots n’ont pas besoin d’amour numérique…", ephemeral=True
+            )
 
-        gif = random.choice(self.kiss_gifs)
+        if interaction.user.id == target.id:
+            return await interaction.response.send_message(
+                "💋 Tu ne peux pas t’embrasser toi-même…", ephemeral=True
+            )
+
+        gif_url = random.choice(KISS_GIFS)
         embed = discord.Embed(
-            title="💋 GotValis : transfert d'amour détecté",
-            description=f"{interaction.user.mention} embrasse {membre.mention} avec plein d'amour.",
-            color=discord.Color.pink()
+            title="GotValis : échange d'amour détecté 💋",
+            description=f"{interaction.user.mention} embrasse {target.mention} avec amour.",
+            color=discord.Color.red()
         )
-        embed.set_image(url=gif)
-
+        embed.set_image(url=gif_url)
         await interaction.response.send_message(embed=embed)
-
-async def setup(bot):
-    await bot.add_cog(Kiss(bot))
