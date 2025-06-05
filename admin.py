@@ -206,11 +206,15 @@ def register_admin_commands(bot):
 
     @give_item.autocomplete("item")
     async def autocomplete_item(interaction: discord.Interaction, current: str):
-        return [
-            app_commands.Choice(name=f"{emoji}", value=emoji)
-            for emoji in OBJETS if current in emoji
-        ][:25]
-
+        results = []
+        for emoji, data in OBJETS.items():
+            name = f"{emoji} – {data['type']}"
+            if current.lower() in name.lower():
+                results.append(app_commands.Choice(name=name, value=emoji))
+            if len(results) >= 25:
+                break
+        return results
+        
     @give_item.error
     async def give_item_error(interaction: discord.Interaction, error):
         if isinstance(error, app_commands.errors.MissingPermissions):
