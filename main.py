@@ -38,6 +38,7 @@ from pat import register_pat_command
 from punch import register_punch_command
 from slap import register_slap_command
 from ahelp import register_ahelp_command
+from sync_command import register_sync_command
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -111,6 +112,7 @@ def register_all_commands(bot):
     register_punch_command(bot)
     register_slap_command(bot)
     register_ahelp_command(bot)
+    register_sync_command(bot)
     
 # ===================== Events ======================
 
