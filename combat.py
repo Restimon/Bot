@@ -318,31 +318,30 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque"):
     user_mention = get_mention(ctx.guild, user_id)
     target_mention = get_mention(ctx.guild, target_id)
-    bonus_str = f" ({' '.join(result['bonus_info'])})" if result['bonus_info'] else ""
+    bonus_str = f" (+{' '.join(result['bonus_info'])})" if result['bonus_info'] else ""
+
+    ligne1 = f"{user_mention} inflige {result['dmg_total_affiche']} dégâts à {target_mention} avec {item} !"
 
     if result["lost_pb"] and result["real_dmg"] == 0:
-        # Tout le dégât a été absorbé par le bouclier
-        desc = (
-            f"{user_mention} inflige {result['lost_pb']} dégâts à {target_mention} avec {item} !\n"
-            f"🛡️ {result['before_pb']} - {result['lost_pb']} PB{bonus_str} = 🛡️ {result['after_pb']} PB"
-        )
+        # Dégâts entièrement absorbés par le bouclier
+        ligne2 = f"{target_mention} perd {result['lost_pb']} PB"
+        ligne3 = f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = 🛡️ {result['after_pb']} PB"
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
-        # Bouclier partiellement absorbé, reste sur PV
-        desc = (
-            f"{user_mention} inflige {result['real_dmg'] + result['lost_pb']} dégâts à {target_mention} avec {item} !\n"
-            f"❤️ {result['start_hp']} - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV / "
-            f"🛡️ {result['before_pb']} - {result['lost_pb']} PB = 🛡️ {result['after_pb']} PB{result['crit_txt']}"
+        # Bouclier cassé : dégâts restants infligés aux PV (avec bonus éventuel)
+        ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str} et {result['lost_pb']} PB"
+        ligne3 = (
+            f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} / "
+            f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = "
+            f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
         )
 
     else:
-        # Aucun bouclier, dégâts directs aux PV
-        desc = (
-            f"{user_mention} inflige {result['real_dmg']} dégâts à {target_mention} avec {item} !\n"
-            f"❤️ {result['start_hp']} - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV{result['crit_txt']}"
-        )
+        # Dégâts uniquement sur les PV
+        ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str}"
+        ligne3 = f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
 
-    return f"**{type_cible.capitalize()}** : {desc}{result['reset_txt']}"
+    return f"**{type_cible.capitalize()}** : {ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
 
 ### ☠️ ATTAQUE EN CHAÎNE
 
