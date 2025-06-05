@@ -33,7 +33,7 @@ def register_hug_command(bot):
 
         gif_url = random.choice(HUG_GIFS)
         embed = discord.Embed(
-            title="💞 Un câlin chaleureux !",
+            title="GotValis : transfert d’affection détecté 💞",
             description=f"{interaction.user.mention} fait un câlin à {target.mention} !",
             color=discord.Color.pink()
         )
