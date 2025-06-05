@@ -211,6 +211,19 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "reset_txt": reset_txt,
         "dmg_total_affiche": base_dmg + bonus_dmg,
     }
+    
+async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
+    """Applique les statuts appropriés après une attaque."""
+    if action_type == "poison":
+        await appliquer_poison(guild_id, target_id, ctx.channel.id, user_id)
+    elif action_type == "infection":
+        await appliquer_infection(guild_id, user_id, target_id, ctx.channel.id)
+    elif action_type == "virus" and index == 0:
+        # Index 0 = cible principale (utile pour attaque en chaîne)
+        await appliquer_virus(guild_id, user_id, target_id, ctx.channel.id)
+        # Supprime le virus de l’attaquant (transfert effectué)
+        if user_id in virus_status.get(guild_id, {}):
+            del virus_status[guild_id][user_id]
 
 ### 🎯 APPLICATION D’OBJET À UNE CIBLE
 
@@ -237,12 +250,6 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 
     for embed in result["effets_embeds"]:
         await ctx.send(embed=embed)
-        
-    if "VIRUS_TRANSFER" in result["effets_embeds"]:
-        await appliquer_virus(guild_id, user_id, target_id, ctx.channel.id)
-        # Supprime le statut de l'attaquant (il a transmis le virus)
-        if user_id in virus_status.get(guild_id, {}):
-            del virus_status[guild_id][user_id]
 
     if result["shield_broken"]:
         await ctx.send(embed=discord.Embed(
@@ -251,10 +258,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
             color=discord.Color.dark_blue()
         ))
 
-    if action["type"] == "poison":
-        await appliquer_poison(guild_id, target_id, ctx.channel.id, user_id)
-    elif action["type"] == "infection":
-        await appliquer_infection(guild_id, user_id, target_id, ctx.channel.id)
+    await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action["type"], index=0)
 
     return None, True
 
@@ -339,11 +343,6 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
 
         for embed in result["effets_embeds"]:
             await ctx.send(embed=embed)
-            
-        if i == 0 and "VIRUS_TRANSFER" in result["effets_embeds"]:
-            await appliquer_virus(guild_id, user_id, victim_id, ctx.channel.id)
-            if user_id in virus_status.get(guild_id, {}):
-                del virus_status[guild_id][user_id]
 
         if result["shield_broken"]:
             await ctx.send(embed=discord.Embed(
