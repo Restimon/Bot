@@ -38,7 +38,8 @@ def register_kiss_command(bot):
                 "💋 Tu ne peux pas t’embrasser toi-même…", ephemeral=True
             )
 
-        gif_url = random.choice(KISS_GIFS)
+        import uuid
+        gif_url = random.choice(KISS_GIFS) + f"?v={uuid.uuid4()}"
         embed = discord.Embed(
             title="GotValis : échange d'amour détecté 💋",
             description=f"{interaction.user.mention} embrasse {target.mention} avec amour.",
