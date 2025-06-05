@@ -33,7 +33,7 @@ def register_fight_command(bot):
                 "⚠️ Cet objet n’est pas une arme valide !", ephemeral=True
             )
 
-        embed, success = await apply_item_with_cooldown(uid, tid, item, interaction)
+        embed, success = await apply_item_with_cooldown(attacker_id, target_id, item, interaction, action)
         if success:
             user_inv.remove(item)
             sauvegarder()
