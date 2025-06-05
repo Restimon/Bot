@@ -25,6 +25,7 @@ shields = {}                  # guild_id -> user_id -> valeur
 esquive_bonus = {}            # guild_id -> user_id -> expire_time
 casque_status = {}            # guild_id -> user_id -> True
 last_daily_claim = {}         # guild_id -> user_id -> timestamp
+supply_data = {}
 
 def sauvegarder():
     """Sauvegarde toutes les données dans un seul fichier JSON."""
@@ -44,7 +45,8 @@ def sauvegarder():
                 "shields": shields,
                 "esquive_bonus": esquive_bonus,
                 "casque_status": casque_status,
-                "last_daily_claim": last_daily_claim
+                "last_daily_claim": last_daily_claim,
+                "supply_data": supply_data
             }, f, indent=4, ensure_ascii=False)
         print("💾 Données sauvegardées dans data.json.")
     except Exception as e:
@@ -97,6 +99,9 @@ def charger():
 
         casque_status.clear()
         casque_status.update(data.get("casque_status", {}))
+
+        supply_data.clear()
+        supply_data.update(data.get("supply_data", {}))
 
         last_daily_claim.clear()
         last_daily_claim.update(data.get("last_daily_claim", {}))
