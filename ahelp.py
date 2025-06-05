@@ -1,14 +1,14 @@
 import discord
 from discord import app_commands
 
-def register_admin_help_command(bot):
-    @bot.tree.command(name="help_admin", description="📙 Affiche les commandes réservées aux administrateurs")
+def register_ahelp_command(bot):
+    @bot.tree.command(name="ahelp", description="📙 Commandes admin GotValis")
     @app_commands.checks.has_permissions(administrator=True)
     async def help_admin(interaction: discord.Interaction):
         embed = build_admin_help_embed()
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-def build_admin_help_embed():
+def build_ahelp_embed():
     embed = discord.Embed(
         title="📙 Manuel Administrateur - GotValis",
         description="Commandes réservées aux administrateurs pour la gestion du système GotValis.",
