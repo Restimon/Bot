@@ -6,7 +6,7 @@ from data import hp, leaderboard, virus_status, poison_status, infection_status,
 from utils import get_mention, get_evade_chance
 from storage import sauvegarder
 from main import handle_death, appliquer_poison, appliquer_infection, appliquer_virus
-from embeds import build_embed_from_item
+from embeds import build_embed_from_item, build_embed_transmission_virale
 from cooldowns import is_on_cooldown, set_cooldown
 
 ### 🔧 UTILITAIRES GÉNÉRAUX
