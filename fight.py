@@ -37,7 +37,11 @@ def register_fight_command(bot):
         if success:
             user_inv.remove(item)
             sauvegarder()
-            await interaction.followup.send(embed=embed)
+            if embed:
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.followup.send("☠️ Attaque en chaîne exécutée.")
+
         else:
             await interaction.followup.send(embed=embed, ephemeral=True)
 
