@@ -7,19 +7,21 @@ from utils import get_mention, get_evade_chance
 from storage import sauvegarder
 from main import handle_death, appliquer_poison, appliquer_infection, appliquer_virus
 from embeds import build_embed_from_item
-from cooldowns import is_on_cooldown, set_cooldown, ATTACK_COOLDOWN, HEAL_COOLDOWN
+from cooldowns import is_on_cooldown, set_cooldown
 
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
-# 🔁 Vérifie le cooldown avant toute action
+# ⏳ Vérification du cooldown
 if action["type"] == "attaque":
-    if is_on_cooldown(user_id, target_id, "attaque", ATTACK_COOLDOWN):
-        await ctx.send(f"⏳ {get_mention(ctx.guild, user_id)}, vous devez attendre avant d'attaquer à nouveau {get_mention(ctx.guild, target_id)}.")
+    on_cd, remaining = is_on_cooldown(guild_id, user_id, "attack")
+    if on_cd:
+        await ctx.send(f"⏳ {ctx.author.mention}, vous devez attendre encore {remaining}s avant d'attaquer {get_mention(ctx.guild, target_id)}.")
         return None, False
 
 elif action["type"] == "soin":
-    if is_on_cooldown(user_id, target_id, "soin", HEAL_COOLDOWN):
-        await ctx.send(f"⏳ {get_mention(ctx.guild, user_id)}, vous devez attendre avant de soigner à nouveau {get_mention(ctx.guild, target_id)}.")
+    on_cd, remaining = is_on_cooldown(guild_id, (user_id, target_id), "heal")
+    if on_cd:
+        await ctx.send(f"⏳ {ctx.author.mention}, vous devez attendre encore {remaining}s avant de soigner {get_mention(ctx.guild, target_id)}.")
         return None, False
         
 def is_immune(guild_id, user_id):
