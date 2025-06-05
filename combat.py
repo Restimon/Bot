@@ -518,13 +518,16 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
             bonus_info = []
             mention = get_mention(ctx, tid)
             start_hp = hp[guild_id].get(tid, 100)
+            before_pb = shields.get(guild_id, {}).get(tid, 0)
 
+            # 💫 IMMUNITÉ
             if is_immune(guild_id, tid):
                 desc = f"⭐ {mention} est **invulnérable**."
+            # 💨 ESQUIVE
             elif random.random() < get_evade_chance(guild_id, tid):
                 desc = f"💨 {mention} esquive l’attaque !"
             else:
-                # Infection
+                # 🧟 INFECTION
                 infect_stat = infection_status.get(guild_id, {}).get(user_id)
                 already_infected = tid in infection_status.get(guild_id, {})
                 if infect_stat and not already_infected:
@@ -557,7 +560,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                         )
                         await ctx.channel.send(embed=embed_info)
 
-                # Virus
+                # 🦠 VIRUS (uniquement sur cible principale)
                 virus_stat = virus_status.get(guild_id, {}).get(user_id)
                 if virus_stat and is_main:
                     virus_source = virus_stat.get("source", user_id)
@@ -571,6 +574,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
 
                     virus_status[guild_id][tid] = virus_stat.copy()
                     del virus_status[guild_id][user_id]
+
                     embed_virus = discord.Embed(
                         title="💉 Transmission virale",
                         description=f"**GotValis** confirme une transmission virale : {mention} est désormais infecté.\n🦠 Le virus a été retiré de {user_mention}, qui perd **{lost_hp} PV** ({before_self} → {after_self}).",
@@ -578,26 +582,52 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                     )
                     await ctx.channel.send(embed=embed_virus)
 
+                # 🧠 DÉGÂTS
                 base_dmg, crit_txt = apply_crit(base_dmg, action.get("crit", 0))
                 dmg = base_dmg + bonus_dmg
                 dmg = apply_casque_reduction(guild_id, tid, dmg)
-                dmg, lost_pb, shield_broken = apply_shield(guild_id, tid, dmg)
-                end_hp = max(start_hp - dmg, 0)
+                dmg_final, lost_pb, shield_broken = apply_shield(guild_id, tid, dmg)
+                pb_after = shields.get(guild_id, {}).get(tid, 0)
+                end_hp = max(start_hp - dmg_final, 0)
                 hp[guild_id][tid] = end_hp
                 real_dmg = start_hp - end_hp
                 user_stats["degats"] += real_dmg
 
                 if end_hp == 0:
                     handle_death(guild_id, tid, user_id)
-                    reset_txt = " 💀 (KO)"
+                    reset_txt = f"\n💀 {mention} est tombé à 0 PV et revient à 100 PV."
                 else:
                     reset_txt = ""
 
-                bonus_str = f" (+{' '.join(bonus_info)})" if bonus_info else ""
-                desc = f"{mention} perd {real_dmg} PV{crit_txt} | {base_dmg} de base{bonus_str} ➝ {start_hp} → {end_hp}{reset_txt}"
+                bonus_str = f" ({' '.join(bonus_info)})" if bonus_info else ""
+                if lost_pb and real_dmg == 0:
+                    desc = (
+                        f"@{user_mention} inflige {lost_pb} dégâts à {mention} avec {item} !\n"
+                        f"{mention} perd **{lost_pb} PB** .\n"
+                        f"🛡️ {before_pb} - {lost_pb} = 🛡️ {pb_after} PB{crit_txt}"
+                    )
+                elif lost_pb and real_dmg > 0:
+                    desc = (
+                        f"@{user_mention} inflige {real_dmg + lost_pb} dégâts à {mention} avec {item} !\n"
+                        f"{mention} perd **{lost_pb} PB** et **{real_dmg} PV** .\n"
+                        f"❤️ {start_hp} - {real_dmg} = ❤️ {end_hp} PV / 🛡️ {before_pb} - {lost_pb} = 🛡️ {pb_after} PB{crit_txt}"
+                    )
+                else:
+                    desc = (
+                        f"@{user_mention} inflige {real_dmg} dégâts à {mention} avec {item} !\n"
+                        f"{mention} perd {base_dmg} PV{bonus_str} | ❤️ {start_hp} → {end_hp}{crit_txt}"
+                    )
+                desc += reset_txt
 
+                if shield_broken:
+                    await ctx.channel.send(embed=discord.Embed(
+                        title="🛡 Bouclier détruit",
+                        description=f"Le bouclier de {mention} a été **détruit** sous l'impact.",
+                        color=discord.Color.dark_blue()
+                    ))
+
+            # 📤 EMBED
             if is_main:
-                desc = f"{user_mention} a attaqué {mention} avec {item}\n**GotValis** : {desc}\nL’attaque rebondit !"
                 embed = build_embed_from_item(item, desc)
                 embed.set_image(url=gif_url)
                 embeds.append(embed)
