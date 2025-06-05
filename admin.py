@@ -1,5 +1,8 @@
 import discord
 import json
+import shutil
+import os
+
 from discord import app_commands
 from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
@@ -8,6 +11,9 @@ from data import sauvegarder, virus_status, poison_status, leaderboard
 from special_supply import send_special_supply
 from embeds import build_embed_from_item
 from leaderboard_utils import update_leaderboard
+
+BACKUP_DIR = "/persistent/backups"
+DATA_FILE = "/persistent/data.json"
 
 def register_admin_commands(bot):
     print("📦 Enregistrement des commandes admin...")
@@ -309,3 +315,46 @@ def register_admin_commands(bot):
             ephemeral=True
     )
     
+def register_admin_commands(bot):
+    @bot.tree.command(name="restore", description="🔁 Restaurer une sauvegarde pour ce serveur (admin seulement)")
+    @app_commands.describe(filename="Nom exact de la sauvegarde à restaurer")
+    async def restore(interaction: discord.Interaction, filename: str):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Seuls les administrateurs peuvent utiliser cette commande.", ephemeral=True)
+
+        guild_id = str(interaction.guild.id)
+        backup_path = os.path.join(BACKUP_DIR, filename)
+
+        if not os.path.exists(backup_path):
+            return await interaction.response.send_message("❌ Sauvegarde introuvable.", ephemeral=True)
+
+        try:
+            with open(backup_path, "r", encoding="utf-8") as f:
+                backup_data = json.load(f)
+
+            from data import inventaire, hp, leaderboard, sauvegarder
+
+            # 🔄 Remplace uniquement les données de ce serveur
+            inventaire[guild_id] = backup_data.get("inventaire", {})
+            hp[guild_id] = backup_data.get("hp", {})
+            leaderboard[guild_id] = backup_data.get("leaderboard", {})
+
+            sauvegarder()
+            await interaction.response.send_message(f"✅ Données du serveur restaurées depuis `{filename}`.")
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur lors de la restauration : {e}", ephemeral=True)
+
+    @bot.tree.command(name="backups", description="📁 Liste les sauvegardes disponibles pour ce serveur")
+    async def list_backups(interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Seuls les administrateurs peuvent utiliser cette commande.", ephemeral=True)
+
+        guild_id = str(interaction.guild.id)
+        prefix = f"data_backup_{guild_id}_"
+    
+        files = sorted(f for f in os.listdir(BACKUP_DIR) if f.startswith(prefix))
+        if not files:
+            return await interaction.response.send_message("📁 Aucune sauvegarde disponible pour ce serveur.", ephemeral=True)
+
+        message = "**Sauvegardes de ce serveur :**\n" + "\n".join(f"`{f}`" for f in files)
+        await interaction.response.send_message(message, ephemeral=True)
