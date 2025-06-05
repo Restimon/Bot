@@ -15,6 +15,7 @@ def is_on_cooldown(guild_id, key, action):
         value = cd.get(tuple(key))
     else:
         value = cd.get(key)
+
     if value is None:
         return False, 0
     remaining = int(value + (ATTACK_COOLDOWN if action == "attack" else HEAL_COOLDOWN) - now)
