@@ -6,9 +6,8 @@ def register_sync_command(bot):
     @app_commands.checks.has_permissions(administrator=True)
     async def sync_commands(interaction: discord.Interaction):
         try:
-            bot.tree.clear_commands()  # 🧼 Nettoie les anciennes commandes enregistrées
             await interaction.response.defer(thinking=True, ephemeral=True)
-            await bot.tree.sync()
-            await interaction.followup.send("✅ Commandes synchronisées avec succès.", ephemeral=True)
+            synced = await bot.tree.sync()  # ⤴️ Synchronise avec Discord (globalement)
+            await interaction.followup.send(f"✅ {len(synced)} commandes synchronisées avec succès.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur lors de la synchronisation : {e}", ephemeral=True)
