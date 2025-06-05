@@ -35,7 +35,7 @@ def register_fight_command(bot):
             )
 
         # ✅ Ligne corrigée ici
-        embed, success = await apply_item_with_cooldown(uid, tid, item, interaction, action)
+        embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
 
         if success:
             user_inv.remove(item)
