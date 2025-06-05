@@ -70,7 +70,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     # 💥 Bouclier détruit
     if result["shield_broken"]:
         shield_embed = build_embed_from_item("🛡", f"Le bouclier de {get_mention(ctx.guild, target_id)} a été **détruit**.")
-        await ctx.send(embed=shield_embed)
+        await ctx.followup.send(embed=shield_embed)
 
     # 🧪 Appliquer statut
     await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action["type"], index=0)
@@ -444,7 +444,7 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
         # 🛡 Bouclier détruit
         if result["shield_broken"]:
             shield_embed = build_embed_from_item("🛡", f"Le bouclier de {victim_mention} a été **détruit**.")
-            await ctx.send(embed=shield_embed)
+            await ctx.followup.send(embed=shield_embed)
 
         # 🧪 Statuts à appliquer (uniquement sur première cible pour certains)
         await appliquer_statut_si_necessaire(ctx, guild_id, user_id, victim_id, action["type"], index=i)
