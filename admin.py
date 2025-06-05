@@ -206,7 +206,6 @@ def register_admin_commands(bot):
 
     @give_item.autocomplete("item")
     async def autocomplete_item(interaction: discord.Interaction, current: str):
-        from utils import OBJETS
         return [
             app_commands.Choice(name=f"{emoji}", value=emoji)
             for emoji in OBJETS if current in emoji
