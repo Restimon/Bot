@@ -616,7 +616,7 @@ async def apply_item_with_cooldown(user_id, target_id, item, ctx):
                 else:
                     desc = (
                         f"@{user_mention} inflige {real_dmg} dégâts à {mention} avec {item} !\n"
-                        f"{mention} perd {base_dmg} PV{bonus_str} | ❤️ {start_hp} → {end_hp}{crit_txt}"
+                        f"❤️ {start_hp} - {real_dmg} PV{bonus_str} = ❤️ {end_hp} PV{crit_txt}{reset_txt}"
                     )
                 desc += reset_txt
 
