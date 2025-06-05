@@ -32,6 +32,8 @@ from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
 from item_list import register_item_command
 from special_supply import update_last_active_channel, send_special_supply, load_supply_data, save_supply_data
+from kiss import register_kiss_command
+from hug import register_hug_command
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -99,7 +101,9 @@ def register_all_commands(bot):
     register_status_command(bot)
     register_box_command(bot)                     
     register_item_command(bot)
-    
+    register_kiss_command(bot)
+    register_hug_command(bot)
+
 # ===================== Events ======================
 
 @bot.event
