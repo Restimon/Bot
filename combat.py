@@ -428,9 +428,9 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
         # Dégâts PV + shield
-        ligne2 = f"{target_mention} perd ({result['real_dmg']} PV{bonus_str}) et {result['lost_pb']} PB"
+        ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PV{bonus_str}) et {result['lost_pb']} PB"
         ligne3 = (
-            f"❤️ {result['start_hp']} PV - ({result['real_dmg']} PV{bonus_str}) / "
+            f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV{bonus_str}) / "
             f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = "
             f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
         )
