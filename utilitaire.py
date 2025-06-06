@@ -4,6 +4,7 @@ from utils import OBJETS, get_mention
 from storage import get_user_data
 from data import sauvegarder, shields, immunite_status, esquive_status, casque_status
 from embeds import build_embed_from_item
+from inventory import voler_objet  # pour le vol
 
 def register_utilitaire_command(bot):
     @bot.tree.command(name="utilitaire", description="Utilise un objet utilitaire ou de protection")
@@ -47,21 +48,27 @@ def register_utilitaire_command(bot):
             success = True
 
         elif action["type"] == "immunite":
-            immunite_status.setdefault(guild_id, {})[uid] = time.time() + action.get("duree", 3600)
+            immunite_status.setdefault(guild_id, {})[uid] = {
+                "start": interaction.created_at.timestamp(),
+                "duration": action.get("duree", 2 * 3600)
+            }
             embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **immunité totale** pendant 2h.")
             success = True
 
         elif action["type"] == "esquive+":
             esquive_status.setdefault(guild_id, {})[uid] = {
-                "start": time.time(),
-                "duration": action.get("duree", 3600),
+                "start": interaction.created_at.timestamp(),
+                "duration": action.get("duree", 3 * 3600),
                 "valeur": action.get("valeur", 0.2)
             }
             embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **augmentation d’esquive** pendant 3h.")
             success = True
 
         elif action["type"] == "reduction":
-            casque_status.setdefault(guild_id, {})[uid] = time.time() + action.get("duree", 3600)
+            casque_status.setdefault(guild_id, {})[uid] = {
+                "start": interaction.created_at.timestamp(),
+                "duration": action.get("duree", 4 * 3600)
+            }
             embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **réduction des dégâts** pendant 4h.")
             success = True
 
