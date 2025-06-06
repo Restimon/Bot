@@ -331,10 +331,11 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
         embed = build_embed_from_item(
             "🧪",
-            f"🧪 **Contamination toxique**\n"
             f"{get_mention(ctx.guild, user_id)} a empoisonné {get_mention(ctx.guild, target_id)}.\n"
             f"Le poison infligera **3 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ Les attaques de la cible infligeront **1 dégât de moins**."
+            f"⚠️ Les attaques de la cible infligeront **1 dégât de moins**.",
+            disable_gif=True,
+            custom_title="🧪 Contamination toxique"
         )
         await ctx.followup.send(embed=embed)
 
@@ -344,10 +345,11 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
         embed = build_embed_from_item(
             "🧟",
-            f"🧟 **Infection déclenchée**\n"
             f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
             f"L’infection infligera **2 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ Chaque attaque inflige **+2 dégâts** et peut propager l'infection."
+            f"⚠️ Chaque attaque inflige **+2 dégâts** et peut propager l'infection.",
+            disable_gif=True,
+            custom_title="🧟 Infection déclenchée"
         )
         await ctx.followup.send(embed=embed)
 
@@ -357,10 +359,11 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
         embed = build_embed_from_item(
             "🦠",
-            f"🦠 **Contamination virale**\n"
             f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
             f"Le virus infligera **5 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus en cas d'attaque."
+            f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus apres l'attaque.",
+            disable_gif=True,
+            custom_title="🦠 Contamination virale"
         )
         await ctx.followup.send(embed=embed)
 
