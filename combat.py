@@ -388,8 +388,11 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     elif type_cible == "infection":
         ligne1 = f"{user_mention} a infecté {target_mention} avec {item}."
     else:
-        # ici tu laisses bien dmg_total_affiche comme tu viens de dire
-        ligne1 = f"{user_mention} inflige {result['dmg_total_affiche']} dégâts à {target_mention} avec {item} !"
+        # on affiche ce que la cible a VRAIMENT subi
+        if result["real_dmg"] > 0:
+            ligne1 = f"{user_mention} inflige {result['real_dmg']} dégâts à {target_mention} avec {item} !"
+        else:
+            ligne1 = f"{user_mention} inflige {result['lost_pb']} dégâts absorbés par le bouclier de {target_mention} avec {item} !"
 
     # Emoji selon type_cible
     emoji_effet = ""
