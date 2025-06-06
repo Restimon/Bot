@@ -52,12 +52,12 @@ def build_embed_from_item(item, description, is_heal_other=False, is_crit=False,
 
     return embed
 
-def build_embed_transmission_virale(attacker, target, pv_avant, pv_apres):
+def build_embed_transmission_virale(from_user_mention, to_user_mention, pv_avant, pv_apres):
     return discord.Embed(
         title="💉 Transmission virale",
         description=(
-            f"{attacker} confirme une transmission virale : {target} est désormais infecté.\n"
-            f"🦠 Le virus a été retiré de {attacker}, qui perd 2 PV ({pv_avant} → {pv_apres})."
+            f"{from_user_mention} confirme une transmission virale : {to_user_mention} est désormais infecté.\n"
+            f"🦠 Le virus a été retiré de {from_user_mention}, qui perd 2 PV ({pv_avant} → {pv_apres})."
         ),
         color=0x55ffff
     )
