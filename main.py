@@ -775,6 +775,7 @@ async def regeneration_loop():
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
 
+
 async def special_supply_loop(bot):
     await bot.wait_until_ready()
     print("🎁 Boucle de ravitaillement spécial lancée")
@@ -785,10 +786,11 @@ async def special_supply_loop(bot):
         for guild in bot.guilds:
             gid = str(guild.id)
 
-            # Initialisation si manquante
+            # Initialisation des données si absentes
             if gid not in supply_data or not isinstance(supply_data[gid], dict):
                 supply_data[gid] = {
                     "last_supply_time": 0,
+                    "next_supply_time": now + random.randint(3600, 21600),
                     "supply_count_today": 0,
                     "last_activity_time": 0,
                     "last_channel_id": None,
@@ -805,8 +807,8 @@ async def special_supply_loop(bot):
             if data["supply_count_today"] >= MAX_SUPPLIES_PER_DAY:
                 continue
 
-            # Délai minimum de 1h
-            if now - data["last_supply_time"] < 3600:
+            # Pas encore l’heure du prochain ravitaillement
+            if now < data.get("next_supply_time", now + 3600):
                 continue
 
             # Salon actif défini
@@ -818,17 +820,18 @@ async def special_supply_loop(bot):
             if not channel or not channel.permissions_for(channel.guild.me).send_messages:
                 continue
 
-            # Chance aléatoire d’apparition (25%)
+            # Apparition aléatoire (25 %)
             if random.random() < 0.25:
                 await send_special_supply(bot, force=True)
 
-                # Mise à jour
+                # Mise à jour des infos de ravitaillement
                 data["last_supply_time"] = now
+                data["next_supply_time"] = now + random.randint(3600, 21600)  # Prochain entre 1h et 6h
                 data["supply_count_today"] += 1
                 data["is_open"] = True
                 sauvegarder()
 
-        await asyncio.sleep(600)  # 10 minutes
+        await asyncio.sleep(600)  # 10 minutes entre chaque check
             
 async def close_special_supply(guild_id):
     gid = str(guild_id)
