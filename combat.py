@@ -325,6 +325,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "reset_txt": reset_txt,
         "dmg_total_affiche": base_dmg + bonus_dmg,  # pour debug éventuellement
         "total_affiche_pour_ligne1": real_dmg + lost_pb,  # CE CHAMP est celui que tu dois utiliser en ligne 1 !
+        "dmg_total_apres_bonus_et_crit": base_dmg + bonus_dmg,
     }
 
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
@@ -408,9 +409,8 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     elif type_cible == "infection":
         ligne1 = f"{user_mention} a infecté {target_mention} avec {item}."
     else:
-        # Affichage cohérent : ce que la cible a subi (PV + PB)
-        total_affiche = result["total_affiche_pour_ligne1"]
-        ligne1 = f"{user_mention} inflige {total_affiche} dégâts à {target_mention} avec {item} !"
+        # ATTENTION : ici on affiche bien les dégâts "envoyés", pas les dégâts réellement subis
+        ligne1 = f"{user_mention} inflige {result['dmg_total_apres_bonus_et_crit']} dégâts à {target_mention} avec {item} !"
 
     # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
@@ -428,7 +428,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         )
 
     else:
-        # Dégâts PV uniquement (⚠️ ici il manquait bonus_str !)
+        # Dégâts PV uniquement
         ligne2 = f"{target_mention} perd {emoji_effet}{result['real_dmg']} PV{bonus_str}"
         ligne3 = f"❤️ {result['start_hp']} PV - {emoji_effet}{result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
 
