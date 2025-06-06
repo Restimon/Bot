@@ -11,7 +11,7 @@ from cooldowns import is_on_cooldown, set_cooldown
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
 async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
-    pass  # ou rien
+
     guild_id = str(ctx.guild.id)
 
     # 🩹 SOIN
@@ -65,7 +65,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 
     # 🔄 Effets secondaires (virus, infection…)
     for effet_embed in result["effets_embeds"]:
-        await ctx.send(embed=effet_embed)
+        await ctx.followup.send(embed=effet_embed)
 
     # 💥 Bouclier détruit
     if result["shield_broken"]:
@@ -451,7 +451,7 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
 
         # 📤 Effets secondaires
         for effet_embed in result["effets_embeds"]:
-            await ctx.send(embed=effet_embed)
+            await ctx.followup.send(embed=effet_embed)
 
         # 🛡 Bouclier détruit
         if result["shield_broken"]:
