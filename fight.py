@@ -34,21 +34,21 @@ def register_fight_command(bot):
                 "⚠️ Cet objet n’est pas une arme valide !", ephemeral=True
             )
 
-        # ✅ Ligne corrigée ici
-        embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
+        if item == "☠️":
+            embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
 
-        if success and item == "☠️":
-            user_inv.remove(item)
-            sauvegarder()
-            if embed:
-                await interaction.followup.send(embed=embed)
-            else:
-                await interaction.followup.send("☠️ Attaque en chaîne exécutée.")
+            if success:
+                user_inv.remove(item)
+                sauvegarder()
+                if embed:
+                    await interaction.followup.send(embed=embed)
+                else:
+                    await interaction.followup.send("☠️ Attaque en chaîne exécutée.")
         else:
             embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
+
             if embed:
                 await interaction.followup.send(embed=embed, ephemeral=True)
-
 
     # ✅ Autocomplétion des objets d'attaque avec description
     @fight_slash.autocomplete("item")
