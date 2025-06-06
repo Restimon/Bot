@@ -267,7 +267,6 @@ async def appliquer_soin(ctx, user_id, target_id, action):
         is_crit=("💥" in crit_txt)
     )
 
-
 ### 🎯 CALCUL DES DÉGÂTS
 
 async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, action_type, crit_chance, item):
@@ -432,11 +431,12 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
 
     # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
+        # Bouclier uniquement
         ligne2 = f"{target_mention} perd ({result['pb_avant_bonus']} PB)"
         ligne3 = f"🛡️ {result['before_pb']} PB - ({result['pb_avant_bonus']} PB) = 🛡️ {result['after_pb']} PB"
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
-        # Dégâts PV + shield
+        # Bouclier + PV
         ligne2 = f"{target_mention} perd ({result['pv_avant_bonus']} PV{bonus_str}) et {result['pb_avant_bonus']} PB"
         ligne3 = (
             f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) / "
@@ -445,9 +445,10 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         )
 
     else:
-        # Dégâts PV uniquement
+        # PV uniquement
         ligne2 = f"{target_mention} perd ({emoji_effet}{result['pv_avant_bonus']} PV{bonus_str})"
         ligne3 = f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
+
 
     # Retour complet
     return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
