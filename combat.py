@@ -53,8 +53,10 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         action.get("crit", 0), item
     )
 
-    # 📝 Message principal
-    description = afficher_degats(ctx, user_id, target_id, item, result)
+    # Choix du type_cible pour l'affichage correct
+    type_cible_affichage = action["type"] if action["type"] in ["virus", "poison", "infection"] else "attaque"
+
+    description = afficher_degats(ctx, user_id, target_id, item, result, type_cible=type_cible_affichage)
     embed = build_embed_from_item(
         item,
         description,
