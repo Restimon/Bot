@@ -427,8 +427,8 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
 
     # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
-        ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB{bonus_str})"
-        ligne3 = f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB{bonus_str}) = 🛡️ {result['after_pb']} PB"
+        ligne2 = f"{target_mention} perd ({result['pb_avant_bonus']} PB)"
+        ligne3 = f"🛡️ {result['before_pb']} PB - ({result['pb_avant_bonus']} PB) = 🛡️ {result['after_pb']} PB"
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
         # Dégâts PV + shield
@@ -441,8 +441,8 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
 
     else:
         # Dégâts PV uniquement
-        ligne2 = f"{target_mention} perd ({emoji_effet}{result['base_dmg_after_crit']} PV{bonus_str})"
-        ligne3 = f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
+        ligne2 = f"{target_mention} perd ({emoji_effet}{result['pv_avant_bonus']} PV{bonus_str})"
+        ligne3 = f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
 
     # Retour complet
     return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
