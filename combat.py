@@ -389,9 +389,11 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     # Format du bonus propre
     bonus_str = ""
     if result['bonus_info']:
-        bonus_str = " (" + " ".join(
+        bonus_str = " " + " ".join(
             f"{b[0]} {b[1:].strip()}" for b in result['bonus_info']
-        ) + ")"
+        )
+    else:
+        bonus_str = ""
 
     # Emoji selon type_cible
     emoji_effet = ""
@@ -416,12 +418,12 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
         # Bouclier seul absorbant tout
-        ligne2 = f"{target_mention} perd {result['lost_pb']} PB"
+        ligne2 = f"{target_mention} perd ({result['lost_pb']}) PB"
         ligne3 = f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = ❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
         # Dégâts PV + shield
-        ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str} et {result['lost_pb']} PB"
+        ligne2 = f"{target_mention} perd ({result['real_dmg']}) PV{bonus_str} et {result['lost_pb']} PB"
         ligne3 = (
             f"❤️ {result['start_hp']} PV - ({result['real_dmg']} PV{bonus_str}) / "
             f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = "
@@ -430,7 +432,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
 
     else:
         # Dégâts PV uniquement
-        ligne2 = f"{target_mention} perd {emoji_effet}{result['base_dmg_after_crit']} PV{bonus_str}"
+        ligne2 = f"{target_mention} perd ({emoji_effet}{result['base_dmg_after_crit']}) PV{bonus_str}"
         ligne3 = f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
 
     # Retour complet
