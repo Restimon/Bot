@@ -423,10 +423,8 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
 
     # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
-        # Bouclier seul absorbant tout
         ligne2 = f"{target_mention} perd ({result['lost_pb']} PB{bonus_str})"
         ligne3 = f"🛡️ {result['before_pb']} PB - ({result['lost_pb']} PB{bonus_str}) = 🛡️ {result['after_pb']} PB"
-
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
         # Dégâts PV + shield
