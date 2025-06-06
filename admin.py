@@ -316,8 +316,18 @@ def register_admin_commands(bot):
         guild_id = str(interaction.guild.id)
         user_id = str(user.id)
 
-        virus_status.get(guild_id, {}).pop(user_id, None)
-        poison_status.get(guild_id, {}).pop(user_id, None)
+        # Suppression des statuts s'ils existent
+        if guild_id in virus_status:
+            virus_status[guild_id].pop(user_id, None)
+
+        if guild_id in poison_status:
+            poison_status[guild_id].pop(user_id, None)
+
+        if guild_id in infection_status:
+            infection_status[guild_id].pop(user_id, None)
+
+        if guild_id in regeneration_status:
+            regeneration_status[guild_id].pop(user_id, None)
 
         await interaction.response.send_message(
             f"🧼 Tous les effets négatifs ont été supprimés de {user.mention}. GotValis confirme la purification.",
