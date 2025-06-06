@@ -422,15 +422,15 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         # Dégâts PV + shield
         ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str} et {result['lost_pb']} PB"
         ligne3 = (
-            f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} / "
+            f"❤️ {result['start_hp']} PV - ({result['real_dmg']} PV{bonus_str}) / "
             f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = "
             f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
         )
 
     else:
         # Dégâts PV uniquement
-        ligne2 = f"{target_mention} perd {emoji_effet}{result['real_dmg']} PV{bonus_str}"
-        ligne3 = f"❤️ {result['start_hp']} PV - {emoji_effet}{result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
+        ligne2 = f"{target_mention} perd {emoji_effet}{result['base_dmg_after_crit']} PV{bonus_str}"
+        ligne3 = f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
 
     # Retour complet
     return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
