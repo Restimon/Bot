@@ -375,14 +375,14 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     user_mention = get_mention(ctx.guild, user_id)
     target_mention = get_mention(ctx.guild, target_id)
 
-    # Bonus str propre
+    # Construire le bonus_str pour affichage (+2 🧟 -1 🧪)
     bonus_str = ""
     if result['bonus_info']:
         bonus_str = " (" + " ".join(
             f"{b[0]} {b[1:].strip()}" for b in result['bonus_info']
         ) + ")"
 
-    # Ligne 1 adaptée selon type_cible
+    # Ligne 1 adaptée
     if type_cible == "virus":
         ligne1 = f"{user_mention} a contaminé {target_mention} avec {item}."
     elif type_cible == "poison":
@@ -390,20 +390,11 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     elif type_cible == "infection":
         ligne1 = f"{user_mention} a infecté {target_mention} avec {item}."
     else:
-        # on affiche ce que la cible a VRAIMENT subi
+        # on affiche ce que la cible a VRAIMENT subi (real_dmg + modificateurs)
         if result["real_dmg"] > 0:
             ligne1 = f"{user_mention} inflige {result['real_dmg']} dégâts à {target_mention} avec {item} !"
         else:
             ligne1 = f"{user_mention} inflige {result['lost_pb']} dégâts absorbés par le bouclier de {target_mention} avec {item} !"
-
-    # Emoji selon type_cible
-    emoji_effet = ""
-    if type_cible == "virus":
-        emoji_effet = "🦠 "
-    elif type_cible == "poison":
-        emoji_effet = "🧪 "
-    elif type_cible == "infection":
-        emoji_effet = "🧟 "
 
     # Ligne 2 et 3
     if result["lost_pb"] and result["real_dmg"] == 0:
@@ -418,10 +409,11 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         )
     else:
         # dégâts uniquement PV
-        ligne2 = f"{target_mention} perd {emoji_effet}{result['real_dmg']} PV"
-        ligne3 = f"❤️ {result['start_hp']} PV - {emoji_effet}{result['real_dmg']} PV = ❤️ {result['end_hp']} PV"
+        ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str}"
+        ligne3 = f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
 
     return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
+
 
 ### ☠️ ATTAQUE EN CHAÎNE
 
