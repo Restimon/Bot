@@ -315,6 +315,11 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
             color=discord.Color.red()
         )
 
+    # --- Calcul pour l'affichage correct des dégâts base pour PV et PB ---
+    # On veut afficher les "PV de base" (coup de base après crit) et la PB perdue réelle
+    pv_taken_base = min(base_dmg_after_crit, start_hp) if real_dmg > 0 else 0
+    pb_taken_base = min(base_dmg_after_crit, lost_pb) if lost_pb > 0 else 0
+
     # Retour complet
     return {
         "dmg_final": dmg_final,
@@ -333,10 +338,10 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "total_affiche_pour_ligne1": real_dmg + lost_pb,
         "dmg_total_apres_bonus_et_crit": base_dmg_after_crit + bonus_dmg,
         "base_dmg_after_crit": base_dmg_after_crit,
-        
+
         # Ajouts nécessaires pour ton affichage
         "pv_avant_bonus": pv_taken_base,
-        "pb_avant_bonus": lost_pb_base,
+        "pb_avant_bonus": pb_taken_base,
     }
 
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
