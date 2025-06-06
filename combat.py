@@ -432,8 +432,8 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
         # Bouclier uniquement
-        ligne2 = f"{target_mention} perd ({result['pb_avant_bonus']} PB)"
-        ligne3 = f"🛡️ {result['before_pb']} PB - ({result['pb_avant_bonus']} PB) = 🛡️ {result['after_pb']} PB"
+        ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB{bonus_str})"
+        ligne3 = f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB{bonus_str}) = 🛡️ {result['after_pb']} PB"
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
         # Bouclier + PV
