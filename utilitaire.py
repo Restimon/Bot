@@ -1,10 +1,10 @@
 import discord
 from discord import app_commands
-from utils import OBJETS, is_immune, get_mention
+from utils import OBJETS, get_mention
 from storage import get_user_data
-from data import sauvegarder
+from data import sauvegarder, shields, immunite_status, esquive_status, casque_status
 from embeds import build_embed_from_item
-from combat import apply_item_with_cooldown
+from inventory import voler_objet  # pour le vol
 
 def register_utilitaire_command(bot):
     @bot.tree.command(name="utilitaire", description="Utilise un objet utilitaire ou de protection")
@@ -38,9 +38,40 @@ def register_utilitaire_command(bot):
                 "❌ Tu dois cibler quelqu’un pour utiliser un objet de type **vol**.", ephemeral=True
             )
 
-        # On applique l'effet
-        embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
+        # Appliquer l'effet
+        embed = None
+        success = False
 
+        if action["type"] == "bouclier":
+            shields.setdefault(guild_id, {})[uid] = shields.get(guild_id, {}).get(uid, 0) + 20
+            embed = build_embed_from_item(item, f"{interaction.user.mention} a utilisé un **bouclier** de protection !")
+            success = True
+
+        elif action["type"] == "immunite":
+            immunite_status.setdefault(guild_id, {})[uid] = time.time() + action.get("duree", 3600)
+            embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **immunité totale** pendant 2h.")
+            success = True
+
+        elif action["type"] == "esquive+":
+            esquive_status.setdefault(guild_id, {})[uid] = {
+                "start": time.time(),
+                "duration": action.get("duree", 3600),
+                "valeur": action.get("valeur", 0.2)
+            }
+            embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **augmentation d’esquive** pendant 3h.")
+            success = True
+
+        elif action["type"] == "reduction":
+            casque_status.setdefault(guild_id, {})[uid] = time.time() + action.get("duree", 3600)
+            embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **réduction des dégâts** pendant 4h.")
+            success = True
+
+        elif action["type"] == "vol":
+            result_embed = await voler_objet(interaction, uid, tid)
+            embed = result_embed
+            success = True
+
+        # Retirer l'objet s'il a été utilisé avec succès
         if success:
             user_inv.remove(item)
             sauvegarder()
