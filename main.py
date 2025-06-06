@@ -807,11 +807,7 @@ async def special_supply_loop(bot):
             if data["supply_count_today"] >= MAX_SUPPLIES_PER_DAY:
                 continue
 
-            # Pas encore l’heure du prochain ravitaillement
-            if now < data.get("next_supply_time", now + 3600):
-                continue
-
-            # Salon actif défini
+            # Pas de salon actif
             channel_id = data.get("last_channel_id")
             if not channel_id:
                 continue
@@ -820,17 +816,31 @@ async def special_supply_loop(bot):
             if not channel or not channel.permissions_for(channel.guild.me).send_messages:
                 continue
 
-            # Ici : supply garanti → PAS de random → direct envoi
-            await send_special_supply(bot, force=True)
+            # Calcul de l'écart par rapport au next_supply_time
+            elapsed_since_target = now - data.get("next_supply_time", now + 3600)
 
-            # Mise à jour : cooldown strict 1h + roll 1h-6h
-            data["last_supply_time"] = now
-            data["next_supply_time"] = now + 3600 + random.randint(3600, 21600)  # 1h + 1h-6h
-            data["supply_count_today"] += 1
-            data["is_open"] = True
-            sauvegarder()
+            if elapsed_since_target < 0:
+                continue  # trop tôt
+
+            # Probabilité progressive : max 100% après 1h de retard
+            drop_prob = min(1.0, elapsed_since_target / 3600)
+
+            # Log facultatif
+            print(f"🎲 [{guild.name}] Probabilité de drop : {int(drop_prob * 100)}%")
+
+            # Roll du drop
+            if random.random() < drop_prob:
+                await send_special_supply(bot, force=True)
+
+                # Mise à jour : cooldown strict 1h + roll 1h-6h
+                data["last_supply_time"] = now
+                data["next_supply_time"] = now + 3600 + random.randint(3600, 21600)  # 1h + 1h-6h
+                data["supply_count_today"] += 1
+                data["is_open"] = True
+                sauvegarder()
 
         await asyncio.sleep(600)  # 10 minutes entre chaque check
+
             
 async def close_special_supply(guild_id):
     gid = str(guild_id)
