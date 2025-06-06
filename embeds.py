@@ -27,23 +27,21 @@ GIFS = {
     "esquive": "https://media.giphy.com/media/eIm624c8nnNbiG0V3g/giphy.gif"
 }
 
-def build_embed_from_item(item, description, is_heal_other=False, is_crit=False, disable_gif=False):
+def build_embed_from_item(item, description, is_heal_other=False, is_crit=False, disable_gif=False, custom_title=None):
     embed = discord.Embed(
-        title=f"{item} Action de GotValis",
+        title=custom_title or f"{item} Action de GotValis",
         description=description,
         color=discord.Color.green() if is_heal_other else discord.Color.red()
     )
 
-    # Choix du GIF à afficher
+    if disable_gif:
+        return embed
+
     gif_url = None
     if is_crit and not is_heal_other:
-        embed.set_image(url=GIFS.get("critique"))
-        return embed  # ← empêche d'écraser avec un autre GIF plus bas
+        gif_url = GIFS.get("critique")
     elif OBJETS.get(item, {}).get("type") == "soin":
-        if is_heal_other:
-            gif_url = GIFS.get("soin_autre")
-        else:
-            gif_url = GIFS.get(item)
+        gif_url = GIFS.get("soin_autre") if is_heal_other else GIFS.get(item)
     elif description.startswith("💨"):
         gif_url = GIFS.get("esquive")
     elif item in GIFS:
