@@ -336,7 +336,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
             f"Le poison infligera **3 PV** toutes les 30 minutes pendant 3 heures.\n"
             f"⚠️ Sous poison, les attaques de la cible infligeront **1 dégât de moins**."
         )
-        await ctx.send(embed=embed)
+        await ctx.followup.send(embed=embed)
 
     # INFECTION
     elif action_type == "infection":
