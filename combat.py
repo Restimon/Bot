@@ -273,24 +273,33 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     start_hp = hp[guild_id].get(target_id, 100)
     before_pb = shields.get(guild_id, {}).get(target_id, 0)
 
+    # Appliquer les bonus/malus de statuts
     bonus_dmg, bonus_info, src_credit, effets = get_statut_bonus(
         guild_id, user_id, target_id, ctx.channel.id, action_type
     )
 
+    # Critique
     base_dmg, crit_txt = apply_crit(base_dmg, crit_chance)
+
+    # Casque
     total_dmg = apply_casque_reduction(guild_id, target_id, base_dmg + bonus_dmg)
+
+    # Bouclier
     dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
     pb_after = shields.get(guild_id, {}).get(target_id, 0)
 
+    # Appliquer les PV
     end_hp = max(0, start_hp - dmg_final)
     hp[guild_id][target_id] = end_hp
     real_dmg = start_hp - end_hp
 
+    # MAJ leaderboard
     if real_dmg > 0:
         update_leaderboard_dmg(guild_id, user_id, real_dmg)
     if src_credit and src_credit != target_id:
         update_leaderboard_dmg(guild_id, src_credit, bonus_dmg)
 
+    # KO ?
     ko_embed = None
     reset_txt = ""
     if end_hp == 0:
@@ -302,6 +311,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
             color=discord.Color.red()
         )
 
+    # Retour complet
     return {
         "dmg_final": dmg_final,
         "real_dmg": real_dmg,
@@ -315,7 +325,8 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "crit_txt": crit_txt,
         "effets_embeds": effets + ([ko_embed] if ko_embed else []),
         "reset_txt": reset_txt,
-        "dmg_total_affiche": base_dmg + bonus_dmg,
+        "dmg_total_affiche": base_dmg + bonus_dmg,  # pour debug éventuellement
+        "total_affiche_pour_ligne1": real_dmg + lost_pb,  # CE CHAMP est celui que tu dois utiliser en ligne 1 !
     }
 
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
@@ -375,14 +386,23 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     user_mention = get_mention(ctx.guild, user_id)
     target_mention = get_mention(ctx.guild, target_id)
 
-    # Construire le bonus_str pour affichage (+2 🧟 -1 🧪)
+    # Format du bonus propre
     bonus_str = ""
     if result['bonus_info']:
         bonus_str = " (" + " ".join(
             f"{b[0]} {b[1:].strip()}" for b in result['bonus_info']
         ) + ")"
 
-    # Ligne 1 adaptée
+    # Emoji selon type_cible
+    emoji_effet = ""
+    if type_cible == "virus":
+        emoji_effet = "🦠 "
+    elif type_cible == "poison":
+        emoji_effet = "🧪 "
+    elif type_cible == "infection":
+        emoji_effet = "🧟 "
+
+    # Ligne 1 adaptée selon type_cible
     if type_cible == "virus":
         ligne1 = f"{user_mention} a contaminé {target_mention} avec {item}."
     elif type_cible == "poison":
@@ -390,30 +410,32 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     elif type_cible == "infection":
         ligne1 = f"{user_mention} a infecté {target_mention} avec {item}."
     else:
-        # on affiche ce que la cible a VRAIMENT subi (real_dmg + modificateurs)
-        if result["real_dmg"] > 0:
-            ligne1 = f"{user_mention} inflige {result['real_dmg']} dégâts à {target_mention} avec {item} !"
-        else:
-            ligne1 = f"{user_mention} inflige {result['lost_pb']} dégâts absorbés par le bouclier de {target_mention} avec {item} !"
+        # Affichage cohérent : ce que la cible a subi (PV + PB)
+        total_affiche = result["total_affiche_pour_ligne1"]
+        ligne1 = f"{user_mention} inflige {total_affiche} dégâts à {target_mention} avec {item} !"
 
-    # Ligne 2 et 3
+    # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
+        # Bouclier seul absorbant tout
         ligne2 = f"{target_mention} perd {result['lost_pb']} PB"
         ligne3 = f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = ❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
+
     elif result["lost_pb"] and result["real_dmg"] > 0:
+        # Dégâts PV + shield
         ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str} et {result['lost_pb']} PB"
         ligne3 = (
             f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} / "
             f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = "
             f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
         )
+
     else:
-        # dégâts uniquement PV
-        ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str}"
-        ligne3 = f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
+        # Dégâts PV uniquement
+        ligne2 = f"{target_mention} perd {emoji_effet}{result['real_dmg']} PV{bonus_str}"
+        ligne3 = f"❤️ {result['start_hp']} PV - {emoji_effet}{result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
 
+    # Retour complet
     return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
-
 
 ### ☠️ ATTAQUE EN CHAÎNE
 
