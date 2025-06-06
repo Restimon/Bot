@@ -430,7 +430,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         )
 
     else:
-        # Dégâts PV uniquement
+        # Dégâts PV uniquement (⚠️ ici il manquait bonus_str !)
         ligne2 = f"{target_mention} perd {emoji_effet}{result['real_dmg']} PV{bonus_str}"
         ligne3 = f"❤️ {result['start_hp']} PV - {emoji_effet}{result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
 
