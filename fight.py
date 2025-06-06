@@ -34,7 +34,8 @@ def register_fight_command(bot):
                 "❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True
             )
 
-        if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "attaque_chaine", "virus", "poison", "infection", "vol"]:
+        # On retire "vol" ici :
+        if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "attaque_chaine", "virus", "poison", "infection"]:
             return await interaction.followup.send(
                 "⚠️ Cet objet n’est pas une arme valide !", ephemeral=True
             )
@@ -66,7 +67,8 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection", "vol"]
+        # On retire "vol" ici :
+        attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection"]
 
         attack_items = sorted(set(
             i for i in user_inv if OBJETS.get(i, {}).get("type") in attack_types
@@ -93,8 +95,6 @@ def register_fight_command(bot):
                 label = f"{emoji} | Poison → 3 dmg initiaux + 3 dmg/30min"
             elif typ == "infection":
                 label = f"{emoji} | Infection → 5 dmg initiaux + 2 dmg/30min, propagation"
-            elif typ == "vol":
-                label = f"{emoji} | Vole un objet aléatoire à la cible"
             else:
                 label = f"{emoji} (Objet spécial)"
 
