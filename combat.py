@@ -122,7 +122,7 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
     effets_embed = []
 
     # --- 🧪 Poison ---
-    if target_id in poison_status.get(guild_id, {}):
+    if user_id in poison_status.get(guild_id, {}):
         bonus_dmg -= 1
         bonus_info.append("-1 🧪")
 
