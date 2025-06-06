@@ -99,7 +99,7 @@ def register_profile_command(bot):
         bonus_lines = []
 
         for bonus, emoji, label, extra in [
-            (esquive_bonus, "💨", "Esquive améliorée", "+20%"),
+            (esquive_status, "💨", "Esquive améliorée", "+20%"),
             (casque_status, "🪖", "Casque", "dégâts reçus ÷2"),
             (immunite_status, "⭐️", "Immunité totale", "")
         ]:
