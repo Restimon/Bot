@@ -277,10 +277,10 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     )
 
     # Critique
-    base_dmg, crit_txt = apply_crit(base_dmg, crit_chance)
+    base_dmg_after_crit, crit_txt = apply_crit(base_dmg, crit_chance)
 
     # Casque
-    total_dmg = apply_casque_reduction(guild_id, target_id, base_dmg + bonus_dmg)
+    total_dmg = apply_casque_reduction(guild_id, target_id, base_dmg_after_crit + bonus_dmg)
 
     # Bouclier
     dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
@@ -323,9 +323,9 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "crit_txt": crit_txt,
         "effets_embeds": effets + ([ko_embed] if ko_embed else []),
         "reset_txt": reset_txt,
-        "dmg_total_affiche": base_dmg + bonus_dmg,  # pour debug éventuellement
-        "total_affiche_pour_ligne1": real_dmg + lost_pb,  # CE CHAMP est celui que tu dois utiliser en ligne 1 !
-        "dmg_total_apres_bonus_et_crit": base_dmg + bonus_dmg,
+        "dmg_total_affiche": base_dmg_after_crit + bonus_dmg,  # pour debug éventuellement
+        "total_affiche_pour_ligne1": real_dmg + lost_pb,
+        "dmg_total_apres_bonus_et_crit": base_dmg_after_crit + bonus_dmg,  # CORRIGÉ ici
     }
 
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
