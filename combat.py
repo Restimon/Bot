@@ -334,7 +334,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
             f"🧪 **Contamination toxique**\n"
             f"{get_mention(ctx.guild, user_id)} a empoisonné {get_mention(ctx.guild, target_id)}.\n"
             f"Le poison infligera **3 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ Sous poison, les attaques de la cible infligeront **1 dégât de moins**."
+            f"⚠️ Les attaques de la cible infligeront **1 dégât de moins**."
         )
         await ctx.followup.send(embed=embed)
 
@@ -347,7 +347,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
             f"🧟 **Infection déclenchée**\n"
             f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
             f"L’infection infligera **2 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ Sous infection, chaque attaque inflige **+2 dégâts** et peut propager l'infection."
+            f"⚠️ Chaque attaque inflige **+2 dégâts** et peut propager l'infection."
         )
         await ctx.followup.send(embed=embed)
 
@@ -360,7 +360,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
             f"🦠 **Contamination virale**\n"
             f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
             f"Le virus infligera **5 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus."
+            f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus en cas d'attaque."
         )
         await ctx.followup.send(embed=embed)
 
