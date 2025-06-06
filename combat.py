@@ -315,8 +315,8 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         )
 
     # --- Calcul pour l'affichage correct des dégâts base pour PV et PB ---
-    # On veut afficher les "PV de base" (coup de base après crit) et la PB perdue réelle
-    pv_taken_base = min(base_dmg_after_crit, start_hp) if real_dmg > 0 else 0
+    # On veut afficher les "PV de base" (coup de base après crit - PB absorbés)
+    pv_taken_base = max(0, base_dmg_after_crit - lost_pb)
     pb_taken_base = min(base_dmg_after_crit, lost_pb) if lost_pb > 0 else 0
 
     # Retour complet
