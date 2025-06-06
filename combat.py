@@ -7,7 +7,6 @@ from utils import get_mention, get_evade_chance
 from statuts import appliquer_poison, appliquer_infection, appliquer_virus, appliquer_regen, supprimer_tous_statuts
 from embeds import build_embed_from_item, build_embed_transmission_virale
 from cooldowns import is_on_cooldown, set_cooldown
-from inventory import voler_objet
 
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
