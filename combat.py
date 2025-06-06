@@ -349,7 +349,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
             f"L’infection infligera **2 PV** toutes les 30 minutes pendant 3 heures.\n"
             f"⚠️ Sous infection, chaque attaque inflige **+2 dégâts** et peut propager l'infection."
         )
-        await ctx.send(embed=embed)
+        await ctx.followup.send(embed=embed)
 
     # VIRUS
     elif action_type == "virus" and index == 0:
@@ -362,7 +362,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
             f"Le virus infligera **5 PV** toutes les 30 minutes pendant 3 heures.\n"
             f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus."
         )
-        await ctx.send(embed=embed)
+        await ctx.followup.send(embed=embed)
 
         # Supprimer le virus de l’attaquant après transmission
         virus_status[guild_id].pop(user_id, None)
