@@ -125,3 +125,22 @@ def register_utilitaire_command(bot):
             suggestions.append(app_commands.Choice(name=label, value=emoji))
 
         return suggestions[:25]
+
+async def voler_objet(ctx, user_id, target_id):
+    guild_id = str(ctx.guild.id)
+
+    # Récupération inventaires
+    user_inv, _, _ = get_user_data(guild_id, user_id)
+    target_inv, _, _ = get_user_data(guild_id, target_id)
+
+    # Cible vide ?
+    possible_items = [item for item in target_inv if item != "📦"]
+    if not possible_items:
+        return build_embed_from_item("🔍", f"{get_mention(ctx.guild, user_id)} tente de voler un objet...\nMais {get_mention(ctx.guild, target_id)} n’a rien d’intéressant. 😶")
+
+    # Vol aléatoire
+    stolen = random.choice(possible_items)
+    target_inv.remove(stolen)
+    user_inv.append(stolen)
+
+    return build_embed_from_item("🔍", f"{get_mention(ctx.guild, user_id)} a volé **{stolen}** à {get_mention(ctx.guild, target_id)} ! 🫣")
