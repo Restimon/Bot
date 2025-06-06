@@ -3,7 +3,7 @@ from discord import app_commands
 from utils import OBJETS
 from storage import get_user_data
 from data import sauvegarder
-from combat import apply_item_with_cooldown
+from combat import apply_item_with_cooldown, apply_attack_chain  # <== bien importer apply_attack_chain
 from embeds import build_embed_from_item
 
 def register_fight_command(bot):
@@ -16,7 +16,7 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         tid = str(target.id)
         action = OBJETS.get(item, {})
-        
+
         if target.bot:
             return await interaction.followup.send(
                 "🤖 Tu ne peux pas attaquer un bot, même s’il a l’air louche.", ephemeral=True
@@ -34,8 +34,9 @@ def register_fight_command(bot):
                 "⚠️ Cet objet n’est pas une arme valide !", ephemeral=True
             )
 
+        # ☠️ Appelle bien apply_attack_chain
         if item == "☠️":
-            embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
+            embed, success = await apply_attack_chain(interaction, uid, tid, item, action)
 
             if success:
                 user_inv.remove(item)
@@ -46,6 +47,10 @@ def register_fight_command(bot):
                     await interaction.followup.send("☠️ Attaque en chaîne exécutée.")
         else:
             embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
+
+            if success:
+                user_inv.remove(item)
+                sauvegarder()
 
             if embed:
                 await interaction.followup.send(embed=embed, ephemeral=True)
