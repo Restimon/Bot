@@ -332,7 +332,11 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "dmg_total_affiche": base_dmg_after_crit + bonus_dmg,
         "total_affiche_pour_ligne1": real_dmg + lost_pb,
         "dmg_total_apres_bonus_et_crit": base_dmg_after_crit + bonus_dmg,
-        "base_dmg_after_crit": base_dmg_after_crit,  # <== AJOUTE CETTE LIGNE
+        "base_dmg_after_crit": base_dmg_after_crit,
+        
+        # Ajouts nécessaires pour ton affichage
+        "pv_avant_bonus": pv_taken_base,
+        "pb_avant_bonus": lost_pb_base,
     }
 
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
@@ -428,10 +432,10 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
         # Dégâts PV + shield
-        ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PV{bonus_str}) et {result['lost_pb']} PB"
+        ligne2 = f"{target_mention} perd ({result['pv_avant_bonus']} PV{bonus_str}) et {result['pb_avant_bonus']} PB"
         ligne3 = (
-            f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV{bonus_str}) / "
-            f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = "
+            f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) / "
+            f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
             f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
         )
 
