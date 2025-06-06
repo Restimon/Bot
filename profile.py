@@ -6,7 +6,7 @@ from storage import get_user_data, leaderboard
 from data import (
     virus_status, poison_status, infection_status,
     shields, esquive_bonus, casque_status, immunite_status,
-    regeneration_status  # ✅ Ajout ici
+    regeneration_status, esquive_bonus  # ✅ Ajout ici
 )
 from embeds import build_embed_from_item
 
