@@ -154,9 +154,11 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 hp[guild_id][target_id] = end_hp
 
                 effets_embed.append(build_embed_from_item(
-                    "🧟",
-                    f"**GotValis** signale une propagation.\n<@{target_id}> a été infecté et perd {start_hp - end_hp} PV."
-                ))
+                "🧟",
+                f"**GotValis** signale une propagation.\n<@{target_id}> a été infecté et perd {start_hp - end_hp} PV.",
+                disable_gif=True,
+                custom_title="🧟 Propagation d'infection"
+            ))
 
                 if end_hp == 0:
                     handle_death(guild_id, target_id, source)
