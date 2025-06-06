@@ -27,7 +27,7 @@ GIFS = {
     "esquive": "https://media.giphy.com/media/eIm624c8nnNbiG0V3g/giphy.gif"
 }
 
-def build_embed_from_item(item, description, is_heal_other=False, is_crit=False):
+def build_embed_from_item(item, description, is_heal_other=False, is_crit=False, disable_gif=False):
     embed = discord.Embed(
         title=f"{item} Action de GotValis",
         description=description,
