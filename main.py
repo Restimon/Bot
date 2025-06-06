@@ -820,16 +820,15 @@ async def special_supply_loop(bot):
             if not channel or not channel.permissions_for(channel.guild.me).send_messages:
                 continue
 
-            # Apparition aléatoire (25 %)
-            if random.random() < 0.25:
-                await send_special_supply(bot, force=True)
+            # Ici : supply garanti → PAS de random → direct envoi
+            await send_special_supply(bot, force=True)
 
-                # Mise à jour des infos de ravitaillement
-                data["last_supply_time"] = now
-                data["next_supply_time"] = now + random.randint(3600, 21600)  # Prochain entre 1h et 6h
-                data["supply_count_today"] += 1
-                data["is_open"] = True
-                sauvegarder()
+            # Mise à jour : cooldown strict 1h + roll 1h-6h
+            data["last_supply_time"] = now
+            data["next_supply_time"] = now + 3600 + random.randint(3600, 21600)  # 1h + 1h-6h
+            data["supply_count_today"] += 1
+            data["is_open"] = True
+            sauvegarder()
 
         await asyncio.sleep(600)  # 10 minutes entre chaque check
             
