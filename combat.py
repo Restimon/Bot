@@ -69,7 +69,8 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 
     # 💥 Bouclier détruit
     if result["shield_broken"]:
-        shield_embed = build_embed_from_item("🛡", f"Le bouclier de {get_mention(ctx.guild, target_id)} a été **détruit**.")
+        shield_embed = build_embed_from_item("🛡", f"Le bouclier de {get_mention(ctx.guild, target_id)} a été **détruit**.", is_heal_other=False, is_crit=False)
+        shield_embed.set_image(url=None)  # Supprime le GIF manuellement
         await ctx.followup.send(embed=shield_embed)
 
     # 🧪 Appliquer statut
