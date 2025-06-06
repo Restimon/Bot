@@ -37,7 +37,8 @@ def build_embed_from_item(item, description, is_heal_other=False, is_crit=False)
     # Choix du GIF à afficher
     gif_url = None
     if is_crit and not is_heal_other:
-        embed.set_image(url=GIFS.get("💥"))
+        embed.set_image(url=GIFS.get("critique"))
+        return embed  # ← empêche d'écraser avec un autre GIF plus bas
     elif OBJETS.get(item, {}).get("type") == "soin":
         if is_heal_other:
             gif_url = GIFS.get("soin_autre")
