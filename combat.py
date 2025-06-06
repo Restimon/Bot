@@ -68,7 +68,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 
 
     if action["type"] not in ["attaque", "poison", "virus", "infection", "vol", "soin"]:
-        await ctx.send(f"⚠️ Type d’objet inconnu : `{action['type']}` pour l’objet {item}.")
+        await ctx.followup.send(f"⚠️ Type d’objet inconnu : `{action['type']}` pour l’objet {item}.")
         return None, False
 
     sauvegarder()  # <— à ajouter ici si pas déjà fait
