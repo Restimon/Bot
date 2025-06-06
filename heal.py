@@ -61,16 +61,21 @@ def register_heal_command(bot):
             sauvegarder()
 
             if effaces:
-                description = f"💉 {member.mention} s’est administré un vaccin.\n" \
+                description = f"{member.mention} s’est administré un vaccin.\n" \
                               f"{' + '.join(effaces).capitalize()} éradiqué(s) avec succès !"
             else:
-                description = f"💉 Aucun virus, poison ou infection détecté chez {member.mention}. L’injection était inutile."
+                description = f"Aucun virus, poison ou infection détecté chez {member.mention}. L’injection était inutile."
 
-            return await interaction.followup.send(embed=discord.Embed(
-                title="📢 Vaccination GotValis",
-                description=description,
-                color=discord.Color.green()
-            ))
+            # ✅ Utilise ton build_embed_from_item
+            embed = build_embed_from_item(
+                "💉",
+                description,
+                is_heal_other=False,
+                disable_gif=False,
+                custom_title="📢 Vaccination GotValis"
+            )
+
+            return await interaction.followup.send(embed=embed)
 
         # ⭐️ Immunité
         if item == "⭐️":
