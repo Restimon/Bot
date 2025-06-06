@@ -22,6 +22,11 @@ def register_fight_command(bot):
                 "🤖 Tu ne peux pas attaquer un bot, même s’il a l’air louche.", ephemeral=True
             )
 
+        if interaction.user.id == target.id:
+            return await interaction.followup.send(
+                "❌ Tu ne peux pas t'attaquer toi-même.", ephemeral=True
+            )
+
         user_inv, _, _ = get_user_data(guild_id, uid)
 
         if item not in user_inv:
