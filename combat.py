@@ -315,11 +315,6 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "reset_txt": reset_txt,
         "dmg_total_affiche": base_dmg + bonus_dmg,
     }
-    
-from embeds import build_embed_from_item
-from utils import get_mention
-from data import virus_status
-from status import appliquer_poison, appliquer_infection, appliquer_virus
 
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
     """Applique les statuts appropriés après une attaque."""
