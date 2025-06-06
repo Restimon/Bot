@@ -327,7 +327,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
     # POISON
     if action_type == "poison":
-        await appliquer_poison(guild_id, target_id, channel_id, user_id)
+        appliquer_poison(guild_id, target_id, channel_id, user_id)
 
         embed = build_embed_from_item(
             "🧪",
@@ -340,7 +340,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
     # INFECTION
     elif action_type == "infection":
-        await appliquer_infection(guild_id, user_id, target_id, channel_id)
+        appliquer_infection(guild_id, target_id, channel_id, user_id)
 
         embed = build_embed_from_item(
             "🧟",
@@ -353,7 +353,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
     # VIRUS
     elif action_type == "virus" and index == 0:
-        await appliquer_virus(guild_id, user_id, target_id, channel_id)
+        appliquer_virus(guild_id, target_id, channel_id, user_id)
 
         embed = build_embed_from_item(
             "🦠",
