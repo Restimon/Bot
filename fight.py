@@ -36,15 +36,14 @@ def register_fight_command(bot):
 
         # ☠️ Appelle bien apply_attack_chain
         if item == "☠️":
-            embed, success = await apply_attack_chain(interaction, uid, tid, item, action)
+            await apply_attack_chain(interaction, uid, tid, item, action)
 
-            if success:
-                user_inv.remove(item)
-                sauvegarder()
-                if embed:
-                    await interaction.followup.send(embed=embed)
-                else:
-                    await interaction.followup.send("☠️ Attaque en chaîne exécutée.")
+            # On retire l'objet après l'attaque en chaîne
+            user_inv.remove(item)
+            sauvegarder()
+
+            return
+
         else:
             embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
 
