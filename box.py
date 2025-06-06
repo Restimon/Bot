@@ -5,6 +5,39 @@ from storage import get_user_data
 from utils import OBJETS
 from embeds import build_embed_from_item
 
+# Fonction pour décrire un objet
+def describe_item(emoji):
+    obj = OBJETS.get(emoji, {})
+    t = obj.get("type")
+    if t == "attaque":
+        return f"🗡️ Inflige {obj['degats']} dégâts. (Crit {int(obj.get('crit', 0) * 100)}%)"
+    if t == "virus":
+        return "🦠 5 dégâts initiaux + 5/h pendant 6h."
+    if t == "poison":
+        return "🧪 3 dégâts initiaux + 3/30min pendant 3h."
+    if t == "infection":
+        return "🧟 5 dégâts initiaux + 2/30min pendant 3h (25% de propagation)."
+    if t == "soin":
+        return f"💚 Restaure {obj['soin']} PV. (Crit {int(obj.get('crit', 0) * 100)}%)"
+    if t == "regen":
+        return "✨ Régénère 3 PV toutes les 30min pendant 3h."
+    if t == "mysterybox":
+        return "📦 Boîte surprise : objets aléatoires."
+    if t == "vol":
+        return "🔍 Vole un objet à un autre joueur."
+    if t == "vaccin":
+        return "💉 Soigne le virus via /heal."
+    if t == "bouclier":
+        return "🛡 +20 points de bouclier."
+    if t == "esquive+":
+        return "👟 Augmente les chances d’esquive pendant 3h."
+    if t == "reduction":
+        return "🪖 Réduction de dégâts x0.5 pendant 4h."
+    if t == "immunite":
+        return "⭐️ Immunité totale pendant 2h."
+    return "❓ Effet inconnu."
+
+# Commande box
 def register_box_command(bot):
     @bot.tree.command(name="box", description="Ouvre une boîte 📦 et reçois des objets aléatoires.")
     async def box_slash(interaction: discord.Interaction):
@@ -22,32 +55,39 @@ def register_box_command(bot):
         # Retire une boîte
         user_inv.remove("📦")
 
-        # Génère du loot
-        possible = [k for k in OBJETS if k != "📦"]
-        mode = random.randint(1, 3)
+        # Prépare la liste pondérée par rareté
+        rarete_pool = []
+        for emoji, data in OBJETS.items():
+            if emoji == "📦":
+                continue
+            rarete = data.get("rarete", 1)
+            rarete_pool.extend([emoji] * rarete)
 
+        # Nombre d'objets aléatoire
+        nb_objets = random.randint(1, 3)
+
+        # Loot des objets
         loot = []
-        if mode == 1:
-            item = random.choice(possible)
-            loot = [item] * 3
-        elif mode == 2:
-            selected = random.sample(possible, 2)
-            loot = [selected[0]] * 2 + [selected[1]]
-        else:
-            loot = random.sample(possible, 3)
+        for _ in range(nb_objets):
+            item = random.choice(rarete_pool)
+            loot.append(item)
 
+        # Ajout au joueur
         user_inv.extend(loot)
 
-        # Formatage
+        # Format du résultat
         counts = {}
         for item in loot:
             counts[item] = counts.get(item, 0) + 1
 
-        loot_display = "\n".join(f"{emoji} × {count}" for emoji, count in counts.items())
+        loot_display = "\n".join(
+            f"{emoji} × {count} — {describe_item(emoji)}"
+            for emoji, count in counts.items()
+        )
 
         embed = discord.Embed(
             title="📦 Boîte ouverte !",
-            description=f"Voici ce que tu as reçu :\n{loot_display}",
+            description=f"Voici ce que tu as reçu :\n\n{loot_display}",
             color=discord.Color.gold()
         )
 
