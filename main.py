@@ -786,7 +786,6 @@ async def special_supply_loop(bot):
         for guild in bot.guilds:
             gid = str(guild.id)
 
-            # Initialisation des données si absentes
             if gid not in supply_data or not isinstance(supply_data[gid], dict):
                 supply_data[gid] = {
                     "last_supply_time": 0,
@@ -799,15 +798,23 @@ async def special_supply_loop(bot):
 
             data = supply_data[gid]
 
-            # Reset journalier
             if time.localtime(data["last_supply_time"]).tm_mday != time.localtime(now).tm_mday:
                 data["supply_count_today"] = 0
 
-            # Trop de ravitaillements aujourd'hui
             if data["supply_count_today"] >= MAX_SUPPLIES_PER_DAY:
                 continue
 
-            # Pas de salon actif
+            elapsed_since_last = now - data["last_supply_time"]
+            if elapsed_since_last < 3600:
+                continue
+
+            # Courbe exponentielle
+            progression = min(max((elapsed_since_last - 3600) / (5 * 3600), 0.0), 1.0)
+            exponent = 3.2  # ajusté pour ~12.5 % à 3h
+            proba_tick = progression ** exponent
+
+            print(f"[{guild.name}] Progression: {progression*100:.1f}% → Proba this tick: {proba_tick*100:.1f}%")
+
             channel_id = data.get("last_channel_id")
             if not channel_id:
                 continue
@@ -816,31 +823,16 @@ async def special_supply_loop(bot):
             if not channel or not channel.permissions_for(channel.guild.me).send_messages:
                 continue
 
-            # Calcul de l'écart par rapport au next_supply_time
-            elapsed_since_target = now - data.get("next_supply_time", now + 3600)
-
-            if elapsed_since_target < 0:
-                continue  # trop tôt
-
-            # Probabilité progressive : max 100% après 1h de retard
-            drop_prob = min(1.0, elapsed_since_target / 3600)
-
-            # Log facultatif
-            print(f"🎲 [{guild.name}] Probabilité de drop : {int(drop_prob * 100)}%")
-
-            # Roll du drop
-            if random.random() < drop_prob:
+            if progression >= 1.0 or random.random() < proba_tick:
+                print(f"[{guild.name}] 🎁 Envoi du supply !")
                 await send_special_supply(bot, force=True)
 
-                # Mise à jour : cooldown strict 1h + roll 1h-6h
                 data["last_supply_time"] = now
-                data["next_supply_time"] = now + 3600 + random.randint(3600, 21600)  # 1h + 1h-6h
                 data["supply_count_today"] += 1
                 data["is_open"] = True
                 sauvegarder()
 
-        await asyncio.sleep(600)  # 10 minutes entre chaque check
-
+        await asyncio.sleep(900)  # 15 min
             
 async def close_special_supply(guild_id):
     gid = str(guild_id)
