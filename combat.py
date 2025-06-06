@@ -209,9 +209,7 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 ))
 
     # --- ✅ Retour sécurisé ---
-    bonus_summary = " ".join(bonus_info)
-    return bonus_dmg, bonus_summary, source_to_credit, effets_embed
-
+    return bonus_dmg, bonus_info, source_to_credit, effets_embed
 
 ### 🎯 SOINS
 
