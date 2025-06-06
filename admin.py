@@ -309,6 +309,8 @@ def register_admin_commands(bot):
 
         await interaction.response.send_message("✅ Leaderboard mis à jour manuellement.", ephemeral=True)
 
+    from data import sauvegarder  # si ce n’est pas déjà fait
+
     @bot.tree.command(name="purge_status", description="(Admin) Supprime tous les effets de virus/poison d’un membre.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(user="Le membre à purifier")
@@ -316,18 +318,11 @@ def register_admin_commands(bot):
         guild_id = str(interaction.guild.id)
         user_id = str(user.id)
 
-        # Suppression des statuts s'ils existent
-        if guild_id in virus_status:
-            virus_status[guild_id].pop(user_id, None)
+        virus_status.get(guild_id, {}).pop(user_id, None)
+        poison_status.get(guild_id, {}).pop(user_id, None)
+        infection_status.get(guild_id, {}).pop(user_id, None)
 
-        if guild_id in poison_status:
-            poison_status[guild_id].pop(user_id, None)
-
-        if guild_id in infection_status:
-            infection_status[guild_id].pop(user_id, None)
-
-        if guild_id in regeneration_status:
-            regeneration_status[guild_id].pop(user_id, None)
+        sauvegarder()  # 🔧 indispensable pour que la purge soit persistante et reconnue par les fonctions
 
         await interaction.response.send_message(
             f"🧼 Tous les effets négatifs ont été supprimés de {user.mention}. GotValis confirme la purification.",
