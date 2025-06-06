@@ -474,18 +474,30 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
         dmg = 24 if i == 0 else 12
         result = await calculer_degats_complets(
             ctx, guild_id, user_id, victim_id,
-            dmg, action["type"], action.get("crit", 0), item
+            dmg, "attaque",  # toujours "attaque" pour l'effet
+            action.get("crit", 0), item
         )
 
         # 📝 Message personnalisé
         ligne_type = "Attaque principale" if i == 0 else "Attaque secondaire"
         desc = afficher_degats(ctx, user_id, victim_id, item, result, type_cible=ligne_type.lower())
 
+        # Construction de l'embed
         embed = build_embed_from_item(
             item,
             f"**{ligne_type}** : {desc}",
             is_crit=("💥" in result["crit_txt"])
         )
+
+        # Si attaque secondaire : désactive le GIF et change la couleur
+        if i > 0:
+            embed.set_image(url=None)
+            embed.color = discord.Color.orange()
+
+            # Change aussi le titre
+            embed.title = "⚔️ Attaque secondaire"
+
+        # Envoi de l'embed
         await ctx.followup.send(embed=embed)
 
         # 📤 Effets secondaires
@@ -499,6 +511,7 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
             await ctx.followup.send(embed=shield_embed)
 
         # 🧪 Statuts à appliquer (uniquement sur première cible pour certains)
-        await appliquer_statut_si_necessaire(ctx, guild_id, user_id, victim_id, action["type"], index=i)
+        await appliquer_statut_si_necessaire(ctx, guild_id, user_id, victim_id, "attaque", index=i)
 
     return None, True
+
