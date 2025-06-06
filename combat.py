@@ -424,6 +424,7 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
         # 🛡 Bouclier détruit
         if result["shield_broken"]:
             shield_embed = build_embed_from_item("🛡", f"Le bouclier de {victim_mention} a été **détruit**.")
+            shield_embed.set_image(url=None)  # désactive le GIF
             await ctx.followup.send(embed=shield_embed)
 
         # 🧪 Statuts à appliquer (uniquement sur première cible pour certains)
