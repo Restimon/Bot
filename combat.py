@@ -35,18 +35,6 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         await ctx.followup.send(embed=embed)
         return None, False
 
-    if action["type"] == "vol":
-        # Test d'esquive et immunité déjà passés
-        from inventory import voler_objet
-        vol_result = voler_objet(ctx.guild.id, target_id, user_id)
-        if vol_result:
-            description = f"🔍 {get_mention(ctx.guild, user_id)} a volé **{vol_result}** à {get_mention(ctx.guild, target_id)}."
-        else:
-            description = f"🔍 {get_mention(ctx.guild, user_id)} a tenté de voler {get_mention(ctx.guild, target_id)} mais n’a rien trouvé."
-        embed = build_embed_from_item(item, description)
-        await ctx.followup.send(embed=embed)
-        return None, True
-
     # 🎯 Calcul des dégâts
     result = await calculer_degats_complets(
         ctx, guild_id, user_id, target_id,
