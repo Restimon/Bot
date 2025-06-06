@@ -4,7 +4,8 @@ import random
 
 from storage import get_user_data
 from utils import OBJETS
-from embeds import build_embed_from_item, get_mention
+from embeds import build_embed_from_item
+from utils import get_mention
 from data import is_immune
 
 def register_vole_command(bot):
