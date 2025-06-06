@@ -7,7 +7,7 @@ from discord import app_commands
 from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
 from config import get_config, save_config, get_guild_config
-from data import sauvegarder, virus_status, poison_status, leaderboard
+from data import sauvegarder, virus_status, poison_status, infection_status, regeneration_status, leaderboard
 from special_supply import send_special_supply
 from embeds import build_embed_from_item
 from leaderboard_utils import update_leaderboard
