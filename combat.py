@@ -327,7 +327,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
     # POISON
     if action_type == "poison":
-        appliquer_poison(guild_id, target_id, channel_id, user_id)
+        await appliquer_poison(guild_id, target_id, channel_id, user_id)
 
         embed = build_embed_from_item(
             "🧪",
@@ -341,7 +341,7 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
     # INFECTION
     elif action_type == "infection":
-        appliquer_infection(guild_id, target_id, channel_id, user_id)
+        await appliquer_infection(guild_id, target_id, channel_id, user_id)
 
         embed = build_embed_from_item(
             "🧟",
@@ -355,13 +355,13 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
     # VIRUS
     elif action_type == "virus" and index == 0:
-        appliquer_virus(guild_id, target_id, channel_id, user_id)
+        await appliquer_virus(guild_id, target_id, channel_id, user_id)
 
         embed = build_embed_from_item(
             "🦠",
             f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
             f"Le virus infligera **5 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus apres l'attaque.",
+            f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus après l’attaque.",
             disable_gif=True,
             custom_title="🦠 Contamination virale"
         )
