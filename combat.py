@@ -323,9 +323,10 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "crit_txt": crit_txt,
         "effets_embeds": effets + ([ko_embed] if ko_embed else []),
         "reset_txt": reset_txt,
-        "dmg_total_affiche": base_dmg_after_crit + bonus_dmg,  # pour debug éventuellement
+        "dmg_total_affiche": base_dmg_after_crit + bonus_dmg,
         "total_affiche_pour_ligne1": real_dmg + lost_pb,
-        "dmg_total_apres_bonus_et_crit": base_dmg_after_crit + bonus_dmg,  # CORRIGÉ ici
+        "dmg_total_apres_bonus_et_crit": base_dmg_after_crit + bonus_dmg,
+        "base_dmg_after_crit": base_dmg_after_crit,  # <== AJOUTE CETTE LIGNE
     }
 
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
