@@ -331,7 +331,6 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
         embed = build_embed_from_item(
             "🧪",
-            f"{get_mention(ctx.guild, user_id)} a empoisonné {get_mention(ctx.guild, target_id)}.\n"
             f"Le poison infligera **3 PV** toutes les 30 minutes pendant 3 heures.\n"
             f"⚠️ Les attaques de la cible infligeront **1 dégât de moins**.",
             disable_gif=True,
@@ -345,7 +344,6 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
         
         embed = build_embed_from_item(
             "🧟",
-            f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
             f"L’infection infligera **2 PV** toutes les 30 minutes pendant 3 heures.\n"
             f"⚠️ Chaque attaque inflige **+2 dégâts** et peut propager l'infection.",
             disable_gif=True,
@@ -359,7 +357,6 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
 
         embed = build_embed_from_item(
             "🦠",
-            f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
             f"Le virus infligera **5 PV** toutes les 30 minutes pendant 3 heures.\n"
             f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus après l’attaque.",
             disable_gif=True,
@@ -377,28 +374,43 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     target_mention = get_mention(ctx.guild, target_id)
     bonus_str = f" (+{' '.join(result['bonus_info'])})" if result['bonus_info'] else ""
 
-    ligne1 = f"{user_mention} inflige {result['dmg_total_affiche']} dégâts à {target_mention} avec {item} !"
+    # Ligne 1 : adaptée selon type_cible
+    if type_cible == "virus":
+        ligne1 = f"{user_mention} a contaminé {target_mention} avec {item}."
+    elif type_cible == "poison":
+        ligne1 = f"{user_mention} a empoisonné {target_mention} avec {item}."
+    elif type_cible == "infection":
+        ligne1 = f"{user_mention} a infecté {target_mention} avec {item}."
+    else:
+        # cas par défaut : attaque normale
+        ligne1 = f"{user_mention} inflige {result['dmg_total_affiche']} dégâts à {target_mention} avec {item} !"
+
+    # Ligne 2 + Ligne 3 : adaptées aussi
+    emoji_effet = ""
+    if type_cible == "virus":
+        emoji_effet = "🦠 "
+    elif type_cible == "poison":
+        emoji_effet = "🧪 "
+    elif type_cible == "infection":
+        emoji_effet = "🧟 "
 
     if result["lost_pb"] and result["real_dmg"] == 0:
-        # Dégâts entièrement absorbés par le bouclier
         ligne2 = f"{target_mention} perd {result['lost_pb']} PB"
         ligne3 = f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = ❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
-
     elif result["lost_pb"] and result["real_dmg"] > 0:
-        # Bouclier cassé : dégâts restants infligés aux PV (avec bonus éventuel)
         ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str} et {result['lost_pb']} PB"
         ligne3 = (
             f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} / "
             f"🛡️ {result['before_pb']} PB - {result['lost_pb']} PB = "
             f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
         )
-
     else:
-        # Dégâts uniquement sur les PV
-        ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str}"
-        ligne3 = f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
+        # dégâts uniquement PV
+        ligne2 = f"{target_mention} perd {emoji_effet}{result['real_dmg']} PV"
+        ligne3 = f"❤️ {result['start_hp']} PV - {emoji_effet}{result['real_dmg']} PV = ❤️ {result['end_hp']} PV"
 
     return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
+
 
 ### ☠️ ATTAQUE EN CHAÎNE
 
