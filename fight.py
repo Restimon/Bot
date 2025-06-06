@@ -45,7 +45,10 @@ def register_fight_command(bot):
             else:
                 await interaction.followup.send("☠️ Attaque en chaîne exécutée.")
         else:
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
+            if embed:
+                await interaction.followup.send(embed=embed, ephemeral=True)
+
 
     # ✅ Autocomplétion des objets d'attaque avec description
     @fight_slash.autocomplete("item")
