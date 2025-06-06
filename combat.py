@@ -316,6 +316,11 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "dmg_total_affiche": base_dmg + bonus_dmg,
     }
     
+from embeds import build_embed_from_item
+from utils import get_mention
+from data import virus_status
+from status import appliquer_poison, appliquer_infection, appliquer_virus
+
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
     """Applique les statuts appropriés après une attaque."""
     # Récupération sécurisée du channel_id
@@ -325,15 +330,44 @@ async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, acti
     elif hasattr(ctx, "channel_id"):
         channel_id = ctx.channel_id
 
-    # Appliquer le bon statut selon l'action
+    # POISON
     if action_type == "poison":
         await appliquer_poison(guild_id, target_id, channel_id, user_id)
 
+        embed = build_embed_from_item(
+            "🧪",
+            f"🧪 **Contamination toxique**\n"
+            f"{get_mention(ctx.guild, user_id)} a empoisonné {get_mention(ctx.guild, target_id)}.\n"
+            f"Le poison infligera **3 PV** toutes les 30 minutes pendant 3 heures.\n"
+            f"⚠️ Sous poison, les attaques de la cible infligeront **1 dégât de moins**."
+        )
+        await ctx.send(embed=embed)
+
+    # INFECTION
     elif action_type == "infection":
         await appliquer_infection(guild_id, user_id, target_id, channel_id)
 
+        embed = build_embed_from_item(
+            "🧟",
+            f"🧟 **Infection déclenchée**\n"
+            f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
+            f"L’infection infligera **2 PV** toutes les 30 minutes pendant 3 heures.\n"
+            f"⚠️ Sous infection, chaque attaque inflige **+2 dégâts** et peut propager l'infection."
+        )
+        await ctx.send(embed=embed)
+
+    # VIRUS
     elif action_type == "virus" and index == 0:
         await appliquer_virus(guild_id, user_id, target_id, channel_id)
+
+        embed = build_embed_from_item(
+            "🦠",
+            f"🦠 **Contamination virale**\n"
+            f"{get_mention(ctx.guild, user_id)} a infecté {get_mention(ctx.guild, target_id)}.\n"
+            f"Le virus infligera **5 PV** toutes les 30 minutes pendant 3 heures.\n"
+            f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus."
+        )
+        await ctx.send(embed=embed)
 
         # Supprimer le virus de l’attaquant après transmission
         virus_status[guild_id].pop(user_id, None)
