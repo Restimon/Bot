@@ -398,7 +398,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         ligne2 = f"{target_mention} perd {result['real_dmg']} PV{bonus_str}"
         ligne3 = f"❤️ {result['start_hp']} PV - {result['real_dmg']} PV{bonus_str} = ❤️ {result['end_hp']} PV"
 
-    return f"**{type_cible.capitalize()}** : {ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
+    return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
 
 ### ☠️ ATTAQUE EN CHAÎNE
 
