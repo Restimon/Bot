@@ -130,45 +130,49 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
     infection_data = infection_status.get(guild_id, {}).get(user_id)
     if infection_data:
         source = infection_data.get("source")
-        if source != target_id:
+        target_already_infected = target_id in infection_status.get(guild_id, {})
+
+        # Appliquer le bonus infection uniquement si la cible N'EST PAS déjà infectée
+        if source != target_id and not target_already_infected:
             bonus_dmg += 2
             bonus_info.append("+2 🧟")
             if source != user_id:
                 source_to_credit = source
 
-            # Transmission potentielle
-            target_already_infected = target_id in infection_status.get(guild_id, {})
-            if not target_already_infected and random.random() < 0.25:
-                infection_status.setdefault(guild_id, {})[target_id] = {
-                    "start": time.time(),
-                    "duration": 3 * 3600,
-                    "last_tick": 0,
-                    "source": source,
-                    "channel_id": channel_id,
-                }
+        # Transmission potentielle
+        if not target_already_infected and random.random() < 0.25:
+            infection_status.setdefault(guild_id, {})[target_id] = {
+                "start": time.time(),
+                "duration": 3 * 3600,
+                "last_tick": 0,
+                "source": source,
+                "channel_id": channel_id,
+            }
 
-                # Dégâts immédiats
-                dmg = apply_casque_reduction(guild_id, target_id, 5)
-                start_hp = hp[guild_id].get(target_id, 100)
-                end_hp = max(0, start_hp - dmg)
-                hp[guild_id][target_id] = end_hp
+            # Dégâts immédiats
+            dmg = apply_casque_reduction(guild_id, target_id, 5)
+            start_hp = hp[guild_id].get(target_id, 100)
+            end_hp = max(0, start_hp - dmg)
+            hp[guild_id][target_id] = end_hp
 
-                effets_embed.append(build_embed_from_item(
+            effets_embed.append(build_embed_from_item(
                 "🧟",
                 f"**GotValis** signale une propagation.\n<@{target_id}> a été infecté et perd {start_hp - end_hp} PV.",
-                disable_gif=True,
+                disable_gif=True,  # Pour respecter ta demande précédente → pas de gif sur la propagation
                 custom_title="🧟 Propagation d'infection"
             ))
 
-                if end_hp == 0:
-                    handle_death(guild_id, target_id, source)
-                    effets_embed.append(build_embed_from_item(
-                        "🧟",
-                        f"<@{target_id}> a succombé à une infection."
-                    ))
+            if end_hp == 0:
+                handle_death(guild_id, target_id, source)
+                effets_embed.append(build_embed_from_item(
+                    "🧟",
+                    f"<@{target_id}> a succombé à une infection.",
+                    disable_gif=True
+                ))
 
-                if source != target_id:
-                    update_leaderboard_dmg(guild_id, source, start_hp - end_hp)
+            if source != target_id:
+                update_leaderboard_dmg(guild_id, source, start_hp - end_hp)
+
 
     # --- 🦠 Virus ---
     if action_type == "attaque" and user_id in virus_status.get(guild_id, {}):
