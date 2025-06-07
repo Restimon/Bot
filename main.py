@@ -191,6 +191,16 @@ async def on_message(message):
     except Exception as e:
         print(f"[on_message] Erreur update_last_active_channel : {e}")
 
+    try:
+        guild_id = str(message.guild.id)
+        channel_id = message.channel.id
+        supply_data.setdefault(guild_id, {})
+        supply_data[guild_id].setdefault("channel_activity_log", {})
+        supply_data[guild_id]["channel_activity_log"][channel_id] = time.time()
+        sauvegarder()
+    except Exception as e:
+        print(f"[on_message] Erreur update channel_activity_log : {e}")
+
     await bot.process_commands(message)
 
     # 📦 Ravitaillement classique aléatoire
