@@ -166,11 +166,12 @@ async def voler_objet(interaction, uid, tid):
     possible_items = [item for item in target_inv if item not in protected_items]
 
     if not possible_items:
-        return discord.Embed(
-            title="🔍 Tentative de vol",
-            description=f"Malheureusement, aucun objet valable n’a pu être volé à {get_mention(interaction.guild, tid)}.",
-            color=discord.Color.red()
+        description = (
+            f"Malheureusement, aucun objet valable n’a pu être volé à {get_mention(interaction.guild, tid)}."
         )
+        embed = build_embed_from_item("🔍", description)
+        embed.color = discord.Color.red()
+        return embed
 
     # On choisit un objet au hasard
     stolen = random.choice(possible_items)
@@ -182,8 +183,10 @@ async def voler_objet(interaction, uid, tid):
 
     sauvegarder()
 
-    return discord.Embed(
-        title="🔍 Vol réussi !",
-        description=f"{interaction.user.mention} a volé **{stolen}** à {get_mention(interaction.guild, tid)} !",
-        color=discord.Color.green()
+    description = (
+        f"{interaction.user.mention} a volé **{stolen}** à {get_mention(interaction.guild, tid)} !"
     )
+    embed = build_embed_from_item("🔍", description)
+    embed.color = discord.Color.green()
+    return embed
+
