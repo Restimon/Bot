@@ -9,7 +9,7 @@ BITE_GIFS = [
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMWI4emVzaGJpd3FkbnA4cmZhNDBuOXBqcHM1OWtoZGZpeXY5ZDB6cSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/69159EHgBoG08/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNmFodzNlMzlpc3ppYXp1Z25kM3QzeDBheHhjOHc0OGY5MjhnZ213eCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/U1wMHRq7bnuInYaVlB/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNmFodzNlMzlpc3ppYXp1Z25kM3QzeDBheHhjOHc0OGY5MjhnZ213eCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/OqQOwXiCyJAmA/giphy.gif",
-    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3YTRpaWFjeng2M3FxYXVvanl4eW1rb3FmOGVsdDUzdG13cmEwM3MwMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/7rAYDoEhokWEpk0vw2/giphy.gifé,
+    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3YTRpaWFjeng2M3FxYXVvanl4eW1rb3FmOGVsdDUzdG13cmEwM3MwMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/7rAYDoEhokWEpk0vw2/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3ZzlhMnVvY2tyMXFmMWc2djZzNmphOGhzZDc5em9jYnNhYXV1dDFvNSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/ixoMvaJ2NhFgouq9aY/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3ZzlhMnVvY2tyMXFmMWc2djZzNmphOGhzZDc5em9jYnNhYXV1dDFvNSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/cDX2QcwxcV2evBGn6q/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3Y2I5Yjl4a2RpeDhjdmxoYmZleHd5cHc4MnVxZGZ4aWNwdWJiMXFzYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/F0vhUJJkVFXPCl2jJu/giphy.gif",
