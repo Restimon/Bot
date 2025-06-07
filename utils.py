@@ -67,10 +67,18 @@ def get_mention(guild, user_id):
     member = guild.get_member(int(user_id))
     return member.mention if member else f"<@{user_id}>"
 
-def get_evade_chance(user_id, guild_id):
+def get_evade_chance(guild_id, user_id):
     """Renvoie le pourcentage d'esquive (entre 0 et 1) pour un utilisateur donné."""
-    # Par défaut : 10 % d'esquive
-    # Tu peux ajouter ici un système qui augmente ce taux si un bonus est actif
-    from data import esquive_bonus
-    bonus = esquive_status.get(guild_id, {}).get(user_id, 0)
-    return 0.1 + bonus  # Exemple : 10 % de base + bonus éventuel
+    from data import esquive_status  # ✅ c'est bien esquive_status désormais
+
+    base_chance = 0.10  # 10% de base
+    bonus = 0.0
+
+    data = esquive_status.get(guild_id, {}).get(user_id)
+    if data:
+        now = time.time()
+        if now - data["start"] < data["duration"]:
+            bonus = data.get("valeur", 0.2)
+
+    return base_chance + bonus
+
