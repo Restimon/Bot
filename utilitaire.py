@@ -4,6 +4,9 @@ from utils import OBJETS, get_mention
 from storage import get_user_data
 from data import sauvegarder, shields, immunite_status, esquive_status, casque_status
 from embeds import build_embed_from_item
+from inventory import voler_objet
+
+import time
 
 def register_utilitaire_command(bot):
     @bot.tree.command(name="utilitaire", description="Utilise un objet utilitaire ou de protection")
@@ -41,36 +44,67 @@ def register_utilitaire_command(bot):
         embed = None
         success = False
 
+        # Bouclier
         if action["type"] == "bouclier":
-            shields.setdefault(guild_id, {})[uid] = shields.get(guild_id, {}).get(uid, 0) + 20
-            embed = build_embed_from_item(item, f"{interaction.user.mention} a utilisé un **bouclier** de protection !")
+            shields.setdefault(guild_id, {})[tid] = shields.get(guild_id, {}).get(tid, 0) + 20
+
+            current_pb = shields[guild_id][tid]
+            current_hp = get_user_data(guild_id, tid)[1]
+
+            # Différencier soi-même / autre
+            if uid == tid:
+                description = (
+                    f"{interaction.user.mention} a activé un **bouclier** de protection !\n"
+                    f"🛡 Il gagne un total de **{current_pb} PB** → ❤️ {current_hp} PV / 🛡 {current_pb} PB"
+                )
+            else:
+                mention_cible = get_mention(interaction.guild, tid)
+                description = (
+                    f"{interaction.user.mention} a activé un **bouclier** de protection pour {mention_cible} !\n"
+                    f"🛡 Il gagne un total de **{current_pb} PB** → ❤️ {current_hp} PV / 🛡 {current_pb} PB"
+                )
+
+            embed = build_embed_from_item(item, description)
             success = True
 
+        # Immunité
         elif action["type"] == "immunite":
-            immunite_status.setdefault(guild_id, {})[uid] = {
-                "start": interaction.created_at.timestamp(),
-                "duration": action.get("duree", 2 * 3600)
-            }
-            embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **immunité totale** pendant 2h.")
+            immunite_status.setdefault(guild_id, {})[tid] = time.time() + action.get("duree", 3600)
+
+            mention_cible = interaction.user.mention if uid == tid else get_mention(interaction.guild, tid)
+            description = (
+                f"{mention_cible} bénéficie désormais d’une **immunité totale** pendant 2h."
+            )
+            embed = build_embed_from_item(item, description)
             success = True
 
+        # Esquive+
         elif action["type"] == "esquive+":
-            esquive_status.setdefault(guild_id, {})[uid] = {
-                "start": interaction.created_at.timestamp(),
-                "duration": action.get("duree", 3 * 3600),
+            esquive_status.setdefault(guild_id, {})[tid] = {
+                "start": time.time(),
+                "duration": action.get("duree", 3600),
                 "valeur": action.get("valeur", 0.2)
             }
-            embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **augmentation d’esquive** pendant 3h.")
+
+            mention_cible = interaction.user.mention if uid == tid else get_mention(interaction.guild, tid)
+            description = (
+                f"{mention_cible} bénéficie désormais d’une **augmentation d’esquive** pendant 3h."
+            )
+            embed = build_embed_from_item(item, description)
             success = True
 
+        # Réduction (Casque)
         elif action["type"] == "reduction":
-            casque_status.setdefault(guild_id, {})[uid] = {
-                "start": interaction.created_at.timestamp(),
-                "duration": action.get("duree", 4 * 3600)
-            }
-            embed = build_embed_from_item(item, f"{interaction.user.mention} bénéficie désormais d’une **réduction des dégâts** pendant 4h.")
+            casque_status.setdefault(guild_id, {})[tid] = time.time() + action.get("duree", 3600)
+
+            mention_cible = interaction.user.mention if uid == tid else get_mention(interaction.guild, tid)
+            description = (
+                f"{mention_cible} bénéficie désormais d’une **réduction des dégâts** pendant 4h."
+            )
+            embed = build_embed_from_item(item, description)
             success = True
 
+        # Vol
         elif action["type"] == "vol":
             result_embed = await voler_objet(interaction, uid, tid)
             embed = result_embed
@@ -124,22 +158,3 @@ def register_utilitaire_command(bot):
             suggestions.append(app_commands.Choice(name=label, value=emoji))
 
         return suggestions[:25]
-
-async def voler_objet(ctx, user_id, target_id):
-    guild_id = str(ctx.guild.id)
-
-    # Récupération inventaires
-    user_inv, _, _ = get_user_data(guild_id, user_id)
-    target_inv, _, _ = get_user_data(guild_id, target_id)
-
-    # Cible vide ?
-    possible_items = [item for item in target_inv if item != "📦"]
-    if not possible_items:
-        return build_embed_from_item("🔍", f"{get_mention(ctx.guild, user_id)} tente de voler un objet...\nMais {get_mention(ctx.guild, target_id)} n’a rien d’intéressant. 😶")
-
-    # Vol aléatoire
-    stolen = random.choice(possible_items)
-    target_inv.remove(stolen)
-    user_inv.append(stolen)
-
-    return build_embed_from_item("🔍", f"{get_mention(ctx.guild, user_id)} a volé **{stolen}** à {get_mention(ctx.guild, target_id)} ! 🫣")
