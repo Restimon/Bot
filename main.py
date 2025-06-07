@@ -878,6 +878,7 @@ async def close_special_supply(guild_id):
     gid = str(guild_id)
     if gid in supply_data:
         supply_data[gid]["is_open"] = False
+        supply_data[gid]["active_supply_id"] = None  # 🟢 on nettoie bien le message actif
         sauvegarder()
 
 async def auto_backup_loop():
