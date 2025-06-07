@@ -81,7 +81,7 @@ def sauvegarder():
                 "regeneration_status": regeneration_status,
                 "immunite_status": immunite_status,
                 "shields": shields,
-                "esquive_bonus": esquive_bonus,
+                "esquive_status": esquive_status,
                 "casque_status": casque_status,
                 "last_daily_claim": last_daily_claim,
                 "supply_data": supply_data
@@ -133,8 +133,8 @@ def charger():
         shields.clear()
         shields.update(data.get("shields", {}))
 
-        esquive_bonus.clear()
-        esquive_bonus.update(data.get("esquive_bonus", {}))
+        esquive_status.clear()
+        esquive_status.update(data.get("esquive_status", {}))
 
         casque_status.clear()
         casque_status.update(data.get("casque_status", {}))
