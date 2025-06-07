@@ -4,10 +4,10 @@ import time
 from discord import app_commands
 from utils import OBJETS
 from storage import get_user_data
-from data import sauvegarder, virus_status, poison_status, infection_status
+from data import sauvegarder, virus_status, poison_status, infection_status, regeneration_status
 from embeds import build_embed_from_item
 
-SPECIAL_HEAL_ITEMS = ["💉"]
+SPECIAL_HEAL_ITEMS = ["💉", "💕"]
 
 def register_heal_command(bot):
     @bot.tree.command(name="heal", description="Soigne toi ou un autre membre avec un objet de soin")
@@ -72,6 +72,25 @@ def register_heal_command(bot):
 
             return await interaction.followup.send(embed=embed)
 
+        # 💕 Régénération
+        if item == "💕":
+            regeneration_status.setdefault(guild_id, {})[tid] = {
+                "start": time.time(),
+                "duration": 3 * 3600,
+                "last_tick": 0,
+                "source": uid,
+                "channel_id": interaction.channel.id
+            }
+            user_inv.remove("💕")
+            sauvegarder()
+            await interaction.channel.send(f"✨ {member.mention} a déclenché une régénération pour {target.mention} ! 💕")
+            embed = discord.Embed(
+                title="💕 Régénération activée",
+                description=f"{target.mention} récupère **3 PV toutes les 30 minutes pendant 3 heures.**",
+                color=discord.Color.green()
+            )
+            return await interaction.followup.send(embed=embed)
+
         # ✅ Objets de soin classiques
         from combat import apply_item_with_cooldown
         action = OBJETS.get(item)
@@ -97,6 +116,7 @@ def register_heal_command(bot):
             if typ == "soin":
                 return f"{emoji} {o.get('soin')} PV (🎯 {int(o.get('crit',0)*100)}%)"
             if emoji == "💉": return f"{emoji} Vaccin : soigne les virus, poison ou infection"
+            if emoji == "💕": return f"{emoji} Régénère 3 PV / 30min pendant 3h"
             return f"{emoji}"
 
         return [
