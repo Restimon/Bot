@@ -890,12 +890,8 @@ async def special_supply_loop(bot):
                 continue
 
             # Salon actif défini
-            channel_id = data.get("last_channel_id")
-            if not channel_id:
-                continue
-
-            channel = bot.get_channel(channel_id)
-            if not channel or not channel.permissions_for(channel.guild.me).send_messages:
+            channel = find_or_update_valid_channel(bot, guild, data)
+            if not channel:
                 continue
 
             # Temps écoulé depuis next_supply_time
