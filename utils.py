@@ -5,6 +5,7 @@ from storage import hp, leaderboard
 from cooldowns import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN
 from leaderboard_utils import update_leaderboard
 from effects import remove_status_effects
+from data import esquive_status
 
 # Objets disponibles
 OBJETS = {
@@ -71,5 +72,5 @@ def get_evade_chance(user_id, guild_id):
     # Par défaut : 10 % d'esquive
     # Tu peux ajouter ici un système qui augmente ce taux si un bonus est actif
     from data import esquive_bonus
-    bonus = esquive_bonus.get(guild_id, {}).get(user_id, 0)
+    bonus = esquive_status.get(guild_id, {}).get(user_id, 0)
     return 0.1 + bonus  # Exemple : 10 % de base + bonus éventuel
