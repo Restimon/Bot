@@ -16,6 +16,7 @@ GIFS = {
     "🩸": "https://media.giphy.com/media/jN07m6w9uuZAeh80z0/giphy.gif",
     "🩹": "https://media.giphy.com/media/EwKe1XdABwk2yvTyQt/giphy.gif",
     "💊": "https://64.media.tumblr.com/858f7aa3c8cee743d61a5ff4d73a378f/tumblr_n2mzr2nf7C1sji00bo1_500.gifv",
+    "💕": "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3dG1pdXd6OXkyYnR4cXk0cjdxdDRxNGJyYWZjdG1wcTk1NWY2eGducSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/1FqyIw2lMKT2U/giphy.gif",
     "💉": "https://media.giphy.com/media/s8oHUwsjS8w5OD7Sg7/giphy.gif",
     "🔍": "https://media.giphy.com/media/1fih1TYYBONo0Dkdmx/giphy.gif",
     "⭐️": "https://media.giphy.com/media/9tz1MAa6NzMDhXiD00/giphy.gif",
