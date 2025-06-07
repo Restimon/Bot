@@ -47,16 +47,34 @@ def register_utilitaire_command(bot):
 
         # Bouclier
         if action["type"] == "bouclier":
-            shields.setdefault(guild_id, {})[tid] = shields.get(guild_id, {}).get(tid, 0) + 20
+            current_pb = shields.get(guild_id, {}).get(tid, 0)
 
-            current_pb = shields[guild_id][tid]
+            # Limite de PB max à 20
+            if current_pb >= 20:
+                await interaction.followup.send(
+                    f"❌ {get_mention(interaction.guild, tid)} possède déjà le maximum de **20 PB**.",
+                    ephemeral=True
+                )
+                return
+
+            # Sinon on ajoute 20 PB (max 20)
+            new_pb = min(current_pb + 20, 20)
+            shields.setdefault(guild_id, {})[tid] = new_pb
+
             current_hp = get_user_data(guild_id, tid)[1]
 
-            mention_cible = interaction.user.mention if uid == tid else get_mention(interaction.guild, tid)
-            description = (
-                f"{mention_cible} a activé un **bouclier** de protection !\n"
-                f"🛡 Il gagne un total de **{current_pb} PB** → ❤️ {current_hp} PV / 🛡 {current_pb} PB"
-            )
+            # Différencier soi-même / autre
+            if uid == tid:
+                description = (
+                    f"{interaction.user.mention} a activé un **bouclier** de protection !\n"
+                    f"🛡 Il gagne un total de **{new_pb} PB** → ❤️ {current_hp} PV / 🛡 {new_pb} PB"
+                )
+            else:
+                mention_cible = get_mention(interaction.guild, tid)
+                description = (
+                    f"{interaction.user.mention} a activé un **bouclier** de protection pour {mention_cible} !\n"
+                    f"🛡 Il gagne un total de **{new_pb} PB** → ❤️ {current_hp} PV / 🛡 {new_pb} PB"
+                )
 
             embed = build_embed_from_item(item, description)
             success = True
