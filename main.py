@@ -873,11 +873,15 @@ async def special_supply_loop(bot):
             if data["supply_count_today"] >= MAX_SUPPLIES_PER_DAY:
                 continue
 
+            # SECURITE : Si le dernier supply est trop récent (< 1h), skip
+            if now - data.get("last_supply_time", 0) < 3600:
+                continue
+
             # Pas encore atteint target time → skip
             if now < data.get("next_supply_time", now + 3600):
                 continue
 
-            # Salon actif défini
+            # Trouver un salon valide (on utilise find_or_update_valid_channel)
             channel = find_or_update_valid_channel(bot, guild, data)
             if not channel:
                 continue
@@ -896,6 +900,7 @@ async def special_supply_loop(bot):
             # Test du drop
             if random.random() < proba_this_tick:
                 print(f"🎁 DROP sur {guild.name} ({elapsed_hours:.2f}h écoulées) → ENVOI DU SUPPLY")
+                from special_supply import send_special_supply
                 await send_special_supply(bot, force=True)
 
                 # Reset
