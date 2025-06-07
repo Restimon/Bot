@@ -1,4 +1,3 @@
-# profile.py
 import discord
 import time
 from discord import app_commands
@@ -6,7 +5,7 @@ from storage import get_user_data, leaderboard
 from data import (
     virus_status, poison_status, infection_status,
     shields, esquive_status, casque_status, immunite_status,
-    regeneration_status,   # ✅ Ajout ici
+    regeneration_status,
 )
 from embeds import build_embed_from_item
 
@@ -74,7 +73,7 @@ def register_profile_command(bot):
             (infection_status, "Infection active", 1800, "🧟", "25% de chance d’infecter votre cible en attaquant.")
         ]:
             data = status.get(guild_id, {}).get(uid)
-            if data:
+            if isinstance(data, dict) and "start" in data and "duration" in data:
                 elapsed = now - data["start"]
                 remaining = max(0, data["duration"] - elapsed)
                 next_tick = tick - (elapsed % tick)
@@ -104,15 +103,19 @@ def register_profile_command(bot):
             (immunite_status, "⭐️", "Immunité totale", "")
         ]:
             data = bonus.get(guild_id, {}).get(uid)
-            if data and now < data:
-                remaining = int((data["duration"] - (now - data["start"])) // 60)
-                bonus_lines.append(f"{emoji} **{label}** — {remaining} min restants {extra}")
+            if isinstance(data, dict) and "start" in data and "duration" in data:
+                elapsed = now - data["start"]
+                remaining = max(0, data["duration"] - elapsed)
+                rem_min = int(remaining // 60)
+                bonus_lines.append(f"{emoji} **{label}** — {rem_min} min restants {extra}")
 
         # ✅ Régénération ajoutée ici
         regen_data = regeneration_status.get(guild_id, {}).get(uid)
-        if regen_data and now - regen_data["start"] < regen_data["duration"]:
-            remaining = int((regen_data["duration"] - (now - regen_data["start"])) // 60)
-            bonus_lines.append(f"💕 **Régénération** — {remaining} min restantes (+3 PV / 30 min)")
+        if isinstance(regen_data, dict) and "start" in regen_data and "duration" in regen_data:
+            elapsed = now - regen_data["start"]
+            remaining = max(0, regen_data["duration"] - elapsed)
+            rem_min = int(remaining // 60)
+            bonus_lines.append(f"💕 **Régénération** — {rem_min} min restantes (+3 PV / 30 min)")
 
         if bonus_lines:
             bonus_embed = discord.Embed(
