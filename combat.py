@@ -329,6 +329,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "base_dmg_after_crit": base_dmg_after_crit,
         "casque_active": casque_active,
         "total_ressenti": real_dmg + lost_pb,
+        "total_dmg_apres_reduc": total_dmg,
         # Ajouts nécessaires pour ton affichage
         "pv_avant_bonus": pv_taken_base,
         "pb_avant_bonus": pb_taken_base,
@@ -418,7 +419,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         ligne1 = f"{user_mention} a infecté {target_mention} avec {item}."
     else:
         # ATTENTION : ici on affiche bien les dégâts "envoyés", pas les dégâts réellement subis
-        ligne1 = f"{user_mention} inflige {result['total_ressenti']} dégâts à {target_mention} avec {item} !"
+        ligne1 = f"{user_mention} inflige {result['total_dmg_apres_reduc']} dégâts à {target_mention} avec {item} !"
 
     # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
