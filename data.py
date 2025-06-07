@@ -2,68 +2,44 @@ import json
 import os
 import time
 import shutil
+from datetime import datetime
 
 from storage import inventaire, hp, leaderboard
-from embeds import build_embed_from_item
-from datetime import datetime
 
 # ✅ Utilisation du disque persistant
 PERSISTENT_PATH = "/persistent"
 DATA_FILE = os.path.join(PERSISTENT_PATH, "data.json")
 BACKUP_DIR = os.path.join(PERSISTENT_PATH, "backups")
+AUTO_BACKUP_DIR = os.path.join(PERSISTENT_PATH, "auto_backups")  # <-- BACKUP INDÉPENDANTE
 
 # Cooldowns par action
 cooldowns = {
-    "attack": {},  # cooldowns["attack"][guild_id][user_id]
-    "heal": {}     # cooldowns["heal"][(guild_id, user_id, target_id)]
+    "attack": {},
+    "heal": {}
 }
 
 # États persistants
-virus_status = {}             # guild_id -> user_id -> {start_time, source, channel_id}
-poison_status = {}            # idem
-infection_status = {}         # idem
-regeneration_status = {}      # idem
-immunite_status = {}          # guild_id -> user_id -> expire_time
-shields = {}                  # guild_id -> user_id -> valeur
-esquive_status = {}            # guild_id -> user_id -> expire_time
-casque_status = {}            # guild_id -> user_id -> True
-last_daily_claim = {}         # guild_id -> user_id -> timestamp
-supply_data = {}              # autres données diverses
+virus_status = {}
+poison_status = {}
+infection_status = {}
+regeneration_status = {}
+immunite_status = {}
+shields = {}
+esquive_status = {}
+casque_status = {}
+last_daily_claim = {}
+supply_data = {}
 
+# ============================
+# ✅ Sauvegarde manuelle (data.json + backup horodatée)
+# ============================
 
-def register_backup_command(bot):
-    @bot.tree.command(name="backup", description="💾 Sauvegarde les données de ce serveur")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def backup_server(interaction: discord.Interaction):
-        guild_id = str(interaction.guild.id)
-
-        try:
-            os.makedirs(BACKUP_DIR, exist_ok=True)
-
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            filename = f"data_backup_{guild_id}_{timestamp}.json"
-            path = os.path.join(BACKUP_DIR, filename)
-
-            data = {
-                "inventaire": inventaire.get(guild_id, {}),
-                "hp": hp.get(guild_id, {}),
-                "leaderboard": leaderboard.get(guild_id, {}),
-            }
-
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-
-            await interaction.response.send_message(f"✅ Sauvegarde créée : `{filename}`", ephemeral=True)
-
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur pendant la sauvegarde : {e}", ephemeral=True)
-        
 def sauvegarder():
     try:
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         os.makedirs(BACKUP_DIR, exist_ok=True)
 
-        # 🔁 Créer une sauvegarde horodatée
+        # 🔁 Créer une backup horodatée de data.json (classique)
         if os.path.exists(DATA_FILE):
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             backup_name = f"data_backup_{timestamp}.json"
@@ -87,12 +63,15 @@ def sauvegarder():
                 "supply_data": supply_data
             }, f, indent=4, ensure_ascii=False)
 
-        print("💾 Données sauvegardées avec backup horodaté.")
+        print("💾 Données sauvegardées avec backup horodatée.")
     except Exception as e:
         print(f"❌ Erreur lors de la sauvegarde : {e}")
 
+# ============================
+# ✅ Charger les données (data.json)
+# ============================
+
 def charger():
-    """Charge toutes les données depuis le fichier JSON."""
     global last_daily_claim
     if not os.path.exists(DATA_FILE):
         print("ℹ️ Aucun fichier data.json trouvé — initialisation d'une nouvelle base.")
@@ -150,3 +129,29 @@ def charger():
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
     except Exception as e:
         print(f"❌ Erreur inattendue lors du chargement : {e}")
+
+# ============================
+# ✅ Backup auto indépendante (RAM vers fichier)
+# ============================
+
+def backup_auto_independante():
+    try:
+        os.makedirs(AUTO_BACKUP_DIR, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"auto_backup_{timestamp}.json"
+        path = os.path.join(AUTO_BACKUP_DIR, filename)
+
+        data = {
+            "inventaire": inventaire,
+            "hp": hp,
+            "leaderboard": leaderboard
+        }
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+
+        print(f"✅ Backup auto indépendante créée : {filename}")
+
+    except Exception as e:
+        print(f"❌ Erreur lors de la backup auto indépendante : {e}")
