@@ -1,3 +1,4 @@
+# utilitaire.py
 import discord
 import random
 import time
@@ -51,18 +52,11 @@ def register_utilitaire_command(bot):
             current_pb = shields[guild_id][tid]
             current_hp = get_user_data(guild_id, tid)[1]
 
-            # Différencier soi-même / autre
-            if uid == tid:
-                description = (
-                    f"{interaction.user.mention} a activé un **bouclier** de protection !\n"
-                    f"🛡 Il gagne un total de **{current_pb} PB** → ❤️ {current_hp} PV / 🛡 {current_pb} PB"
-                )
-            else:
-                mention_cible = get_mention(interaction.guild, tid)
-                description = (
-                    f"{interaction.user.mention} a activé un **bouclier** de protection pour {mention_cible} !\n"
-                    f"🛡 Il gagne un total de **{current_pb} PB** → ❤️ {current_hp} PV / 🛡 {current_pb} PB"
-                )
+            mention_cible = interaction.user.mention if uid == tid else get_mention(interaction.guild, tid)
+            description = (
+                f"{mention_cible} a activé un **bouclier** de protection !\n"
+                f"🛡 Il gagne un total de **{current_pb} PB** → ❤️ {current_hp} PV / 🛡 {current_pb} PB"
+            )
 
             embed = build_embed_from_item(item, description)
             success = True
@@ -158,3 +152,38 @@ def register_utilitaire_command(bot):
             suggestions.append(app_commands.Choice(name=label, value=emoji))
 
         return suggestions[:25]
+
+# === Fonction voler_objet intégrée ici ===
+
+async def voler_objet(interaction, uid, tid):
+    guild_id = str(interaction.guild.id)
+
+    # On récupère l'inventaire de la cible
+    target_inv, _, _ = get_user_data(guild_id, tid)
+
+    # On filtre pour ne pas voler certains objets interdits
+    protected_items = ["💉", "⭐️", "🛡", "🪖", "👟", "💕"]  # Exemples d'objets qu'on ne vole pas
+    possible_items = [item for item in target_inv if item not in protected_items]
+
+    if not possible_items:
+        return discord.Embed(
+            title="🔍 Tentative de vol",
+            description=f"Malheureusement, aucun objet valable n’a pu être volé à {get_mention(interaction.guild, tid)}.",
+            color=discord.Color.red()
+        )
+
+    # On choisit un objet au hasard
+    stolen = random.choice(possible_items)
+
+    # On le retire de l'inventaire cible et on l'ajoute à l'inventaire du voleur
+    target_inv.remove(stolen)
+    voleur_inv, _, _ = get_user_data(guild_id, uid)
+    voleur_inv.append(stolen)
+
+    sauvegarder()
+
+    return discord.Embed(
+        title="🔍 Vol réussi !",
+        description=f"{interaction.user.mention} a volé **{stolen}** à {get_mention(interaction.guild, tid)} !",
+        color=discord.Color.green()
+    )
