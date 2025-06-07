@@ -87,8 +87,9 @@ def apply_crit(base_dmg, crit_chance):
 def apply_casque_reduction(guild_id, user_id, dmg):
     if user_id in casque_status.get(guild_id, {}):
         reduced_dmg = math.ceil(dmg * 0.5)
-        return reduced_dmg, True
-    return dmg, False
+        reduction_val = dmg - reduced_dmg
+        return reduced_dmg, True, reduction_val
+    return dmg, False, 0
 
 def apply_shield(guild_id, user_id, dmg):
     current_shield = shields.get(guild_id, {}).get(user_id, 0)
@@ -275,7 +276,9 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     base_dmg_after_crit, crit_txt = apply_crit(base_dmg, crit_chance)
 
     # Casque
-    total_dmg, casque_active = apply_casque_reduction(guild_id, target_id, base_dmg_after_crit + bonus_dmg)
+    total_dmg, casque_active, reduction_val = apply_casque_reduction(
+        guild_id, target_id, base_dmg_after_crit + bonus_dmg
+    )
 
     # Bouclier
     dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
@@ -330,6 +333,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "casque_active": casque_active,
         "total_ressenti": real_dmg + lost_pb,
         "total_dmg_apres_reduc": total_dmg,
+        "reduction_val": reduction_val,
         # Ajouts nécessaires pour ton affichage
         "pv_avant_bonus": pv_taken_base,
         "pb_avant_bonus": pb_taken_base,
