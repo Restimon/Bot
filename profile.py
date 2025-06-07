@@ -104,7 +104,7 @@ def register_profile_command(bot):
             (immunite_status, "⭐️", "Immunité totale", "")
         ]:
             data = bonus.get(guild_id, {}).get(uid)
-            if data and now - data["start"] < data["duration"]:
+            if data and now < data:
                 remaining = int((data["duration"] - (now - data["start"])) // 60)
                 bonus_lines.append(f"{emoji} **{label}** — {remaining} min restants {extra}")
 
