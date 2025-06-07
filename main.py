@@ -770,7 +770,7 @@ async def regeneration_loop():
                     embed = discord.Embed(
                         description=(
                             f"💕 {member.mention} récupère **{healed} PV** *(Régénération)*.\n"
-                            f"❤️ {before} PV + {healed} PV = {after} PV\n\n"
+                            f"❤️ {before} PV + {healed} PV = {after} PV\n"
                             f"⏳ Temps restant : **{remaining_mn} min**"
                         ),
                         color=discord.Color.green()
