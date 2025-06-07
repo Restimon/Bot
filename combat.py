@@ -423,9 +423,9 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     if result["lost_pb"] and result["real_dmg"] == 0:
         # Bouclier uniquement
         if result.get("casque_active", False):
-            ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB : {result['lost_pb']} 🪖)"
+            ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB - {result['lost_pb']} 🪖 {bonus_str})"
             ligne3 = (
-                f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB : {result['lost_pb']} 🪖) = "
+                f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB - {result['lost_pb']} 🪖 {bonus_str}) = "
                 f"🛡️ {result['after_pb']} PB"
             )
         else:
@@ -440,7 +440,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
                 f"et {result['pb_avant_bonus']} PB"
             )
             ligne3 = (
-                f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV : {result['pv_avant_bonus']} 🪖) / "
+                f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV - {result['pv_avant_bonus']} 🪖 {bonus_str}) / "
                 f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
                 f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
             )
@@ -455,8 +455,8 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     else:
         # PV uniquement
         if result.get("casque_active", False):
-            ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PV : {result['pv_avant_bonus']} 🪖)"
-            ligne3 = f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV : {result['pv_avant_bonus']} 🪖) = ❤️ {result['end_hp']} PV"
+            ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PV - {result['pv_avant_bonus']} 🪖 {bonus_str})"
+            ligne3 = f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV - {result['pv_avant_bonus']} 🪖 {bonus_str}) = ❤️ {result['end_hp']} PV"
         else:
             ligne2 = f"{target_mention} perd ({emoji_effet}{result['pv_avant_bonus']} PV{bonus_str})"
             ligne3 = f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
