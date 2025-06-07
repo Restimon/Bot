@@ -180,9 +180,6 @@ async def voler_objet(interaction, uid, tid):
     target_inv, _, _ = get_user_data(guild_id, tid)
 
     # On filtre pour ne pas voler certains objets interdits
-    protected_items = ["💉", "⭐️", "🛡", "🪖", "👟", "💕"]  # Exemples d'objets qu'on ne vole pas
-    possible_items = [item for item in target_inv if item not in protected_items]
-
     if not possible_items:
         description = (
             f"Malheureusement, aucun objet valable n’a pu être volé à {get_mention(interaction.guild, tid)}."
