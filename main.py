@@ -769,14 +769,16 @@ async def regeneration_loop():
                     member = await bot.fetch_user(int(user_id))
                     embed = discord.Embed(
                         description=(
-                            f"✨ {member.mention} récupère **{healed} PV** *(Régénération)*.\n"
-                            f"⏳ Temps restant : **{remaining_mn} min** | ❤️ PV : **{after}/100**"
+                            f"💕 {member.mention} récupère **{healed} PV** *(Régénération)*.\n"
+                            f"❤️ {before} PV + {healed} PV = {after} PV\n\n"
+                            f"⏳ Temps restant : **{remaining_mn} min**"
                         ),
                         color=discord.Color.green()
                     )
                     await channel.send(embed=embed)
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
+
 
 
 async def special_supply_loop(bot):
