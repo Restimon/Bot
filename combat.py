@@ -459,9 +459,9 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         else:
             ligne2 = f"{target_mention} perd ({result['pv_avant_bonus']} PV{bonus_str}) et {result['pb_avant_bonus']} PB"
             ligne3 = (
-                f"❤️ {result['start_hp']} PV - ({result['pv_taken_base']} PV{bonus_str}) / "
+                f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) / "
                 f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
-                f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
+                f"❤️ {result['end_hp']} PV / 🛡️ {result['pv_avant_bonus']} PB"
             )
 
     else:
