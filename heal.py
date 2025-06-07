@@ -83,10 +83,13 @@ def register_heal_command(bot):
             }
             user_inv.remove("💕")
             sauvegarder()
-            await interaction.channel.send(f"✨ {member.mention} a déclenché une régénération pour {target.mention} ! 💕")
+    
             embed = discord.Embed(
                 title="💕 Régénération activée",
-                description=f"{target.mention} récupère **3 PV toutes les 30 minutes pendant 3 heures.**",
+                description=(
+                    f"✨ {member.mention} a déclenché une régénération pour {target.mention} ! 💕\n\n"
+                    f"{target.mention} récupère **3 PV toutes les 30 minutes pendant 3 heures.**"
+                ),
                 color=discord.Color.green()
             )
             return await interaction.followup.send(embed=embed)
