@@ -253,6 +253,50 @@ async def on_message(message):
 
     await message.channel.send(embed=embed)
 
+@bot.event
+async def on_raw_reaction_add(payload):
+    gid = str(payload.guild_id)
+    mid = str(payload.message_id)
+    uid = str(payload.user_id)
+
+    if gid not in supply_data:
+        return
+
+    data = supply_data[gid]
+
+    # Check si supply est bien ouvert
+    if not data.get("is_open", False):
+        return
+
+    # Check si c'est le bon message
+    active_msg_id = data.get("active_supply_id")
+    if active_msg_id != mid:
+        return
+
+    # Check si c'est la bonne emoji
+    if str(payload.emoji) != "📦":
+        return
+
+    # Check si ce n'est pas un bot
+    if payload.user_id == bot.user.id:
+        return
+
+    # Tu peux maintenant valider la récupération
+    # Par exemple : append uid dans un "collected_users" global (tu peux le stocker dans supply_data[gid]["collected_users"])
+    # Et supprimer la réaction du user pour éviter le spam
+    channel = bot.get_channel(payload.channel_id)
+    if channel:
+        try:
+            msg = await channel.fetch_message(payload.message_id)
+            member = bot.get_user(payload.user_id)
+            if not member.bot:
+                await msg.remove_reaction(payload.emoji, member)
+        except Exception as e:
+            print(f"[on_raw_reaction_add] Erreur remove_reaction: {e}")
+
+    # Ici tu peux log ou mettre un print de debug :
+    print(f"✅ Réaction validée : {payload.user_id} sur {mid} (supply actif)")
+
 # ===================== Auto-Update Leaderboard ======================
 
 async def update_leaderboard_loop():
