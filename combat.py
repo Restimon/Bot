@@ -452,7 +452,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
                 f"et {result['pb_avant_bonus']} PB"
             )
             ligne3 = (
-                f"❤️ {result['start_hp']} PV - ({result['pv_taken_base']} PV - {reduction_txt} 🪖{bonus_str}) / "
+                f"❤️ {result['start_hp']} PV - ({result['pb_avant_bonus']} PV - {reduction_txt} 🪖{bonus_str}) / "
                 f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
                 f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
             )
@@ -461,7 +461,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
             ligne3 = (
                 f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) / "
                 f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
-                f"❤️ {result['end_hp']} PV / 🛡️ {result['pv_avant_bonus']} PB"
+                f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
             )
 
     else:
