@@ -105,10 +105,12 @@ async def send_special_supply(bot, force=False):
             if now - last_time < 3600 or count_today >= 3:
                 continue
 
-        channel = find_valid_channel(bot, guild, config)
+        # Recherche d'un salon valide
+        channel = find_or_update_valid_channel(bot, guild, config)
         if not channel:
             continue
 
+        # Envoi du message de supply
         embed = discord.Embed(
             title="📦 Ravitaillement spécial GotValis",
             description="Réagissez avec 📦 pour récupérer une récompense surprise !\n⏳ Disponible pendant 5 minutes, maximum 5 personnes.",
@@ -117,12 +119,14 @@ async def send_special_supply(bot, force=False):
         msg = await channel.send(embed=embed)
         await msg.add_reaction("📦")
 
+        # Préparation du suivi
         collected_users = []
         supply_data[gid]["active_supply_id"] = str(msg.id)
         supply_data[gid]["is_open"] = True
-        supply_data[gid]["collected_users"] = []  # optionnel si tu veux limiter
+        supply_data[gid]["collected_users"] = []
         sauvegarder()
 
+        # Check de réaction
         def check(reaction, user):
             return (
                 reaction.message.id == msg.id
@@ -131,6 +135,7 @@ async def send_special_supply(bot, force=False):
                 and user.id not in [u.id for u in collected_users]
             )
 
+        # Collecte pendant 5 min max ou 5 personnes
         end = time.time() + 300
         while len(collected_users) < 5 and time.time() < end:
             try:
@@ -142,8 +147,8 @@ async def send_special_supply(bot, force=False):
             except asyncio.TimeoutError:
                 break
 
+        # Application des récompenses
         results = []
-
         for user in collected_users:
             uid = str(user.id)
             reward_type, reward = choose_reward(uid, gid)
@@ -160,8 +165,12 @@ async def send_special_supply(bot, force=False):
                     "infection": (infection_status, "🧟", "infecté", 3 * 3600)
                 }
                 dico, emoji, label, duration = status_map[reward]
+
+                # → On utilise un start_now par user ici :
+                start_now = time.time()
+
                 dico.setdefault(gid, {})[uid] = {
-                    "start": now,
+                    "start": start_now,
                     "duration": duration,
                     "last_tick": 0,
                     "source": None,
@@ -182,8 +191,11 @@ async def send_special_supply(bot, force=False):
                 results.append(f"💚 {user.mention} a récupéré **{reward} PV** (PV: {after})")
 
             elif reward_type == "regen":
+                # → On utilise aussi start_now ici pour cohérence
+                start_now = time.time()
+
                 regeneration_status.setdefault(gid, {})[uid] = {
-                    "start": now,
+                    "start": start_now,
                     "duration": 3 * 3600,
                     "last_tick": 0,
                     "source": None,
@@ -191,6 +203,7 @@ async def send_special_supply(bot, force=False):
                 }
                 results.append(f"✨ {user.mention} bénéficie d’une **régénération** pendant 3h.")
 
+        # Envoi du récapitulatif
         if results:
             recap = discord.Embed(
                 title="📦 Récapitulatif du ravitaillement",
@@ -201,6 +214,7 @@ async def send_special_supply(bot, force=False):
         else:
             await channel.send("💣 Le ravitaillement spécial s’est auto-détruit. Aucune réaction détectée.")
 
+        # Finalisation supply
         supply_data[gid]["last_supply_time"] = now
         supply_data[gid]["is_open"] = False
         supply_data[gid]["supply_count_today"] = config.get("supply_count_today", 0) + 1
