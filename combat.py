@@ -24,7 +24,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     # ⭐ Immunité
     if is_immune(guild_id, target_id):
         description = f"⭐ {get_mention(ctx.guild, target_id)} est protégé par une **immunité**."
-        embed = build_embed_from_item(item, description)
+        embed = build_embed_from_item(item, description, disable_gif=True)
         await ctx.followup.send(embed=embed)
         return None, False
 
