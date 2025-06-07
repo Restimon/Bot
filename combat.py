@@ -1,6 +1,7 @@
 import random
 import time
 import discord
+import math 
 
 from data import hp, leaderboard, virus_status, poison_status, infection_status, immunite_status, shields, casque_status, sauvegarder
 from utils import get_mention, get_evade_chance
@@ -85,8 +86,9 @@ def apply_crit(base_dmg, crit_chance):
 
 def apply_casque_reduction(guild_id, user_id, dmg):
     if user_id in casque_status.get(guild_id, {}):
-        return int(dmg * 0.5)
-    return dmg
+        reduced_dmg = math.ceil(dmg * 0.5)
+        return reduced_dmg, True
+    return dmg, False
 
 def apply_shield(guild_id, user_id, dmg):
     current_shield = shields.get(guild_id, {}).get(user_id, 0)
@@ -273,7 +275,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     base_dmg_after_crit, crit_txt = apply_crit(base_dmg, crit_chance)
 
     # Casque
-    total_dmg = apply_casque_reduction(guild_id, target_id, base_dmg_after_crit + bonus_dmg)
+    total_dmg, casque_active = apply_casque_reduction(guild_id, target_id, base_dmg_after_crit + bonus_dmg)
 
     # Bouclier
     dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
@@ -325,7 +327,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "total_affiche_pour_ligne1": real_dmg + lost_pb,
         "dmg_total_apres_bonus_et_crit": base_dmg_after_crit + bonus_dmg,
         "base_dmg_after_crit": base_dmg_after_crit,
-
+        "casque_active": casque_active,
         # Ajouts nécessaires pour ton affichage
         "pv_avant_bonus": pv_taken_base,
         "pb_avant_bonus": pb_taken_base,
@@ -420,23 +422,44 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
         # Bouclier uniquement
-        ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB{bonus_str})"
-        ligne3 = f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB{bonus_str}) = 🛡️ {result['after_pb']} PB"
+        if result.get("casque_active", False):
+            ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB : {result['lost_pb']} 🪖)"
+            ligne3 = (
+                f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB : {result['lost_pb']} 🪖) = "
+                f"🛡️ {result['after_pb']} PB"
+            )
+        else:
+            ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB{bonus_str})"
+            ligne3 = f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB{bonus_str}) = 🛡️ {result['after_pb']} PB"
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
         # Bouclier + PV
-        ligne2 = f"{target_mention} perd ({result['pv_avant_bonus']} PV{bonus_str}) et {result['pb_avant_bonus']} PB"
-        ligne3 = (
-            f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) / "
-            f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
-            f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
-        )
+        if result.get("casque_active", False):
+            ligne2 = (
+                f"{target_mention} perd ({result['base_dmg_after_crit']} PV : {result['pv_avant_bonus']} 🪖) "
+                f"et {result['pb_avant_bonus']} PB"
+            )
+            ligne3 = (
+                f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV : {result['pv_avant_bonus']} 🪖) / "
+                f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
+                f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
+            )
+        else:
+            ligne2 = f"{target_mention} perd ({result['pv_avant_bonus']} PV{bonus_str}) et {result['pb_avant_bonus']} PB"
+            ligne3 = (
+                f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) / "
+                f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
+                f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
+            )
 
     else:
         # PV uniquement
-        ligne2 = f"{target_mention} perd ({emoji_effet}{result['pv_avant_bonus']} PV{bonus_str})"
-        ligne3 = f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
-
+        if result.get("casque_active", False):
+            ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PV : {result['pv_avant_bonus']} 🪖)"
+            ligne3 = f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV : {result['pv_avant_bonus']} 🪖) = ❤️ {result['end_hp']} PV"
+        else:
+            ligne2 = f"{target_mention} perd ({emoji_effet}{result['pv_avant_bonus']} PV{bonus_str})"
+            ligne3 = f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
 
     # Retour complet
     return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
