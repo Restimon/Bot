@@ -291,22 +291,10 @@ async def on_raw_reaction_add(payload):
     if payload.user_id == bot.user.id:
         return
 
-    # Tu peux maintenant valider la récupération
-    # Par exemple : append uid dans un "collected_users" global (tu peux le stocker dans supply_data[gid]["collected_users"])
-    # Et supprimer la réaction du user pour éviter le spam
-    channel = bot.get_channel(payload.channel_id)
-    if channel:
-        try:
-            msg = await channel.fetch_message(payload.message_id)
-            member = bot.get_user(payload.user_id)
-            if not member.bot:
-                await msg.remove_reaction(payload.emoji, member)
-        except Exception as e:
-            print(f"[on_raw_reaction_add] Erreur remove_reaction: {e}")
-
-    # Ici tu peux log ou mettre un print de debug :
+    # Ici tu ne supprimes plus la réaction !!
+    # Juste log si tu veux :
     print(f"✅ Réaction validée : {payload.user_id} sur {mid} (supply actif)")
-
+    
 # ===================== Auto-Update Leaderboard ======================
 
 async def update_leaderboard_loop():
