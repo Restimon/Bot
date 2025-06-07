@@ -118,6 +118,10 @@ async def send_special_supply(bot, force=False):
         await msg.add_reaction("📦")
 
         collected_users = []
+        supply_data[gid]["active_supply_id"] = str(msg.id)
+        supply_data[gid]["is_open"] = True
+        supply_data[gid]["collected_users"] = []  # optionnel si tu veux limiter
+        sauvegarder()
 
         def check(reaction, user):
             return (
@@ -201,3 +205,46 @@ async def send_special_supply(bot, force=False):
         supply_data[gid]["is_open"] = False
         supply_data[gid]["supply_count_today"] = config.get("supply_count_today", 0) + 1
         sauvegarder()
+
+def find_or_update_valid_channel(bot, guild, data):
+    # 1️⃣ Essayer le last_channel_id connu
+    last_id = data.get("last_channel_id")
+    if last_id:
+        ch = bot.get_channel(last_id)
+        if ch:
+            perms = ch.permissions_for(guild.me)
+            if perms.send_messages and perms.add_reactions and perms.read_messages:
+                return ch
+
+    # 2️⃣ Essayons par "activité" si on a un log
+    activity_log = data.get("channel_activity_log", {})
+    sorted_channels = sorted(activity_log.items(), key=lambda x: x[1], reverse=True)  # tri par last_activity_time desc
+
+    for channel_id, _ in sorted_channels:
+        ch = bot.get_channel(int(channel_id))
+        if ch:
+            perms = ch.permissions_for(guild.me)
+            if perms.send_messages and perms.add_reactions and perms.read_messages:
+                # Update officiel du last_channel_id
+                data["last_channel_id"] = ch.id
+                data["last_activity_time"] = time.time()
+                sauvegarder()
+                print(f"[{guild.name}] Nouveau salon actif sélectionné (log) : #{ch.name}")
+                return ch
+
+    # 3️⃣ Sinon fallback → on essaye tout (ex: channels triés par position ou par id)
+    for ch in sorted(guild.text_channels, key=lambda c: c.position):
+        perms = ch.permissions_for(guild.me)
+        if perms.send_messages and perms.add_reactions and perms.read_messages:
+            data["last_channel_id"] = ch.id
+            data["last_activity_time"] = time.time()
+            sauvegarder()
+            print(f"[{guild.name}] Nouveau salon actif fallback : #{ch.name}")
+            return ch
+
+    # Aucun salon trouvé
+    return None
+
+
+    # Aucun salon valide trouvé
+    return None
