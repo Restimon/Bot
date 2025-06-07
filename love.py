@@ -32,7 +32,7 @@ def register_love_command(bot):
 
         # Prépare l'embed
         embed = discord.Embed(
-            title="❤️ Love",
+            title="GotValis : transfert d’amour détecté ❤️",
             description=f"{author_mention} envoie tout son amour à {target_mention} ❤️",
             color=discord.Color.magenta()
         )
