@@ -448,11 +448,11 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
         # Bouclier + PV
         if result.get("casque_active", False):
             ligne2 = (
-                f"{target_mention} perd ({result['base_dmg_after_crit']} PV - {reduction_txt} 🪖{bonus_str}) "
+                f"{target_mention} perd ({result['pv_avant_bonus']} PV - {reduction_txt} 🪖{bonus_str}) "
                 f"et {result['pb_avant_bonus']} PB"
             )
             ligne3 = (
-                f"❤️ {result['start_hp']} PV - ({result['pb_avant_bonus']} PV - {reduction_txt} 🪖{bonus_str}) / "
+                f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV - {reduction_txt} 🪖{bonus_str}) / "
                 f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
                 f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
             )
