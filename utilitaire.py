@@ -7,7 +7,6 @@ from utils import OBJETS, get_mention
 from storage import get_user_data
 from data import sauvegarder, shields, immunite_status, esquive_status, casque_status
 from embeds import build_embed_from_item
-from inventory import voler_objet
 
 def register_utilitaire_command(bot):
     @bot.tree.command(name="utilitaire", description="Utilise un objet utilitaire ou de protection")
