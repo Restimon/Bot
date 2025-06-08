@@ -290,9 +290,10 @@ async def update_leaderboard_loop():
     await bot.wait_until_ready()
     from config import get_guild_config, save_config
     from storage import hp
+    from economy_utils import get_gotcoins  # importe ta fonction propre
 
     while not bot.is_closed():
-        print("⏳ [LOOP] Tentative de mise à jour des leaderboards spéciaux...")
+        print("⏳ [LOOP] Mise à jour des leaderboards spéciaux (GotCoins)...")
 
         for guild in bot.guilds:
             guild_id = str(guild.id)
@@ -301,7 +302,7 @@ async def update_leaderboard_loop():
             channel_id = guild_config.get("special_leaderboard_channel_id")
             message_id = guild_config.get("special_leaderboard_message_id")
 
-            print(f"🔍 [{guild.name}] Config trouvée : {guild_config}")
+            print(f"🔍 [{guild.name}] Config : {guild_config}")
             print(f" → Channel ID : {channel_id} | Message ID : {message_id}")
 
             if not channel_id:
@@ -315,19 +316,18 @@ async def update_leaderboard_loop():
 
             medals = ["🥇", "🥈", "🥉"]
             server_lb = leaderboard.get(guild_id, {})
+            server_hp = hp.get(guild_id, {})
 
-            # Tri par total de GotCoins
-            def get_score(entry):
-                stats = entry[1]
-                return stats.get("degats", 0) + stats.get("soin", 0) + stats.get("kills", 0) * 50 - stats.get("morts", 0) * 25
-
-            sorted_lb = sorted(server_lb.items(), key=get_score, reverse=True)
+            sorted_lb = sorted(
+                server_lb.items(),
+                key=lambda x: get_gotcoins(x[1]),
+                reverse=True
+            )
 
             lines = []
             rank = 0
 
             for uid, stats in sorted_lb:
-                # Vérifie que uid est un entier valide
                 try:
                     int_uid = int(uid)
                     user = bot.get_user(int_uid)
@@ -340,23 +340,19 @@ async def update_leaderboard_loop():
                 if rank >= 10:
                     break
 
-                degats = stats.get("degats", 0)
-                soin = stats.get("soin", 0)
-                kills = stats.get("kills", 0)
-                morts = stats.get("morts", 0)
-                total = degats + soin + kills * 50 - morts * 25
+                coins = get_gotcoins(stats)
+                pv = server_hp.get(uid, 100)
 
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-
                 lines.append(
-                    f"{prefix} **{user.display_name}** → 💰 **{total} GotCoins**"
+                    f"{prefix} **{user.display_name}** → 💰 **{coins} GotCoins** | ❤️ {pv} PV"
                 )
                 rank += 1
 
             content = (
-                "> 🏆 __**CLASSEMENT DE PUISSANCE DE GOTVALIS**__ 🏆\n\n" +
+                "> 🏆 __**CLASSEMENT GOTVALIS - ÉDITION SPÉCIALE**__ 🏆\n\n" +
                 "\n".join([f"> {line}" for line in lines]) +
-                "\n\n💰 Les GotCoins représentent votre richesse accumulée."
+                "\n\n 📌 Les GotCoins représentent votre richesse accumulée."
             ) if lines else "*Aucune donnée disponible.*"
 
             try:
