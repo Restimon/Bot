@@ -26,25 +26,23 @@ async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> 
         kills = stats.get("kills", 0)
         morts = stats.get("morts", 0)
         total = degats + soin + (kills * 50) - (morts * 25)
-        current_hp = hp.get(guild_id, {}).get(uid, 100)
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
 
         lines.append(
-            f"{prefix} **{member.display_name}** → "
-            f"🗡️ {degats} | 💚 {soin} | ☠️ {kills} | 💀 {morts} = **{total}** points | ❤️ {current_hp} PV"
+            f"{prefix} **{member.display_name}** → 💰 **{total} GotCoins**"
         )
 
     embed = discord.Embed(
-        title=f"🏆 Classement de {guild.name}",
+        title=f"🏆 Classement économique GotValis",
         description="\n".join(lines) if lines else "*Aucun joueur valide trouvé.*",
         color=discord.Color.gold()
     )
 
     embed.add_field(
-        name="📊 Total joueurs actifs",
+        name="📊 Nombre de citoyens actifs",
         value=f"{len(server_lb)} joueurs enregistrés",
         inline=False
     )
 
-    embed.set_footer(text="Classement propre à ce serveur.")
+    embed.set_footer(text="💰 Les GotCoins représentent votre richesse accumulée.")
     return embed
