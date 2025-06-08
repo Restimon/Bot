@@ -53,12 +53,28 @@ def register_profile_command(bot):
             inline=False
         )
 
-        # 🎒 Inventaire
+        # 🎒 Inventaire (affichage en colonnes)
         item_counts = {}
         for item in user_inv:
             item_counts[item] = item_counts.get(item, 0) + 1
-        inv_display = "Aucun objet." if not item_counts else "\n".join(f"{emoji} × {count}" for emoji, count in item_counts.items())
-        embed.add_field(name="🎒 Inventaire", value=inv_display, inline=False)
+
+        if not item_counts:
+            inv_display = "Aucun objet."
+        else:
+            sorted_items = sorted(item_counts.items(), key=lambda x: x[0])
+            lines = [f"{emoji} × {count}" for emoji, count in sorted_items]
+
+            # Découpe en colonnes (3 colonnes max)
+            col_size = (len(lines) + 2) // 3  # arrondi supérieur
+            columns = [lines[i:i + col_size] for i in range(0, len(lines), col_size)]
+
+            # Construit un champ par colonne
+            for idx, col in enumerate(columns):
+                embed.add_field(
+                    name=f"🎒 Inventaire{' (suite)' if idx > 0 else ''}",
+                    value="\n".join(col),
+                    inline=True
+                )
 
         # 🏆 Classement général
         embed.add_field(
