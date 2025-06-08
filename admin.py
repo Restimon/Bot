@@ -172,68 +172,74 @@ def register_admin_commands(bot):
         else:
             await interaction.followup.send("❌ Aucun salon valide trouvé pour envoyer le ravitaillement.", ephemeral=True)
 
-    @bot.tree.command(name="forcer_lb_temp", description="🔁 Mise à jour manuelle du leaderboard spécial (test).")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def force_leaderboard_update(interaction: discord.Interaction):
-        guild = interaction.guild
-        guild_id = str(guild.id)
-        guild_config = get_guild_config(guild_id)
-
-        channel_id = guild_config.get("special_leaderboard_channel_id")
-        message_id = guild_config.get("special_leaderboard_message_id")
-
-        if not channel_id:
-            return await interaction.response.send_message("❌ Aucun salon de leaderboard configuré.", ephemeral=True)
-
-        channel = guild.get_channel(channel_id)
-        if not channel:
-            return await interaction.response.send_message("❌ Salon introuvable ou inaccessible.", ephemeral=True)
-
-        medals = ["🥇", "🥈", "🥉"]
-        server_lb = leaderboard.get(guild_id, {})
-        sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]["degats"] + x[1]["soin"] + x[1].get("kills", 0) * 50 - x[1].get("morts", 0) * 25, reverse=True)
-
-        lines = []
-        rank = 0
-        for uid, stats in sorted_lb:
-            member = guild.get_member(int(uid))
-            if not member:
-                continue
-            if rank >= 10:
-                break
-
-            degats = stats.get("degats", 0)
-            soin = stats.get("soin", 0)
-            kills = stats.get("kills", 0)
-            morts = stats.get("morts", 0)
-            total = degats + soin + kills * 50 - morts * 25
-            current_hp = hp.get(guild_id, {}).get(uid, 100)
-
-            prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-            lines.append(
-                f"{prefix} **{member.display_name}** → "
-                f"🗡️ {degats} | 💚 {soin} | 🎽 {kills} | 💀 {morts} = **{total}** points | ❤️ {current_hp} PV"
+        @bot.tree.command(name="forcer_lb_temp", description="🔁 Mise à jour manuelle du leaderboard spécial (test).")
+        @app_commands.checks.has_permissions(administrator=True)
+        async def force_leaderboard_update(interaction: discord.Interaction):
+            guild = interaction.guild
+            guild_id = str(guild.id)
+            guild_config = get_guild_config(guild_id)
+    
+            channel_id = guild_config.get("special_leaderboard_channel_id")
+            message_id = guild_config.get("special_leaderboard_message_id")
+    
+            if not channel_id:
+                return await interaction.response.send_message("❌ Aucun salon de leaderboard configuré.", ephemeral=True)
+    
+            channel = guild.get_channel(channel_id)
+            if not channel:
+                return await interaction.response.send_message("❌ Salon introuvable ou inaccessible.", ephemeral=True)
+    
+            medals = ["🥇", "🥈", "🥉"]
+            server_lb = leaderboard.get(guild_id, {})
+            sorted_lb = sorted(
+                server_lb.items(),
+                key=lambda x: x[1]["degats"] + x[1]["soin"] + x[1].get("kills", 0) * 50 - x[1].get("morts", 0) * 25,
+                reverse=True
             )
-            rank += 1
-
-        content = (
-            "> 🏆 __**CLASSEMENT GotValis - ÉDITION SPÉCIALE**__ 🏆\n\n" +
-            "\n".join([f"> {line}" for line in lines]) +
-            "\n\n 📌 Classement mis à jour automatiquement par GotValis."
-        ) if lines else "*Aucune donnée disponible.*"
-
-        try:
-            if message_id:
-                msg = await channel.fetch_message(message_id)
-                await msg.edit(content=content)
-            else:
-                raise discord.NotFound(response=None, message="No message ID")
-        except (discord.NotFound, discord.HTTPException):
-            msg = await channel.send(content=content)
-            guild_config["special_leaderboard_message_id"] = msg.id
-            save_config()
-
-        await interaction.response.send_message("✅ Leaderboard mis à jour manuellement.", ephemeral=True)
+    
+            lines = []
+            rank = 0
+            for uid, stats in sorted_lb:
+                member = guild.get_member(int(uid))
+                if not member:
+                    continue
+                if rank >= 10:
+                    break
+    
+                degats = stats.get("degats", 0)
+                soin = stats.get("soin", 0)
+                kills = stats.get("kills", 0)
+                morts = stats.get("morts", 0)
+                total = degats + soin + kills * 50 - morts * 25
+                current_hp = hp.get(guild_id, {}).get(uid, 100)
+    
+                prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+                lines.append(
+                    f"{prefix} **{member.display_name}** → "
+                    f"💰 **{total} GotCoins** | ❤️ {current_hp} PV"
+                )
+                rank += 1
+    
+            embed = discord.Embed(
+                title="🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆",
+                description="\n".join(lines) if lines else "*Aucune donnée disponible.*",
+                color=discord.Color.gold()
+            )
+    
+            embed.set_footer(text="💰 Les GotCoins représentent votre richesse accumulée.")
+    
+            try:
+                if message_id:
+                    msg = await channel.fetch_message(message_id)
+                    await msg.edit(content=None, embed=embed)
+                else:
+                    raise discord.NotFound(response=None, message="No message ID")
+            except (discord.NotFound, discord.HTTPException):
+                msg = await channel.send(embed=embed)
+                guild_config["special_leaderboard_message_id"] = msg.id
+                save_config()
+    
+            await interaction.response.send_message("✅ Leaderboard mis à jour manuellement.", ephemeral=True)
 
     from data import sauvegarder  # si ce n’est pas déjà fait
 
