@@ -43,47 +43,33 @@ def register_profile_command(bot):
         )
         embed.set_thumbnail(url=member.display_avatar.url)
 
-        # ❤️ Points de vie
         embed.add_field(name="❤️ Points de vie", value=hp_display, inline=False)
-
-        # 💰 GotCoins
-        embed.add_field(
-            name="💰 GotCoins",
-            value=f"**{gotcoins}** GotCoins",
-            inline=False
-        )
-
-        # 🎒 Inventaire (affichage en colonnes)
-        item_counts = {}
-        for item in user_inv:
-            item_counts[item] = item_counts.get(item, 0) + 1
-
-        if not item_counts:
-            inv_display = "Aucun objet."
-        else:
-            sorted_items = sorted(item_counts.items(), key=lambda x: x[0])
-            lines = [f"{emoji} × {count}" for emoji, count in sorted_items]
-
-            # Découpe en colonnes (3 colonnes max)
-            col_size = (len(lines) + 2) // 3  # arrondi supérieur
-            columns = [lines[i:i + col_size] for i in range(0, len(lines), col_size)]
-
-            # Construit un champ par colonne
-            for idx, col in enumerate(columns):
-                embed.add_field(
-                    name=f"🎒 Inventaire{' (suite)' if idx > 0 else ''}",
-                    value="\n".join(col),
-                    inline=True
-                )
-
-        # 🏆 Classement général
+        embed.add_field(name="💰 GotCoins", value=f"**{gotcoins}** GotCoins", inline=False)
         embed.add_field(
             name="🏆 Classement général",
             value=f"{medal} Rang {rank}" if rank else "Non classé",
             inline=False
         )
 
-        # ☣️ État pathologique
+        # Inventaire → en colonnes
+        item_counts = {}
+        for item in user_inv:
+            item_counts[item] = item_counts.get(item, 0) + 1
+
+        if not item_counts:
+            embed.add_field(name="🎒 Inventaire", value="Aucun objet.", inline=False)
+        else:
+            # On découpe en colonnes de 10 items max
+            items = [f"{emoji} × {count}" for emoji, count in item_counts.items()]
+            columns = [items[i:i + 10] for i in range(0, len(items), 10)]
+            for i, col in enumerate(columns):
+                embed.add_field(
+                    name="🎒 Inventaire" if i == 0 else "\u200b",  # pas de titre pour les colonnes suivantes
+                    value="\n".join(col),
+                    inline=True
+                )
+
+        # Effets négatifs
         now = time.time()
         status_lines = []
 
@@ -114,7 +100,7 @@ def register_profile_command(bot):
             inline=False
         )
 
-        # 🌀 Effets temporaires actifs
+        # Bonus temporaires (hors bouclier)
         bonus_lines = []
 
         for bonus, emoji, label, extra in [
@@ -137,7 +123,6 @@ def register_profile_command(bot):
             rem_min = int(remaining // 60)
             bonus_lines.append(f"💕 **Régénération** — {rem_min} min restantes (+3 PV / 30 min)")
 
-        # Envoi
         if bonus_lines:
             bonus_embed = discord.Embed(
                 title="🌀 Effets temporaires actifs",
