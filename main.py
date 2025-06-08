@@ -31,7 +31,7 @@ from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
 from item_list import register_item_command
-from special_supply import update_last_active_channel, supply_data, sauvegarder, find_or_update_valid_channel, send_special_supply
+from special_supply import update_last_active_channel, special_supply_loop
 from kiss import register_kiss_command
 from hug import register_hug_command
 from pat import register_pat_command
@@ -155,17 +155,6 @@ async def on_ready():
     await bot.change_presence(status=discord.Status.online, activity=activity)
 
     # Gestion du ravitaillement en cours (si redémarrage pendant un ravitaillement actif)
-    for guild in bot.guilds:
-        gid = str(guild.id)
-        if supply_data.get(gid, {}).get("is_open", False):
-            last = supply_data[gid]["last_supply_time"]
-            elapsed = now - last
-            if elapsed < 300:
-                delay = 300 - elapsed
-                print(f"🔁 Ravito en cours sur {guild.name}, fermeture dans {int(delay)} sec.")
-                asyncio.create_task(wait_and_close_supply(gid, delay))
-            else:
-                asyncio.create_task(close_special_supply(gid))
 
     print(f"✅ GotValis Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
@@ -826,103 +815,6 @@ async def regeneration_loop():
                     await channel.send(embed=embed)
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
-
-
-
-async def special_supply_loop(bot):
-    await bot.wait_until_ready()
-    print("🎁 Boucle de ravitaillement spécial lancée (tick 15 min)")
-
-    def get_cumulative_drop_chance(elapsed_hours):
-        if elapsed_hours >= 6:
-            return 1.0
-        elif elapsed_hours <= 2:
-            return 0.125 * elapsed_hours  # 12.5%/h → 25% à 2h
-        elif elapsed_hours <= 3:
-            return 0.25 + 0.25 * (elapsed_hours - 2)  # 25% → 50%
-        elif elapsed_hours <= 5:
-            return 0.5 + 0.125 * (elapsed_hours - 3)  # 50% → 75%
-        else:
-            return 0.75 + 0.25 * (elapsed_hours - 5)  # 75% → 100%
-
-    while not bot.is_closed():
-        now = time.time()
-
-        for guild in bot.guilds:
-            gid = str(guild.id)
-
-            # Initialisation des données si absentes
-            if gid not in supply_data or not isinstance(supply_data[gid], dict):
-                supply_data[gid] = {
-                    "last_supply_time": 0,
-                    "next_supply_time": now + random.randint(3600, 21600),
-                    "supply_count_today": 0,
-                    "last_activity_time": 0,
-                    "last_channel_id": None,
-                    "is_open": False,
-                    "cumulative_chance_already_attempted": 0.0
-                }
-
-            data = supply_data[gid]
-
-            # Reset journalier
-            if time.localtime(data["last_supply_time"]).tm_mday != time.localtime(now).tm_mday:
-                data["supply_count_today"] = 0
-
-            # Trop de ravitaillements aujourd'hui
-            if data["supply_count_today"] >= MAX_SUPPLIES_PER_DAY:
-                continue
-
-            # SECURITE : Si le dernier supply est trop récent (< 1h), skip
-            if now - data.get("last_supply_time", 0) < 3600:
-                continue
-
-            # Pas encore atteint target time → skip
-            if now < data.get("next_supply_time", now + 3600):
-                continue
-
-            # Trouver un salon valide (on utilise find_or_update_valid_channel)
-            channel = find_or_update_valid_channel(bot, guild, data)
-            if not channel:
-                continue
-
-            # Temps écoulé depuis next_supply_time
-            elapsed_since_target = now - data["next_supply_time"]
-            elapsed_hours = elapsed_since_target / 3600
-            cumulative_chance = get_cumulative_drop_chance(elapsed_hours)
-
-            # Proba de ce tick = cumulative - déjà tenté
-            proba_this_tick = cumulative_chance - data.get("cumulative_chance_already_attempted", 0.0)
-            proba_this_tick = max(0.0, min(proba_this_tick, 1.0))  # clamp entre 0 et 1
-
-            print(f"[{guild.name}] Tick supply - elapsed_hours={elapsed_hours:.2f}h - cumul={cumulative_chance:.2%} - tick={proba_this_tick:.2%}")
-
-            # Test du drop
-            if random.random() < proba_this_tick:
-                print(f"🎁 DROP sur {guild.name} ({elapsed_hours:.2f}h écoulées) → ENVOI DU SUPPLY")
-                from special_supply import send_special_supply
-                await send_special_supply(bot, force=True)
-
-                # Reset
-                data["last_supply_time"] = now
-                data["next_supply_time"] = now + 3600 + random.randint(3600, 21600)  # 1h + 1h-6h
-                data["supply_count_today"] += 1
-                data["is_open"] = True
-                data["cumulative_chance_already_attempted"] = 0.0
-                sauvegarder()
-            else:
-                # Pas drop → on stocke la part "déjà tentée"
-                data["cumulative_chance_already_attempted"] = cumulative_chance
-                sauvegarder()
-
-        await asyncio.sleep(900)  # 15 min = 900 sec
-            
-async def close_special_supply(guild_id):
-    gid = str(guild_id)
-    if gid in supply_data:
-        supply_data[gid]["is_open"] = False
-        supply_data[gid]["active_supply_id"] = None  # 🟢 on nettoie bien le message actif
-        sauvegarder()
 
 async def auto_backup_loop():
     await bot.wait_until_ready()
