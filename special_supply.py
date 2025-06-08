@@ -2,11 +2,11 @@ import discord
 import random
 import time
 import asyncio
+import datetime
 
 from data import virus_status, poison_status, infection_status, regeneration_status, supply_data, sauvegarder
 from storage import get_user_data, hp
 from utils import get_random_item, OBJETS
-from embeds import build_embed_from_item
 
 # ========================== Mise à jour du salon actif ==========================
 
@@ -21,9 +21,46 @@ def update_last_active_channel(message):
 
     supply_data[guild_id]["last_channel_id"] = message.channel.id
     supply_data[guild_id]["last_activity_time"] = time.time()
+
+    # On garde un log des salons actifs
+    supply_data[guild_id].setdefault("channel_activity_log", {})
+    supply_data[guild_id]["channel_activity_log"][message.channel.id] = time.time()
+
     sauvegarder()
 
-# ========================== Description des objets ==========================
+# ========================== Recherche de salon compatible ==========================
+
+def find_or_update_valid_channel(bot, guild, config):
+    last_id = config.get("last_channel_id")
+    if last_id:
+        ch = bot.get_channel(last_id)
+        if ch:
+            perms = ch.permissions_for(guild.me)
+            if perms.send_messages and perms.add_reactions and perms.read_messages:
+                return ch
+
+    activity_log = config.get("channel_activity_log", {})
+    sorted_channels = sorted(activity_log.items(), key=lambda x: x[1], reverse=True)
+
+    for ch_id, _ in sorted_channels:
+        ch = bot.get_channel(ch_id)
+        if ch:
+            perms = ch.permissions_for(guild.me)
+            if perms.send_messages and perms.add_reactions and perms.read_messages:
+                config["last_channel_id"] = ch.id
+                sauvegarder()
+                return ch
+
+    for ch in guild.text_channels:
+        perms = ch.permissions_for(guild.me)
+        if perms.send_messages and perms.add_reactions and perms.read_messages:
+            config["last_channel_id"] = ch.id
+            sauvegarder()
+            return ch
+
+    return None
+
+# ========================== Génération des récompenses ==========================
 
 def describe_item(emoji):
     obj = OBJETS.get(emoji, {})
@@ -56,8 +93,6 @@ def describe_item(emoji):
         return "⭐️ Immunité totale pendant 2h."
     return "❓ Effet inconnu."
 
-# ========================== Génération des récompenses ==========================
-
 def choose_reward(user_id, guild_id):
     r = random.random()
     if r < 0.60:
@@ -71,187 +106,147 @@ def choose_reward(user_id, guild_id):
     else:
         return "regen", True
 
-# ========================== Recherche de salon compatible ==========================
+# ========================== Envoi du supply ==========================
 
-def find_valid_channel(bot, guild, config):
-    last_id = config.get("last_channel_id")
-    if last_id:
-        ch = bot.get_channel(last_id)
-        if ch:
-            perms = ch.permissions_for(guild.me)
-            if perms.send_messages and perms.add_reactions and perms.read_messages:
-                return ch
-
-    for ch in guild.text_channels:
-        perms = ch.permissions_for(guild.me)
-        if perms.send_messages and perms.add_reactions and perms.read_messages:
-            return ch
-
-    return None
-
-# ========================== Envoi du ravitaillement ==========================
-
-async def send_special_supply(bot, force=False):
+async def send_special_supply_in_channel(bot, guild, channel):
     now = time.time()
+    gid = str(guild.id)
 
-    for guild in bot.guilds:
-        gid = str(guild.id)
-        config = supply_data.get(gid, {})
+    embed = discord.Embed(
+        title="📦 Ravitaillement spécial GotValis",
+        description="Réagissez avec 📦 pour récupérer une récompense surprise !\n⏳ Disponible pendant 5 minutes, maximum 5 personnes.",
+        color=discord.Color.gold()
+    )
+    msg = await channel.send(embed=embed)
+    await msg.add_reaction("📦")
 
-        # Vérifie cooldown (sauf si force)
-        if not force:
-            last_time = config.get("last_supply_time", 0)
-            count_today = config.get("supply_count_today", 0)
-            if now - last_time < 3600 or count_today >= 3:
-                continue
+    collected_users = []
+    supply_data[gid]["active_supply_id"] = str(msg.id)
+    supply_data[gid]["is_open"] = True
+    supply_data[gid]["collected_users"] = []
+    sauvegarder()
 
-        # Recherche d'un salon valide
-        channel = find_or_update_valid_channel(bot, guild, config)
-        if not channel:
-            continue
-
-        # Envoi du message de supply
-        embed = discord.Embed(
-            title="📦 Ravitaillement spécial GotValis",
-            description="Réagissez avec 📦 pour récupérer une récompense surprise !\n⏳ Disponible pendant 5 minutes, maximum 5 personnes.",
-            color=discord.Color.gold()
+    def check(reaction, user):
+        return (
+            reaction.message.id == msg.id
+            and str(reaction.emoji) == "📦"
+            and not user.bot
+            and user.id not in [u.id for u in collected_users]
         )
-        msg = await channel.send(embed=embed)
-        await msg.add_reaction("📦")
 
-        # Préparation du suivi
-        collected_users = []
-        supply_data[gid]["active_supply_id"] = str(msg.id)
-        supply_data[gid]["is_open"] = True
-        supply_data[gid]["collected_users"] = []
-        sauvegarder()
-
-        # Check de réaction
-        def check(reaction, user):
-            return (
-                reaction.message.id == msg.id
-                and str(reaction.emoji) == "📦"
-                and not user.bot
-                and user.id not in [u.id for u in collected_users]
+    end = time.time() + 300
+    while len(collected_users) < 5 and time.time() < end:
+        try:
+            reaction, user = await asyncio.wait_for(
+                bot.wait_for("reaction_add", check=check),
+                timeout=end - time.time(),
             )
+            collected_users.append(user)
+        except asyncio.TimeoutError:
+            break
 
-        # Collecte pendant 5 min max ou 5 personnes
-        end = time.time() + 300
-        while len(collected_users) < 5 and time.time() < end:
-            try:
-                reaction, user = await asyncio.wait_for(
-                    bot.wait_for("reaction_add", check=check),
-                    timeout=end - time.time(),
-                )
-                collected_users.append(user)
-            except asyncio.TimeoutError:
-                break
+    results = []
+    for user in collected_users:
+        uid = str(user.id)
+        reward_type, reward = choose_reward(uid, gid)
 
-        # Application des récompenses
-        results = []
-        for user in collected_users:
-            uid = str(user.id)
-            reward_type, reward = choose_reward(uid, gid)
+        if reward_type == "objet":
+            inv, _, _ = get_user_data(gid, uid)
+            inv.append(reward)
+            results.append(f"🎁 {user.mention} a obtenu **{reward}** — {describe_item(reward)}")
 
-            if reward_type == "objet":
-                inv, _, _ = get_user_data(gid, uid)
-                inv.append(reward)
-                results.append(f"🎁 {user.mention} a obtenu **{reward}** — {describe_item(reward)}")
+        elif reward_type == "status":
+            status_map = {
+                "virus": (virus_status, "🦠", "infecté par un virus", 6 * 3600),
+                "poison": (poison_status, "🧪", "empoisonné", 3 * 3600),
+                "infection": (infection_status, "🧟", "infecté", 3 * 3600)
+            }
+            dico, emoji, label, duration = status_map[reward]
 
-            elif reward_type == "status":
-                status_map = {
-                    "virus": (virus_status, "🦠", "infecté par un virus", 6 * 3600),
-                    "poison": (poison_status, "🧪", "empoisonné", 3 * 3600),
-                    "infection": (infection_status, "🧟", "infecté", 3 * 3600)
-                }
-                dico, emoji, label, duration = status_map[reward]
+            start_now = time.time()
+            dico.setdefault(gid, {})[uid] = {
+                "start": start_now,
+                "duration": duration,
+                "last_tick": 0,
+                "source": None,
+                "channel_id": channel.id
+            }
+            results.append(f"{emoji} {user.mention} a été **{label}** !")
 
-                # → On utilise un start_now par user ici :
-                start_now = time.time()
+        elif reward_type == "degats":
+            before = hp.setdefault(gid, {}).get(uid, 100)
+            after = max(before - reward, 0)
+            hp[gid][uid] = after
+            results.append(f"💥 {user.mention} a subi **{reward} dégâts** (PV: {after})")
 
-                dico.setdefault(gid, {})[uid] = {
-                    "start": start_now,
-                    "duration": duration,
-                    "last_tick": 0,
-                    "source": None,
-                    "channel_id": channel.id
-                }
-                results.append(f"{emoji} {user.mention} a été **{label}** !")
+        elif reward_type == "soin":
+            before = hp.setdefault(gid, {}).get(uid, 100)
+            after = min(before + reward, 100)
+            hp[gid][uid] = after
+            results.append(f"💚 {user.mention} a récupéré **{reward} PV** (PV: {after})")
 
-            elif reward_type == "degats":
-                before = hp.setdefault(gid, {}).get(uid, 100)
-                after = max(before - reward, 0)
-                hp[gid][uid] = after
-                results.append(f"💥 {user.mention} a subi **{reward} dégâts** (PV: {after})")
+        elif reward_type == "regen":
+            start_now = time.time()
+            regeneration_status.setdefault(gid, {})[uid] = {
+                "start": start_now,
+                "duration": 3 * 3600,
+                "last_tick": 0,
+                "source": None,
+                "channel_id": channel.id
+            }
+            results.append(f"✨ {user.mention} bénéficie d’une **régénération** pendant 3h.")
 
-            elif reward_type == "soin":
-                before = hp.setdefault(gid, {}).get(uid, 100)
-                after = min(before + reward, 100)
-                hp[gid][uid] = after
-                results.append(f"💚 {user.mention} a récupéré **{reward} PV** (PV: {after})")
+    if results:
+        recap = discord.Embed(
+            title="📦 Récapitulatif du ravitaillement",
+            description="\n".join(results),
+            color=discord.Color.green()
+        )
+        await channel.send(embed=recap)
+    else:
+        await channel.send("💣 Le ravitaillement spécial s’est auto-détruit. Aucune réaction détectée.")
 
-            elif reward_type == "regen":
-                # → On utilise aussi start_now ici pour cohérence
-                start_now = time.time()
+    supply_data[gid]["is_open"] = False
+    supply_data[gid]["active_supply_id"] = None
+    sauvegarder()
 
-                regeneration_status.setdefault(gid, {})[uid] = {
-                    "start": start_now,
-                    "duration": 3 * 3600,
-                    "last_tick": 0,
-                    "source": None,
-                    "channel_id": channel.id
-                }
-                results.append(f"✨ {user.mention} bénéficie d’une **régénération** pendant 3h.")
+# ========================== Boucle de contrôle ==========================
 
-        # Envoi du récapitulatif
-        if results:
-            recap = discord.Embed(
-                title="📦 Récapitulatif du ravitaillement",
-                description="\n".join(results),
-                color=discord.Color.green()
-            )
-            await channel.send(embed=recap)
-        else:
-            await channel.send("💣 Le ravitaillement spécial s’est auto-détruit. Aucune réaction détectée.")
+async def special_supply_loop(bot):
+    await bot.wait_until_ready()
+    print("🎁 Boucle spéciale supply démarrée (check 5 min)")
 
-        # Finalisation supply
-        supply_data[gid]["last_supply_time"] = now
-        supply_data[gid]["is_open"] = False
-        supply_data[gid]["supply_count_today"] = config.get("supply_count_today", 0) + 1
-        sauvegarder()
+    while not bot.is_closed():
+        now_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=2)  # UTC+2 (heure FR courante)
+        now_hour = now_dt.hour
+        today_str = now_dt.strftime("%Y-%m-%d")
 
-def find_or_update_valid_channel(bot, guild, config):
-    # Vérifie que last_channel_id est toujours valide
-    last_id = config.get("last_channel_id")
-    if last_id:
-        ch = bot.get_channel(last_id)
-        if ch:
-            perms = ch.permissions_for(guild.me)
-            if perms.send_messages and perms.add_reactions and perms.read_messages:
-                return ch  # ok on le garde
+        for guild in bot.guilds:
+            gid = str(guild.id)
+            config = supply_data.setdefault(gid, {})
+            config.setdefault("daily_supply_status", {})
+            status_today = config["daily_supply_status"].setdefault(today_str, {
+                "morning_sent": False,
+                "afternoon_sent": False,
+                "evening_sent": False
+            })
 
-    # Sinon → on va chercher dans le log d'activité (du + récent au + ancien)
-    activity_log = config.get("channel_activity_log", {})
-    sorted_channels = sorted(activity_log.items(), key=lambda x: x[1], reverse=True)  # tri par timestamp
+            # Vérifie le créneau en cours
+            if 8 <= now_hour < 12 and not status_today["morning_sent"]:
+                target_slot = "morning_sent"
+            elif 13 <= now_hour < 17 and not status_today["afternoon_sent"]:
+                target_slot = "afternoon_sent"
+            elif 18 <= now_hour < 23 and not status_today["evening_sent"]:
+                target_slot = "evening_sent"
+            else:
+                target_slot = None
 
-    for ch_id, _ in sorted_channels:
-        ch = bot.get_channel(ch_id)
-        if ch:
-            perms = ch.permissions_for(guild.me)
-            if perms.send_messages and perms.add_reactions and perms.read_messages:
-                # On met à jour last_channel_id !
-                config["last_channel_id"] = ch.id
-                sauvegarder()
-                return ch
+            if target_slot:
+                print(f"🎁 Envoi spécial supply sur {guild.name} ({target_slot})")
+                channel = find_or_update_valid_channel(bot, guild, config)
+                if channel:
+                    await send_special_supply_in_channel(bot, guild, channel)
+                    status_today[target_slot] = True
+                    sauvegarder()
 
-    # En dernier recours → parcours les salons du serveur
-    for ch in guild.text_channels:
-        perms = ch.permissions_for(guild.me)
-        if perms.send_messages and perms.add_reactions and perms.read_messages:
-            # On met à jour last_channel_id !
-            config["last_channel_id"] = ch.id
-            sauvegarder()
-            return ch
-
-    # Aucun salon trouvé
-    return None
+        await asyncio.sleep(300)  # toutes les 5 minutes
