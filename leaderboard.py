@@ -3,15 +3,7 @@ from storage import leaderboard, hp
 from embeds import build_embed_from_item
 from leaderboard_utils import update_leaderboard
 from data import leaderboard
-
-# ✅ Fonction utilitaire pour le calcul des GotCoins
-def get_gotcoins(stats):
-    return (
-        stats.get("degats", 0)
-        + stats.get("soin", 0)
-        + stats.get("kills", 0) * 50
-        - stats.get("morts", 0) * 25
-    )
+from economy_utils import get_gotcoins
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
     medals = ["🥇", "🥈", "🥉"]
