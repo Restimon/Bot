@@ -42,22 +42,32 @@ def register_profile_command(bot):
             color=discord.Color.purple()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
+
+        # ❤️ Points de vie
         embed.add_field(name="❤️ Points de vie", value=hp_display, inline=False)
 
-        # ✅ GotCoins en champ dédié
+        # 💰 GotCoins
         embed.add_field(
             name="💰 GotCoins",
             value=f"**{gotcoins}** GotCoins",
             inline=False
         )
 
+        # 🎒 Inventaire
+        item_counts = {}
+        for item in user_inv:
+            item_counts[item] = item_counts.get(item, 0) + 1
+        inv_display = "Aucun objet." if not item_counts else "\n".join(f"{emoji} × {count}" for emoji, count in item_counts.items())
+        embed.add_field(name="🎒 Inventaire", value=inv_display, inline=False)
+
+        # 🏆 Classement général
         embed.add_field(
             name="🏆 Classement général",
             value=f"{medal} Rang {rank}" if rank else "Non classé",
             inline=False
         )
 
-        # Effets négatifs
+        # ☣️ État pathologique
         now = time.time()
         status_lines = []
 
@@ -88,7 +98,7 @@ def register_profile_command(bot):
             inline=False
         )
 
-        # Bonus temporaires (hors bouclier)
+        # 🌀 Effets temporaires actifs
         bonus_lines = []
 
         for bonus, emoji, label, extra in [
@@ -111,6 +121,7 @@ def register_profile_command(bot):
             rem_min = int(remaining // 60)
             bonus_lines.append(f"💕 **Régénération** — {rem_min} min restantes (+3 PV / 30 min)")
 
+        # Envoi
         if bonus_lines:
             bonus_embed = discord.Embed(
                 title="🌀 Effets temporaires actifs",
