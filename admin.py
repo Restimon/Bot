@@ -224,27 +224,20 @@ def register_admin_commands(bot):
         else:
             await interaction.response.send_message("⚠️ Une erreur est survenue.", ephemeral=True)
             
-    @bot.tree.command(name="supply", description="Force l’apparition d’un ravitaillement spécial (admin uniquement)")
-    async def supply_command(interaction: discord.Interaction):
-        from special_supply import send_special_supply, last_active_channel, last_supply_time
+    @bot.tree.command(name="supply", description="Forcer l'envoi d'un ravitaillement spécial (Admin).")
+    @commands.has_permissions(administrator=True)
+    async def supply(interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
+        guild = interaction.guild
+        gid = str(guild.id)
+        config = supply_data.setdefault(gid, {})
 
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("⛔ Commande réservée aux administrateurs.", ephemeral=True)
-            return
-
-        guild_id = str(interaction.guild.id)
-        last_active_channel[guild_id] = interaction.channel.id
-
-        try:
-            await interaction.response.defer(thinking=False)  # ✅ pour éviter le chargement "infini"
-            await send_special_supply(bot, force=True)
-
-            # ⛔ Empêche le déclenchement automatique dans la foulée
-            last_supply_time[guild_id] = time.time()
-
-            await interaction.followup.send("📦 Ravitaillement spécial déclenché avec succès.")
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur lors du déclenchement : {e}")
+        channel = find_or_update_valid_channel(bot, guild, config)
+        if channel:
+            await send_special_supply_in_channel(bot, guild, channel)
+            await interaction.followup.send(f"📦 Ravitaillement spécial forcé envoyé dans {channel.mention}.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Aucun salon valide trouvé pour envoyer le ravitaillement.", ephemeral=True)
 
     @bot.tree.command(name="forcer_lb_temp", description="🔁 Mise à jour manuelle du leaderboard spécial (test).")
     @app_commands.checks.has_permissions(administrator=True)
