@@ -827,10 +827,6 @@ def on_shutdown():
     print("💾 Sauvegarde finale avant extinction du bot...")
     sauvegarder()
 
-async def wait_and_close_supply(guild_id, delay):
-    await asyncio.sleep(delay)
-    await close_special_supply(guild_id)
-
 # Appel automatique à la fermeture normale du programme
 atexit.register(on_shutdown)
 
