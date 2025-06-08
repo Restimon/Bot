@@ -1,17 +1,27 @@
 import discord
-from storage import leaderboard, hp  # 🔧 ajoute hp ici
+from storage import leaderboard, hp
 from embeds import build_embed_from_item
 from leaderboard_utils import update_leaderboard
 from data import leaderboard
+
+# ✅ Fonction utilitaire pour le calcul des GotCoins
+def get_gotcoins(stats):
+    return (
+        stats.get("degats", 0)
+        + stats.get("soin", 0)
+        + stats.get("kills", 0) * 50
+        - stats.get("morts", 0) * 25
+    )
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
     medals = ["🥇", "🥈", "🥉"]
     guild_id = str(guild.id)
     server_lb = leaderboard.get(guild_id, {})
 
+    # Trié par GotCoins
     sorted_lb = sorted(
         server_lb.items(),
-        key=lambda x: x[1]['degats'] + x[1]['soin'] + x[1].get('kills', 0) * 50 - x[1].get('morts', 0) * 25,
+        key=lambda x: get_gotcoins(x[1]),
         reverse=True
     )
 
@@ -21,19 +31,15 @@ async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> 
         if not member:
             continue
 
-        degats = stats.get("degats", 0)
-        soin = stats.get("soin", 0)
-        kills = stats.get("kills", 0)
-        morts = stats.get("morts", 0)
-        total = degats + soin + (kills * 50) - (morts * 25)
+        total_gotcoins = get_gotcoins(stats)
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
 
         lines.append(
-            f"{prefix} **{member.display_name}** → 💰 **{total} GotCoins**"
+            f"{prefix} **{member.display_name}** → 💰 **{total_gotcoins} GotCoins**"
         )
 
     embed = discord.Embed(
-        title=f"🏆 Classement de puissance de GotValis",
+        title=f"🏆 Classement de richesse - GotValis",
         description="\n".join(lines) if lines else "*Aucun joueur valide trouvé.*",
         color=discord.Color.gold()
     )
