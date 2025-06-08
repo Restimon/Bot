@@ -21,6 +21,31 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         embed = await appliquer_soin(ctx, user_id, target_id, action)
         return embed, True
 
+    # 🪙 VOL
+    if action["type"] == "vol":
+        # Aller chercher l'inventaire de la cible
+        inv, _, _ = get_user_data(guild_id, target_id)
+
+        if not inv:
+            embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, target_id)} n'a aucun objet à voler.")
+            await ctx.followup.send(embed=embed)
+            return None, True
+
+        # Vol aléatoire
+        stolen_item = random.choice(inv)
+        inv.remove(stolen_item)
+
+        # Donne l'objet à l'attaquant
+        attacker_inv, _, _ = get_user_data(guild_id, user_id)
+        attacker_inv.append(stolen_item)
+
+        # Embed de confirmation
+        embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, user_id)} a volé **{stolen_item}** à {get_mention(ctx.guild, target_id)} !")
+        await ctx.followup.send(embed=embed)
+
+        sauvegarder()
+        return None, True
+    
     # ⭐ Immunité
     if is_immune(guild_id, target_id):
         description = f"⭐ {get_mention(ctx.guild, target_id)} est protégé par une **immunité**."
