@@ -51,24 +51,26 @@ def register_profile_command(bot):
             inline=False
         )
 
-        # Inventaire → en colonnes
+        # INVENTAIRE EN COLONNES
         item_counts = {}
         for item in user_inv:
             item_counts[item] = item_counts.get(item, 0) + 1
-
+        
         if not item_counts:
             embed.add_field(name="🎒 Inventaire", value="Aucun objet.", inline=False)
         else:
-            # On découpe en colonnes de 10 items max
-            items = [f"{emoji} × {count}" for emoji, count in item_counts.items()]
-            columns = [items[i:i + 10] for i in range(0, len(items), 10)]
-            for i, col in enumerate(columns):
+            # Découpe en colonnes (groupes de 4 objets par colonne)
+            chunk_size = 4
+            item_list = list(item_counts.items())
+            chunks = [item_list[i:i+chunk_size] for i in range(0, len(item_list), chunk_size)]
+        
+            for i, chunk in enumerate(chunks):
+                value = "\n".join(f"{emoji} × {count}" for emoji, count in chunk)
                 embed.add_field(
-                    name="🎒 Inventaire" if i == 0 else "\u200b",  # pas de titre pour les colonnes suivantes
-                    value="\n".join(col),
+                    name="🎒 Inventaire" if i == 0 else "\u200b",  # Premier champ a un titre, les suivants pas
+                    value=value,
                     inline=True
                 )
-
         # Effets négatifs
         now = time.time()
         status_lines = []
