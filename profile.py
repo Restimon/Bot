@@ -8,15 +8,7 @@ from data import (
     regeneration_status,
 )
 from embeds import build_embed_from_item
-
-# Fonction utilitaire pour calculer les GotCoins
-def get_gotcoins(user_stats):
-    return (
-        user_stats.get("degats", 0)
-        + user_stats.get("soin", 0)
-        + user_stats.get("kills", 0) * 50
-        - user_stats.get("morts", 0) * 25
-    )
+from economy_utils import get_gotcoins
 
 def register_profile_command(bot):
     @bot.tree.command(name="info", description="Affiche le profil GotValis d’un membre.")
