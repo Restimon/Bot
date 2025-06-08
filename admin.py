@@ -18,69 +18,22 @@ DATA_FILE = "/persistent/data.json"
 
 def register_admin_commands(bot):
     print("📦 Enregistrement des commandes admin...")
-    @bot.tree.command(name="setleaderboardchannel", description="Définit et envoie le classement dans un salon.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def set_leaderboard(interaction: discord.Interaction, channel: discord.TextChannel):
-        print("🚨 set_leaderboard déclenchée")
+    @bot.tree.command(name="setleaderboardchannel", description="Définit le salon pour le leaderboard économique (GotCoins).")
+    @app_commands.describe(channel="Le salon dans lequel afficher le leaderboard.")
+    @app_commands.default_permissions(administrator=True)
+    async def set_leaderboard_channel(interaction: discord.Interaction, channel: discord.TextChannel):
         guild_id = str(interaction.guild.id)
-        await interaction.response.defer(ephemeral=True)
+        guild_config = get_guild_config(guild_id)
 
-        config = get_config() 
-        guild_config = config.setdefault(guild_id, {})
-        old_channel_id = guild_config.get("special_leaderboard_channel_id")
-        old_message_id = guild_config.get("special_leaderboard_message_id")
-
-        if old_channel_id and old_message_id:
-            old_channel = interaction.client.get_channel(old_channel_id)
-            if old_channel:
-                try:
-                    old_msg = await old_channel.fetch_message(old_message_id)
-                    await old_msg.delete()
-                except discord.NotFound:
-                    pass
-
-        medals = ["🥇", "🥈", "🥉"]
-        server_lb = leaderboard.get(guild_id, {})
-        sorted_lb = sorted(server_lb.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
-
-        lines = []
-        rank = 0
-        for uid, stats in sorted_lb:
-            user = bot.get_user(int(uid))
-            if not user:
-                continue
-            if rank >= 10:
-                break
-
-            degats = stats.get("degats", 0)
-            soin = stats.get("soin", 0)
-            kills = stats.get("kills", 0)
-            morts = stats.get("morts", 0)
-            total = degats + soin + kills * 50 - morts * 25
-            pv = hp.get(guild_id, {}).get(uid, 100)
-
-            prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-            lines.append(
-                f"{prefix} **{user.display_name}** → "
-                f"🗡️ {degats} | 💚 {soin} | 🎽 {kills} | 💀 {morts} = **{total}** points | ❤️ {pv} PV"
-            )
-            rank += 1
-
-        content = (
-            "> 🏆 __**CLASSEMENT GotValis - ÉDITION SPÉCIALE**__ 🏆\n\n" +
-            "\n".join([f"> {line}" for line in lines]) +
-            "\n\n> 📌 Classement mis à jour automatiquement par GotValis."
-        )
-
-        msg = await channel.send(content=content)
         guild_config["special_leaderboard_channel_id"] = channel.id
-        guild_config["special_leaderboard_message_id"] = msg.id
-
-        print("📌 Avant save_config()")  # ← AJOUTE ÇA
+        guild_config["special_leaderboard_message_id"] = None  # Reset pour forcer un nouvel envoi
         save_config()
-        print("💾 Après save_config()")  # ← ET ÇA
 
-        await interaction.followup.send(f"✅ Classement envoyé dans {channel.mention}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"✅ Salon défini pour le **leaderboard économique** : {channel.mention}.\n"
+            f"Le message sera mis à jour automatiquement dans la prochaine boucle.",
+            ephemeral=True
+        )
 
     @bot.tree.command(name="get_leaderboard_channel", description="📊 Voir le salon du leaderboard spécial")
     @app_commands.checks.has_permissions(administrator=True)
@@ -107,57 +60,54 @@ def register_admin_commands(bot):
                 ephemeral=True
             )
 
-    @bot.tree.command(name="stopleaderboard", description="🛑 Supprime le message du classement spécial et arrête sa mise à jour automatique.")
+    @bot.tree.command(name="get_leaderboard_channel", description="📊 Voir le salon du leaderboard économique (GotCoins).")
     @app_commands.checks.has_permissions(administrator=True)
-    async def stop_leaderboard(interaction: discord.Interaction):
+    async def get_leaderboard_channel(interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
-        config = get_config()
-        guild_config = config.get(guild_id, {})
+        cfg = get_guild_config(guild_id)
+        channel_id = cfg.get("special_leaderboard_channel_id")
+    
+        if channel_id:
+            channel = interaction.guild.get_channel(channel_id)
+            if channel:
+                await interaction.response.send_message(
+                    f"📍 Le salon du **leaderboard économique (GotCoins)** est : {channel.mention} (`#{channel.name}` - ID `{channel.id}`)",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"⚠️ Le salon avec l'ID `{channel_id}` n'existe plus ou est inaccessible.",
+                    ephemeral=True
+                )
+        else:
+            await interaction.response.send_message(
+                "❌ Aucun salon de leaderboard économique n’a encore été configuré pour ce serveur.",
+                ephemeral=True
+            )
 
-        channel_id = guild_config.get("special_leaderboard_channel_id")
-        message_id = guild_config.get("special_leaderboard_message_id")
-
-        if not channel_id or not message_id:
-            return await interaction.response.send_message("⚠️ Aucun leaderboard spécial actif.", ephemeral=True)
-
-        channel = interaction.client.get_channel(channel_id)
-        if channel:
-            try:
-                msg = await channel.fetch_message(message_id)
-                await msg.delete()
-            except discord.NotFound:
-                pass
-
-    # On efface les IDs du leaderboard spécial
-        guild_config["special_leaderboard_channel_id"] = None
-        guild_config["special_leaderboard_message_id"] = None
-        save_config()
-
-        await interaction.response.send_message("🛑 Leaderboard spécial désactivé et supprimé.", ephemeral=True)
-
-    @bot.tree.command(name="resetall", description="Réinitialise TOUS les joueurs : inventaire, PV, classement, statuts.")
+    @bot.tree.command(name="resetall", description="Réinitialise TOUS les joueurs : inventaire, PV, GotCoins, statuts.")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_all(interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
-
+    
         uids = set(inventaire.get(guild_id, {})) | set(hp.get(guild_id, {})) | set(leaderboard.get(guild_id, {}))
         for uid in uids:
             inventaire[guild_id][uid] = []
             hp[guild_id][uid] = 100
-            leaderboard[guild_id][uid] = {"degats": 0, "soin": 0, "kills": 0, "morts": 0}
-
+            leaderboard[guild_id][uid] = {"degats": 0, "soin": 0, "kills": 0, "morts": 0}  # GotCoins = ce total
+    
         # Réinitialisation des statuts
         from data import virus_status, poison_status, infection_status, regeneration_status
-
+    
         virus_status[guild_id] = {}
         poison_status[guild_id] = {}
         infection_status[guild_id] = {}
         regeneration_status[guild_id] = {}
-
+    
         sauvegarder()
-
+    
         await interaction.response.send_message(
-            f"♻️ Tous les joueurs ont été réinitialisés ({len(uids)} membres), y compris leurs statuts.", ephemeral=True
+            f"♻️ Tous les joueurs ont été réinitialisés ({len(uids)} membres), y compris leurs statuts et leur solde de **GotCoins**.", ephemeral=True
         )
 
     @bot.tree.command(name="resethp", description="Remet les PV d’un membre à 100.")
@@ -181,16 +131,18 @@ def register_admin_commands(bot):
         sauvegarder()
         await interaction.response.send_message(f"📦 Inventaire de {user.mention} vidé.", ephemeral=True)
 
-    @bot.tree.command(name="resetleaderboard", description="Réinitialise les stats de classement de TOUS les membres.")
+    @bot.tree.command(name="resetleaderboard", description="Réinitialise les GotCoins (classement) de TOUS les membres.")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_leaderboard(interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
         count = 0
         for uid in leaderboard.get(guild_id, {}):
-            leaderboard[guild_id][uid] = {"degats": 0, "soin": 0}
+            leaderboard[guild_id][uid] = {"degats": 0, "soin": 0, "kills": 0, "morts": 0}  # on garde la structure complète
             count += 1
         sauvegarder()
-        await interaction.response.send_message(f"🏆 Classement réinitialisé pour {count} membres.", ephemeral=True)
+        await interaction.response.send_message(
+            f"🏆 Le solde de **GotCoins** a été réinitialisé pour {count} membres.", ephemeral=True
+        )
 
     @bot.tree.command(name="giveitem", description="🎁 Donne un item à un membre.")
     @app_commands.describe(user="Le membre", item="Emoji de l'objet", quantity="Quantité")
