@@ -3,6 +3,7 @@ import json
 import shutil
 import os
 
+from discord.ext import commands
 from discord import app_commands
 from storage import inventaire, hp, leaderboard, get_user_data
 from utils import OBJETS
