@@ -352,24 +352,25 @@ async def update_leaderboard_loop():
                 )
                 rank += 1
 
-            content = (
-                "> 🏆 __**CLASSEMENT GOTVALIS - ÉDITION SPÉCIALE**__ 🏆\n\n" +
-                "\n".join([f"> {line}" for line in lines]) +
-                "\n\n 📌 Les GotCoins représentent votre richesse accumulée."
-            ) if lines else "*Aucune donnée disponible.*"
+            embed = discord.Embed(
+                title="🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆",
+                description="\n".join(lines) if lines else "*Aucune donnée disponible.*",
+                color=discord.Color.gold()
+            )
+
+            embed.set_footer(text="💰 Les GotCoins représentent votre richesse accumulée.")
 
             try:
                 if message_id:
                     print(f"✏️ Modification du message {message_id} dans {channel.name}")
                     msg = await channel.fetch_message(message_id)
-                    if msg.content != content:
-                        await msg.edit(content=content)
+                    await msg.edit(content=None, embed=embed)
                 else:
                     raise discord.NotFound(response=None, message="No message ID")
             except (discord.NotFound, discord.HTTPException) as e:
                 print(f"📤 Envoi d’un nouveau message dans {channel.name} ({e})")
                 try:
-                    msg = await channel.send(content=content)
+                    msg = await channel.send(embed=embed)
                     guild_config["special_leaderboard_message_id"] = msg.id
                     save_config()
                 except Exception as e:
