@@ -178,8 +178,11 @@ async def voler_objet(interaction, uid, tid):
 
     # On récupère l'inventaire de la cible
     target_inv, _, _ = get_user_data(guild_id, tid)
+    possible_items = target_inv  # <= c'est ici qu'il y avait l'erreur
 
-    # On filtre pour ne pas voler certains objets interdits
+    # On filtre pour ne pas voler certains objets interdits (optionnel, à toi d'ajouter si besoin)
+
+    # Si pas d'objet à voler :
     if not possible_items:
         description = (
             f"Malheureusement, aucun objet valable n’a pu être volé à {get_mention(interaction.guild, tid)}."
@@ -204,4 +207,3 @@ async def voler_objet(interaction, uid, tid):
     embed = build_embed_from_item("🔍", description)
     embed.color = discord.Color.green()
     return embed
-
