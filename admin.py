@@ -5,22 +5,16 @@ import os
 
 from discord.ext import commands
 from discord import app_commands
-from storage import hp, inventaire, leaderboard
+from storage import hp, inventaire, leaderboard  
 from utils import OBJETS
 from config import get_config, save_config, get_guild_config
 from data import sauvegarder, virus_status, poison_status, infection_status, regeneration_status, leaderboard
-from special_supply import find_or_update_valid_channel, send_special_supply_in_channel, supply_data, sauvegarder
+from special_supply import find_or_update_valid_channel, send_special_supply_in_channel, supply_data
 from embeds import build_embed_from_item
 from leaderboard_utils import update_leaderboard
 
 BACKUP_DIR = "/persistent/backups"
 DATA_FILE = "/persistent/data.json"
-
-import discord
-from discord import app_commands
-from storage import sauvegarder, hp, inventaire, leaderboard
-from config import get_guild_config, save_config
-from data import virus_status, poison_status, infection_status, regeneration_status
 
 # Protection anti double register
 _admin_commands_registered = False
