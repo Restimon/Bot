@@ -9,6 +9,15 @@ from data import (
 )
 from embeds import build_embed_from_item
 
+# Fonction utilitaire pour calculer les GotCoins
+def get_gotcoins(user_stats):
+    return (
+        user_stats.get("degats", 0)
+        + user_stats.get("soin", 0)
+        + user_stats.get("kills", 0) * 50
+        - user_stats.get("morts", 0) * 25
+    )
+
 def register_profile_command(bot):
     @bot.tree.command(name="info", description="Affiche le profil GotValis d’un membre.")
     @app_commands.describe(user="Le membre à inspecter")
@@ -20,11 +29,15 @@ def register_profile_command(bot):
         uid = str(member.id)
 
         user_inv, user_hp, user_stats = get_user_data(guild_id, uid)
-        points = user_stats["degats"] + user_stats["soin"]
+        gotcoins = get_gotcoins(user_stats)
 
-        # Classement
+        # Classement basé sur GotCoins
         server_leaderboard = leaderboard.get(guild_id, {})
-        sorted_lb = sorted(server_leaderboard.items(), key=lambda x: x[1]["degats"] + x[1]["soin"], reverse=True)
+        sorted_lb = sorted(
+            server_leaderboard.items(),
+            key=lambda x: get_gotcoins(x[1]),
+            reverse=True
+        )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, "")
 
@@ -53,7 +66,7 @@ def register_profile_command(bot):
                 f"• ✨ Soins prodigués : **{user_stats['soin']}**\n"
                 f"• ☠️ Kills : **{user_stats.get('kills', 0)}**\n"
                 f"• 💀 Morts : **{user_stats.get('morts', 0)}**\n"
-                f"• 🎯 Points totaux : **{points}**"
+                f"• 💰 GotCoins : **{gotcoins}**"
             ),
             inline=False
         )
@@ -109,7 +122,7 @@ def register_profile_command(bot):
                 rem_min = int(remaining // 60)
                 bonus_lines.append(f"{emoji} **{label}** — {rem_min} min restants {extra}")
 
-        # ✅ Régénération ajoutée ici
+        # ✅ Régénération
         regen_data = regeneration_status.get(guild_id, {}).get(uid)
         if isinstance(regen_data, dict) and "start" in regen_data and "duration" in regen_data:
             elapsed = now - regen_data["start"]
