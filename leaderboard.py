@@ -33,7 +33,7 @@ async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> 
         )
 
     embed = discord.Embed(
-        title=f"🏆 Classement économique GotValis",
+        title=f"🏆 Classement de puissance de GotValis",
         description="\n".join(lines) if lines else "*Aucun joueur valide trouvé.*",
         color=discord.Color.gold()
     )
