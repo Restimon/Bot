@@ -43,6 +43,7 @@ from utilitaire import register_utilitaire_command
 from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
+from economy_utils import get_gotcoins
 
 os.makedirs("/persistent", exist_ok=True)
 
