@@ -56,9 +56,22 @@ def build_help_embed():
     embed.add_field(
         name="📊 Statistiques et Classements",
         value=(
-            "`/leaderboard` — Classement global (avec kills et morts).\n"
-            "`/info [@membre]` — Voir les PV, stats, statuts et classement personnel.\n"
+            "`/leaderboard` — Classement par richesse (GotCoins).\n"
+            "`/info [@membre]` — Voir les PV, stats, statuts et GotCoins personnels.\n"
             "`/status [@membre]` — Voir les effets persistants d’un joueur (virus, poison, etc.)."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="💰 Économie GotCoins",
+        value=(
+            "**Comment gagner des GotCoins ?**\n"
+            "• Infliger des dégâts → +1 GotCoin par PV perdu.\n"
+            "• Soigner un joueur → +1 GotCoin par PV soigné.\n"
+            "• Réaliser un kill → +50 GotCoins.\n"
+            "• Mourir → -25 GotCoins.\n"
+            "➡️ Plus tu combats ou aides les autres, plus tu deviens riche !"
         ),
         inline=False
     )
@@ -69,5 +82,5 @@ def build_help_embed():
         inline=False
     )
 
-    embed.set_footer(text="☁️ Propulsé par GotValis — La technologie au service de vos rêves.")
+    embed.set_footer(text="💰 Les GotCoins sont la clé du pouvoir dans l’écosystème GotValis.")
     return embed
