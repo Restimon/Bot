@@ -44,6 +44,7 @@ from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
 from economy_utils import get_gotcoins
+from stats import register_stats_command
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -122,7 +123,8 @@ def register_all_commands(bot):
     register_lick_command(bot)
     register_bite_command(bot)
     register_love_command(bot)
-
+    register_stats_command(bot)
+    
 # ===================== Events ======================
 
 @bot.event
