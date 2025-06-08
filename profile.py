@@ -7,11 +7,10 @@ from data import (
     shields, esquive_status, casque_status, immunite_status,
     regeneration_status,
 )
-from embeds import build_embed_from_item
 from economy_utils import get_gotcoins
 
 def register_profile_command(bot):
-    @bot.tree.command(name="info", description="Affiche le profil GotValis d’un membre.")
+    @bot.tree.command(name="profile", description="Affiche le profil GotValis d’un membre.")
     @app_commands.describe(user="Le membre à inspecter")
     async def profile_slash(interaction: discord.Interaction, user: discord.Member = None):
         await interaction.response.defer(thinking=True)
@@ -33,12 +32,6 @@ def register_profile_command(bot):
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, "")
 
-        # Inventaire
-        item_counts = {}
-        for item in user_inv:
-            item_counts[item] = item_counts.get(item, 0) + 1
-        inv_display = "Aucun objet." if not item_counts else "\n".join(f"{emoji} × {count}" for emoji, count in item_counts.items())
-
         # PV + bouclier
         shield_amt = shields.get(guild_id, {}).get(uid, 0)
         hp_display = f"{user_hp} / 100" + (f" + 🛡 {shield_amt}" if shield_amt > 0 else "")
@@ -50,18 +43,14 @@ def register_profile_command(bot):
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="❤️ Points de vie", value=hp_display, inline=False)
-        embed.add_field(name="🎒 Inventaire", value=inv_display, inline=False)
+
+        # ✅ GotCoins en champ dédié
         embed.add_field(
-            name="📊 Statistiques",
-            value=(
-                f"• 🗡️ Dégâts infligés : **{user_stats['degats']}**\n"
-                f"• ✨ Soins prodigués : **{user_stats['soin']}**\n"
-                f"• ☠️ Kills : **{user_stats.get('kills', 0)}**\n"
-                f"• 💀 Morts : **{user_stats.get('morts', 0)}**\n"
-                f"• 💰 GotCoins : **{gotcoins}**"
-            ),
+            name="💰 GotCoins",
+            value=f"**{gotcoins}** GotCoins",
             inline=False
         )
+
         embed.add_field(
             name="🏆 Classement général",
             value=f"{medal} Rang {rank}" if rank else "Non classé",
@@ -114,7 +103,7 @@ def register_profile_command(bot):
                 rem_min = int(remaining // 60)
                 bonus_lines.append(f"{emoji} **{label}** — {rem_min} min restants {extra}")
 
-        # ✅ Régénération
+        # Régénération
         regen_data = regeneration_status.get(guild_id, {}).get(uid)
         if isinstance(regen_data, dict) and "start" in regen_data and "duration" in regen_data:
             elapsed = now - regen_data["start"]
