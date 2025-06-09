@@ -44,12 +44,6 @@ def register_bank_command(bot):
         )
 
         embed.add_field(
-            name="📅 Membre depuis",
-            value=f"Le {join_date}",
-            inline=False
-        )
-
-        embed.add_field(
             name="🏆 Classement général",
             value=f"{medal} Rang {rank}" if rank else "Non classé",
             inline=False
