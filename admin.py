@@ -309,14 +309,23 @@ def register_admin_commands(bot):
         app_commands.Choice(name="OFF", value="off")
     ])
     async def supplytoggle(interaction: discord.Interaction, etat: app_commands.Choice[str]):
-        # Vérification permission admin
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Vous devez être administrateur pour utiliser cette commande.", ephemeral=True)
-            return
-
+        guild_id = str(interaction.guild.id)
+    
         if etat.value == "on":
-            set_special_supply_enabled(True)
-            await interaction.response.send_message("✅ La boucle de ravitaillement spécial est maintenant **ACTIVE**.", ephemeral=True)
+            set_special_supply_enabled(guild_id, True)
+            await interaction.response.send_message("✅ La boucle de ravitaillement spécial est maintenant **ACTIVE** sur ce serveur.", ephemeral=True)
         else:
-            set_special_supply_enabled(False)
-            await interaction.response.send_message("⛔ La boucle de ravitaillement spécial est maintenant **DÉSACTIVÉE**.", ephemeral=True)
+            set_special_supply_enabled(guild_id, False)
+            await interaction.response.send_message("⛔ La boucle de ravitaillement spécial est maintenant **DÉSACTIVÉE** sur ce serveur.", ephemeral=True)
+
+    @bot.tree.command(name="supplystatus", description="Affiche si la boucle de ravitaillement spécial est active pour ce serveur.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def supplystatus(interaction: discord.Interaction):
+        guild_id = str(interaction.guild.id)
+        if is_special_supply_enabled(guild_id):
+            status = "✅ ACTIVE"
+        else:
+            status = "⛔ DÉSACTIVÉE"
+    
+        await interaction.response.send_message(f"📦 La boucle de ravitaillement spécial est actuellement : **{status}** sur ce serveur.", ephemeral=True)
+
