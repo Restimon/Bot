@@ -2,7 +2,7 @@ import discord
 import time
 from utils import get_random_item
 from storage import get_user_data
-from data import sauvegarder, last_daily_claim
+from data import sauvegarder, last_daily_claim, leaderboard
 from embeds import build_embed_from_item
 
 def register_daily_command(bot):
@@ -28,15 +28,28 @@ def register_daily_command(bot):
         reward1 = get_random_item()
         reward2 = get_random_item()
 
+        # Inventaire
         user_inv, _, _ = get_user_data(guild_id, user_id)
         user_inv.extend([reward1, reward2])
+
+        # GotCoins → +25
+        leaderboard.setdefault(guild_id, {}).setdefault(user_id, {
+            "degats": 0, "soin": 0, "kills": 0, "morts": 0
+        })
+        leaderboard[guild_id][user_id]["soin"] += 25
+
+        # Enregistrer date daily
         last_daily_claim[guild_id][user_id] = now
 
         sauvegarder()  # sauvegarde globale
 
         embed = discord.Embed(
             title="🎁 Récompense quotidienne de GotValis",
-            description=f"{interaction.user.mention} a reçu : {reward1} et {reward2} !\nMerci pour ta fidélité à **GotValis**.",
+            description=(
+                f"{interaction.user.mention} a reçu : {reward1} et {reward2} !\n"
+                f"💰 **+25 GotCoins** ajoutés à ton compte.\n"
+                f"Merci pour ta fidélité à **GotValis**."
+            ),
             color=discord.Color.green()
         )
         embed.set_footer(text="À réutiliser dans 24h.")
