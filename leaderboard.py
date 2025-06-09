@@ -1,7 +1,7 @@
 import discord
 from economy import gotcoins_balance
 from storage import hp
-from data import shield_status  # si ton shield est stocké ici, ajuste selon ton code
+from data import shields  # si ton shield est stocké ici, ajuste selon ton code
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
     from storage import hp, shields
