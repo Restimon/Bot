@@ -284,18 +284,18 @@ async def special_supply_loop(bot):
     print("🎁 Boucle spéciale supply démarrée (check 15 min)")
 
     while not bot.is_closed():
-        # Check global ON/OFF
-        if not is_special_supply_enabled():
-            print("⚠️ Boucle supply désactivée temporairement. Skip 15 min...")
-            await asyncio.sleep(900)
-            continue
-
-        now_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=2)  # UTC+2 (heure FR courante)
+        now_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
         now_hour = now_dt.hour
         today_str = now_dt.strftime("%Y-%m-%d")
 
         for guild in bot.guilds:
             gid = str(guild.id)
+
+            # 🛠️ ici on utilise bien la nouvelle version :
+            if not is_special_supply_enabled(gid):
+                print(f"⚠️ Boucle supply désactivée pour {guild.name}. Skip.")
+                continue
+
             config = supply_data.setdefault(gid, {})
             config.setdefault("daily_supply_status", {})
             status_today = config["daily_supply_status"].setdefault(today_str, {
