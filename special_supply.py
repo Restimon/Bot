@@ -7,6 +7,7 @@ import datetime
 from data import virus_status, poison_status, infection_status, regeneration_status, supply_data, sauvegarder
 from storage import get_user_data, hp
 from utils import get_random_item, OBJETS
+from economy import add_gotcoins
 
 # Flag global pour (dés)activer la boucle supply
 SPECIAL_SUPPLY_ENABLED = True
@@ -106,16 +107,19 @@ def describe_item(emoji):
 
 def choose_reward(user_id, guild_id):
     r = random.random()
-    if r < 0.60:
+    if r < 0.55:
         return "objet", get_random_item()
-    elif r < 0.70:
+    elif r < 0.65:
         return "status", random.choice(["virus", "poison", "infection"])
-    elif r < 0.80:
+    elif r < 0.75:
         return "degats", random.randint(1, 15)
-    elif r < 0.95:
+    elif r < 0.90:
         return "soin", random.randint(1, 10)
-    else:
+    elif r < 0.97:
         return "regen", True
+    else:
+        # Nouvelle catégorie → gain en GotCoins
+        return "gold", random.randint(10, 40)
 
 async def reset_supply_flags(bot):
     print("🔄 Reset automatique des flags supply + vérification des messages.")
@@ -262,6 +266,10 @@ async def send_special_supply_in_channel(bot, guild, channel):
                 "channel_id": channel.id
             }
             results.append(f"✨ {user.mention} bénéficie d’une **régénération** pendant 3h.")
+
+        elif reward_type == "gold":
+            add_gotcoins(gid, uid, reward, category="autre")
+            results.append(f"💰 {user.mention} a reçu **{reward} GotCoins** en bonus !")
 
     if results:
         recap = discord.Embed(
