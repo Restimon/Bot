@@ -186,91 +186,86 @@ async def on_message(message):
     channel_id = message.channel.id
 
     from special_supply import update_last_active_channel
+
+    # 🔄 Mise à jour du salon actif
     try:
         update_last_active_channel(message)
     except Exception as e:
         print(f"[on_message] Erreur update_last_active_channel : {e}")
 
+    # 📊 Log activité canal
     try:
-        supply_data.setdefault(guild_id, {})
-        supply_data[guild_id].setdefault("channel_activity_log", {})
+        supply_data.setdefault(guild_id, {}).setdefault("channel_activity_log", {})
         supply_data[guild_id]["channel_activity_log"][channel_id] = time.time()
         sauvegarder()
     except Exception as e:
         print(f"[on_message] Erreur update channel_activity_log : {e}")
 
-    # Gestion des GotCoins
+    # 💰 Gains passifs (GotCoins)
     gain = compute_message_gains(message.content)
     if gain > 0:
-        leaderboard.setdefault(guild_id, {}).setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+        leaderboard.setdefault(guild_id, {}).setdefault(user_id, {
+            "degats": 0, "soin": 0, "kills": 0, "morts": 0
+        })
         leaderboard[guild_id][user_id]["soin"] += gain
-
-        # Important → si gain, on ne déclenche pas le ravitaillement aléatoire
-        await bot.process_commands(message)
-        return
 
     # 📦 Ravitaillement classique aléatoire
     global message_counter, random_threshold, last_drop_time
 
     message_counter += 1
-    if message_counter < random_threshold:
-        await bot.process_commands(message)  # important ici aussi
-        return
-
+    drop = False
     current_time = asyncio.get_event_loop().time()
-    if current_time - last_drop_time < 30:
-        await bot.process_commands(message)
-        return
 
-    last_drop_time = current_time
-    message_counter = 0
-    random_threshold = random.randint(4, 8)  # tu peux ajuster la plage si tu veux
+    if message_counter >= random_threshold and (current_time - last_drop_time) >= 30:
+        drop = True
+        last_drop_time = current_time
+        message_counter = 0
+        random_threshold = random.randint(4, 8)
 
-    item = get_random_item()
-    await message.add_reaction(item)
-    collected_users = []
+    if drop:
+        item = get_random_item()
+        await message.add_reaction(item)
+        collected_users = []
 
-    def check(reaction, user):
-        return (
-            reaction.message.id == message.id
-            and str(reaction.emoji) == item
-            and not user.bot
-            and user.id not in [u.id for u in collected_users]
-        )
-
-    end_time = current_time + 15
-    while len(collected_users) < 3 and asyncio.get_event_loop().time() < end_time:
-        try:
-            reaction, user = await asyncio.wait_for(
-                bot.wait_for("reaction_add", check=check),
-                timeout=end_time - asyncio.get_event_loop().time(),
+        def check(reaction, user):
+            return (
+                reaction.message.id == message.id
+                and str(reaction.emoji) == item
+                and not user.bot
+                and user.id not in [u.id for u in collected_users]
             )
-            uid = str(user.id)
-            user_inv, _, _ = get_user_data(guild_id, uid)
-            user_inv.append(item)
-            collected_users.append(user)
-        except asyncio.TimeoutError:
-            break
 
-    if collected_users:
-        mention_list = "\n".join(f"✅ {user.mention}" for user in collected_users)
-        embed = discord.Embed(
-            title="📦 Ravitaillement récupéré",
-            description=(
-                f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mention_list}"
-            ),
-            color=0x00FFAA
-        )
-    else:
-        embed = discord.Embed(
-            title="💥 Ravitaillement détruit",
-            description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
-            color=0xFF0000
-        )
+        end_time = current_time + 15
+        while len(collected_users) < 3 and asyncio.get_event_loop().time() < end_time:
+            try:
+                reaction, user = await asyncio.wait_for(
+                    bot.wait_for("reaction_add", check=check),
+                    timeout=end_time - asyncio.get_event_loop().time(),
+                )
+                uid = str(user.id)
+                user_inv, _, _ = get_user_data(guild_id, uid)
+                user_inv.append(item)
+                collected_users.append(user)
+            except asyncio.TimeoutError:
+                break
 
-    await message.channel.send(embed=embed)
+        if collected_users:
+            mentions = "\n".join(f"✅ {user.mention}" for user in collected_users)
+            embed = discord.Embed(
+                title="📦 Ravitaillement récupéré",
+                description=f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mentions}",
+                color=0x00FFAA
+            )
+        else:
+            embed = discord.Embed(
+                title="💥 Ravitaillement détruit",
+                description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
+                color=0xFF0000
+            )
 
-    # Important → on termine aussi par process_commands pour permettre les commandes texte éventuelles
+        await message.channel.send(embed=embed)
+
+    # ✅ Toujours en fin pour détecter les éventuelles commandes
     await bot.process_commands(message)
 
 @bot.event
