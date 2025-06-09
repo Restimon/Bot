@@ -35,33 +35,41 @@ def register_heal_command(bot):
         if OBJETS[item]["type"] != "soin" and item not in SPECIAL_HEAL_ITEMS:
             return await interaction.followup.send("⚠️ Cet objet n’est pas destiné à soigner !", ephemeral=True)
 
-        # 💉 Vaccin — soigne tous les statuts
         if item == "💉":
+            # Vaccin ne s'utilise que sur soi-même
+            target = member
+            tid = uid
+        
             virus_status.setdefault(guild_id, {})
             poison_status.setdefault(guild_id, {})
             infection_status.setdefault(guild_id, {})
-
+        
             effaces = []
-
-            if uid in virus_status[guild_id]:
-                del virus_status[guild_id][uid]
+        
+            if tid in virus_status[guild_id]:
+                del virus_status[guild_id][tid]
                 effaces.append("🦠 virus")
-            if uid in poison_status[guild_id]:
-                del poison_status[guild_id][uid]
+            if tid in poison_status[guild_id]:
+                del poison_status[guild_id][tid]
                 effaces.append("🧪 poison")
-            if uid in infection_status[guild_id]:
-                del infection_status[guild_id][uid]
+            if tid in infection_status[guild_id]:
+                del infection_status[guild_id][tid]
                 effaces.append("🧟 infection")
-
+        
             user_inv.remove("💉")
             sauvegarder()
-
+        
             if effaces:
-                description = f"{member.mention} s’est administré un vaccin.\n" \
-                              f"{' + '.join(effaces).capitalize()} éradiqué(s) avec succès !"
+                description = (
+                    f"{member.mention} s’est administré un vaccin.\n"
+                    f"{' + '.join(effaces).capitalize()} éradiqué(s) avec succès !"
+                )
             else:
-                description = f"Aucun virus, poison ou infection détecté chez {member.mention}. L’injection était inutile."
-
+                description = (
+                    f"Aucun virus, poison ou infection détecté chez {member.mention}. "
+                    f"L’injection était inutile."
+                )
+        
             embed = build_embed_from_item(
                 "💉",
                 description,
@@ -69,7 +77,7 @@ def register_heal_command(bot):
                 disable_gif=False,
                 custom_title="📢 Vaccination GotValis"
             )
-
+        
             return await interaction.followup.send(embed=embed)
 
         # 💕 Régénération
