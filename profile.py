@@ -1,5 +1,3 @@
-# profile.py
-
 import discord
 import time
 from discord import app_commands
@@ -10,6 +8,7 @@ from data import (
     regeneration_status,
 )
 from economy_utils import get_gotcoins
+from data import leaderboard
 
 def register_profile_command(bot):
     @bot.tree.command(name="profile", description="Affiche le profil GotValis d’un membre.")
@@ -22,13 +21,10 @@ def register_profile_command(bot):
         uid = str(member.id)
 
         user_inv, user_hp, _ = get_user_data(guild_id, uid)
-        total_gotcoins = get_balance(guild_id, uid)
+        total_gotcoins = get_gotcoins(guild_id, uid)
 
-        # Classement basé sur compute_total_gotcoins
-        from economy import gotcoins_balance
-        from data import leaderboard
+        # Classement basé sur get_gotcoins
         server_lb = leaderboard.get(guild_id, {})
-        # Tri manuel (pour l’instant simple)
         sorted_lb = sorted(
             server_lb.items(),
             key=lambda x: get_gotcoins(guild_id, x[0]),
@@ -56,7 +52,16 @@ def register_profile_command(bot):
             inline=False
         )
 
-        # INVENTAIRE EN COLONNES
+        # 📅 Date de join
+        joined_at = member.joined_at
+        if joined_at:
+            embed.add_field(
+                name="📅 Membre depuis",
+                value=joined_at.strftime("%d %B %Y à %Hh%M"),
+                inline=False
+            )
+
+        # INVENTAIRE
         item_counts = {}
         for item in user_inv:
             item_counts[item] = item_counts.get(item, 0) + 1
@@ -107,7 +112,7 @@ def register_profile_command(bot):
             inline=False
         )
 
-        # Bonus temporaires (hors bouclier)
+        # Bonus temporaires
         bonus_lines = []
 
         for bonus, emoji, label, extra in [
@@ -130,6 +135,7 @@ def register_profile_command(bot):
             rem_min = int(remaining // 60)
             bonus_lines.append(f"💕 **Régénération** — {rem_min} min restantes (+3 PV / 30 min)")
 
+        # Envoi
         if bonus_lines:
             bonus_embed = discord.Embed(
                 title="🌀 Effets temporaires actifs",
