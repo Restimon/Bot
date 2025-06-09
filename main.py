@@ -31,7 +31,7 @@ from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from leaderboard_utils import update_leaderboard
 from item_list import register_item_command
-from special_supply import update_last_active_channel, special_supply_loop
+from special_supply import update_last_active_channel, special_supply_loop, reset_supply_flags
 from kiss import register_kiss_command
 from hug import register_hug_command
 from pat import register_pat_command
@@ -133,10 +133,11 @@ def register_all_commands(bot):
 async def on_ready():
     await bot.tree.sync(guild=discord.Object(id=1269384239254605856))
     print("🤖 Bot prêt. Synchronisation des commandes...")
+    await reset_supply_flags(bot)
 
     # Enregistrement des commandes (une seule fois)
     register_all_commands(bot)
-
+    
     # Synchronisation globale (sans GUILD_ID)
     try:
         await bot.tree.sync()
