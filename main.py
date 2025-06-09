@@ -45,6 +45,7 @@ from love import register_love_command
 from bite import register_bite_command
 from economy_utils import get_gotcoins
 from stats import register_stats_command
+from bank import register_bank_command
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -124,6 +125,7 @@ def register_all_commands(bot):
     register_bite_command(bot)
     register_love_command(bot)
     register_stats_command(bot)
+    register_bank_command(bot)
     
 # ===================== Events ======================
 
