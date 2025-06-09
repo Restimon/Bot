@@ -11,12 +11,13 @@ from utils import get_random_item, OBJETS
 # Flag global pour (dés)activer la boucle supply
 SPECIAL_SUPPLY_ENABLED = True
 
-def set_special_supply_enabled(value: bool):
-    global SPECIAL_SUPPLY_ENABLED
-    SPECIAL_SUPPLY_ENABLED = value
+def set_special_supply_enabled(guild_id: str, value: bool):
+    supply_data.setdefault(guild_id, {})
+    supply_data[guild_id]["supply_enabled"] = value
+    sauvegarder()
 
-def is_special_supply_enabled():
-    return SPECIAL_SUPPLY_ENABLED
+def is_special_supply_enabled(guild_id: str) -> bool:
+    return supply_data.get(guild_id, {}).get("supply_enabled", True)
 
 # ========================== Mise à jour du salon actif ==========================
 
