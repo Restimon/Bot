@@ -1,13 +1,15 @@
+# profile.py
+
 import discord
 import time
 from discord import app_commands
-from storage import get_user_data, leaderboard
+from storage import get_user_data, hp
 from data import (
     virus_status, poison_status, infection_status,
     shields, esquive_status, casque_status, immunite_status,
     regeneration_status,
 )
-from economy_utils import get_gotcoins
+from economy import compute_total_gotcoins
 
 def register_profile_command(bot):
     @bot.tree.command(name="profile", description="Affiche le profil GotValis d’un membre.")
@@ -19,14 +21,17 @@ def register_profile_command(bot):
         guild_id = str(interaction.guild.id)
         uid = str(member.id)
 
-        user_inv, user_hp, user_stats = get_user_data(guild_id, uid)
-        gotcoins = get_gotcoins(user_stats)
+        user_inv, user_hp, _ = get_user_data(guild_id, uid)
+        total_gotcoins = compute_total_gotcoins(guild_id, uid)
 
-        # Classement basé sur GotCoins
-        server_leaderboard = leaderboard.get(guild_id, {})
+        # Classement basé sur compute_total_gotcoins
+        from economy import gotcoins_balance
+        from data import leaderboard
+        server_lb = leaderboard.get(guild_id, {})
+        # Tri manuel (pour l’instant simple)
         sorted_lb = sorted(
-            server_leaderboard.items(),
-            key=lambda x: get_gotcoins(x[1]),
+            server_lb.items(),
+            key=lambda x: compute_total_gotcoins(guild_id, x[0]),
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
@@ -44,7 +49,7 @@ def register_profile_command(bot):
         embed.set_thumbnail(url=member.display_avatar.url)
 
         embed.add_field(name="❤️ Points de vie", value=hp_display, inline=False)
-        embed.add_field(name="💰 GotCoins", value=f"**{gotcoins}** GotCoins", inline=False)
+        embed.add_field(name="💰 GotCoins", value=f"**{total_gotcoins}** GotCoins", inline=False)
         embed.add_field(
             name="🏆 Classement général",
             value=f"{medal} Rang {rank}" if rank else "Non classé",
@@ -55,22 +60,22 @@ def register_profile_command(bot):
         item_counts = {}
         for item in user_inv:
             item_counts[item] = item_counts.get(item, 0) + 1
-        
+
         if not item_counts:
             embed.add_field(name="🎒 Inventaire", value="Aucun objet.", inline=False)
         else:
-            # Découpe en colonnes (groupes de 4 objets par colonne)
             chunk_size = 4
             item_list = list(item_counts.items())
             chunks = [item_list[i:i+chunk_size] for i in range(0, len(item_list), chunk_size)]
-        
+
             for i, chunk in enumerate(chunks):
                 value = "\n".join(f"{emoji} × {count}" for emoji, count in chunk)
                 embed.add_field(
-                    name="🎒 Inventaire" if i == 0 else "\u200b",  # Premier champ a un titre, les suivants pas
+                    name="🎒 Inventaire" if i == 0 else "\u200b",
                     value=value,
                     inline=True
                 )
+
         # Effets négatifs
         now = time.time()
         status_lines = []
