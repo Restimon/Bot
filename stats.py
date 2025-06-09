@@ -1,9 +1,9 @@
 import discord
 import time
 from discord import app_commands
-from storage import get_user_data, leaderboard
-from data import leaderboard
-from economy_utils import get_gotcoins  # ✅ On centralise le calcul
+from storage import get_user_data
+from economy import get_gotcoins, get_balance, get_gotcoins_stats
+from data import gotcoins_stats, gotcoins_balance  # pour profil complet si besoin
 
 def register_stats_command(bot):
     @bot.tree.command(name="stats", description="📊 Affiche les statistiques de GotCoins et de combat d’un membre.")
@@ -15,14 +15,16 @@ def register_stats_command(bot):
         guild_id = str(interaction.guild.id)
         uid = str(member.id)
 
-        user_inv, user_hp, user_stats = get_user_data(guild_id, uid)
-        gotcoins = get_gotcoins(user_stats)
+        # Récupère les stats actuelles et balance
+        user_stats = get_gotcoins_stats(guild_id, uid)
+        gotcoins_total = get_gotcoins(guild_id, uid)
+        balance = get_balance(guild_id, uid)
 
         # Classement basé sur GotCoins
-        server_leaderboard = leaderboard.get(guild_id, {})
+        server_lb = gotcoins_stats.get(guild_id, {})
         sorted_lb = sorted(
-            server_leaderboard.items(),
-            key=lambda x: get_gotcoins(x[1]),
+            server_lb.items(),
+            key=lambda x: get_gotcoins(guild_id, x[0]),
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
@@ -37,8 +39,13 @@ def register_stats_command(bot):
         embed.set_thumbnail(url=member.display_avatar.url)
 
         embed.add_field(
-            name="💰 GotCoins actuels",
-            value=f"**{gotcoins}**",
+            name="💰 GotCoins totaux",
+            value=f"**{gotcoins_total}**",
+            inline=False
+        )
+        embed.add_field(
+            name="💵 Solde réel (dépensable)",
+            value=f"**{balance} GotCoins**",
             inline=False
         )
         embed.add_field(
@@ -48,6 +55,7 @@ def register_stats_command(bot):
                 f"• ✨ Soins prodigués : **{user_stats.get('soin', 0)}**\n"
                 f"• ☠️ Kills : **{user_stats.get('kills', 0)}**\n"
                 f"• 💀 Morts : **{user_stats.get('morts', 0)}**\n"
+                f"• 🎁 Gains divers (autre) : **{user_stats.get('autre', 0)}**"
             ),
             inline=False
         )
