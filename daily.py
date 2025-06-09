@@ -4,6 +4,7 @@ from utils import get_random_item
 from storage import get_user_data
 from data import sauvegarder, last_daily_claim, leaderboard
 from embeds import build_embed_from_item
+from economy import gotcoins_stats, gotcoins_balance, add_gotcoins, init_gotcoins_stats
 
 def register_daily_command(bot):
     @bot.tree.command(name="daily", description="Réclame ta récompense quotidienne GotValis")
