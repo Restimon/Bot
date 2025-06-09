@@ -9,7 +9,7 @@ from storage import hp, inventaire, leaderboard
 from utils import OBJETS
 from config import get_config, save_config, get_guild_config
 from data import sauvegarder, virus_status, poison_status, infection_status, regeneration_status, leaderboard
-from special_supply import find_or_update_valid_channel, send_special_supply_in_channel, supply_data
+from special_supply import find_or_update_valid_channel, send_special_supply_in_channel, supply_data, set_special_supply_enabled, is_special_supply_enabled
 from embeds import build_embed_from_item
 from leaderboard_utils import update_leaderboard
 
@@ -301,3 +301,22 @@ def register_admin_commands(bot):
 
         message = "**Sauvegardes de ce serveur :**\n" + "\n".join(f"`{f}`" for f in files)
         await interaction.response.send_message(message, ephemeral=True)
+
+    @bot.tree.command(name="supplytoggle", description="(ADMIN) Active ou désactive la boucle de ravitaillement spécial.")
+    @app_commands.describe(etat="ON pour activer, OFF pour désactiver")
+    @app_commands.choices(etat=[
+        app_commands.Choice(name="ON", value="on"),
+        app_commands.Choice(name="OFF", value="off")
+    ])
+    async def supplytoggle(interaction: discord.Interaction, etat: app_commands.Choice[str]):
+        # Vérification permission admin
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Vous devez être administrateur pour utiliser cette commande.", ephemeral=True)
+            return
+
+        if etat.value == "on":
+            set_special_supply_enabled(True)
+            await interaction.response.send_message("✅ La boucle de ravitaillement spécial est maintenant **ACTIVE**.", ephemeral=True)
+        else:
+            set_special_supply_enabled(False)
+            await interaction.response.send_message("⛔ La boucle de ravitaillement spécial est maintenant **DÉSACTIVÉE**.", ephemeral=True)
