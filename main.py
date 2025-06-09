@@ -323,10 +323,7 @@ async def on_raw_reaction_add(payload):
 
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
-    from config import get_guild_config, save_config
-    from storage import hp, shields
-    from economy import gotcoins_balance  # on utilise bien gotcoins_balance ici
-
+    
     while not bot.is_closed():
         print("⏳ [LOOP] Mise à jour des leaderboards spéciaux (GotCoins)...")
 
@@ -353,7 +350,7 @@ async def update_leaderboard_loop():
             server_balance = gotcoins_balance.get(guild_id, {})
             server_hp = hp.get(guild_id, {})
             server_shields = shields.get(guild_id, {})
-
+            
             # Trié par argent pur
             sorted_lb = sorted(
                 server_balance.items(),
