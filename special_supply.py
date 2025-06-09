@@ -8,6 +8,16 @@ from data import virus_status, poison_status, infection_status, regeneration_sta
 from storage import get_user_data, hp
 from utils import get_random_item, OBJETS
 
+# Flag global pour (dés)activer la boucle supply
+SPECIAL_SUPPLY_ENABLED = True
+
+def set_special_supply_enabled(value: bool):
+    global SPECIAL_SUPPLY_ENABLED
+    SPECIAL_SUPPLY_ENABLED = value
+
+def is_special_supply_enabled():
+    return SPECIAL_SUPPLY_ENABLED
+
 # ========================== Mise à jour du salon actif ==========================
 
 def update_last_active_channel(message):
