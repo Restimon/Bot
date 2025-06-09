@@ -858,11 +858,6 @@ async def voice_tracking_loop():
                         tracking["last_reward"] = time.time()
 
                         print(f"🎙️ +3 GotCoins pour {member.display_name} (activité vocale 30min atteinte)")
-                        try:
-                            # Optionnel : envoie un DM au joueur (tu peux commenter si tu ne veux pas)
-                            await member.send("💰 Vous avez gagné **+3 GotCoins** pour votre activité vocale (30min) sur GotValis !")
-                        except Exception:
-                            pass  # ignore si le DM échoue
 
             # Nettoyage : si un membre n'est plus en vocal, on le retire du tracking
             active_user_ids = {str(member.id) for vc in guild.voice_channels for member in vc.members if not member.bot}
