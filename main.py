@@ -184,8 +184,7 @@ async def on_message(message):
     guild_id = str(message.guild.id)
     user_id = str(message.author.id)
     channel_id = message.channel.id
-
-    from special_supply import update_last_active_channel
+    gotcoins_cooldowns = {}
 
     # 🔄 Mise à jour du salon actif
     try:
