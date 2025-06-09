@@ -1,4 +1,11 @@
-def get_gotcoins(user_stats):
+from data import gotcoins_balance
+
+# Version "officielle", utilisée par profile, stats, leaderboard
+def get_gotcoins(guild_id, user_id):
+    return gotcoins_balance.get(guild_id, {}).get(user_id, 0)
+
+# Ancienne formule "calculée" à partir du leaderboard, utilisée si besoin
+def get_gotcoins_from_stats(user_stats):
     return (
         user_stats.get("degats", 0)
         + user_stats.get("soin", 0)
@@ -23,8 +30,6 @@ def compute_message_gains(message_content):
         return 5
 
 # Gain par vocal (3 GotCoins par tranche de 30 min)
-# On pourra appeler cette fonction après un timer
 def compute_voice_gains(minutes_in_voice):
-    # nombre de tranches complètes de 30 minutes
     num_chunks = minutes_in_voice // 30
     return num_chunks * 3
