@@ -66,6 +66,8 @@ random_threshold = 5
 last_drop_time = 0 
 MAX_SUPPLIES_PER_DAY = 5
 
+gotcoins_cooldowns = {}
+
 # ===================== Slash Commands ======================
 @bot.command()
 async def check_persistent(ctx):
