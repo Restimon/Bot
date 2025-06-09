@@ -2,9 +2,8 @@ import discord
 import time
 from discord import app_commands
 from storage import get_user_data
-from economy import get_balance, get_gotcoins_stats
+from economy import gotcoins_stats, gotcoins_balance
 from economy_utils import get_gotcoins
-from data import gotcoins_stats, gotcoins_balance
 
 def register_stats_command(bot):
     @bot.tree.command(name="stats", description="📊 Affiche les statistiques de GotCoins et de combat d’un membre.")
