@@ -367,9 +367,9 @@ async def update_leaderboard_loop():
             for uid, balance in sorted_lb:
                 try:
                     int_uid = int(uid)
-                    user = bot.get_user(int_uid)
-                    if not user:
-                        continue
+                    member = guild.get_member(int_uid)
+                    if not member:
+                        continue  # Si le membre n'est plus dans le serveur, on l'ignore
                 except (ValueError, TypeError):
                     print(f"⚠️ UID non valide ignoré : {uid}")
                     continue
@@ -384,12 +384,12 @@ async def update_leaderboard_loop():
 
                 if pb > 0:
                     line = (
-                        f"{prefix} **{user.display_name}** → 💰 **{balance} GotCoins** | "
+                        f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
                         f"❤️ {pv} PV / 🛡️ {pb} PB"
                     )
                 else:
                     line = (
-                        f"{prefix} **{user.display_name}** → 💰 **{balance} GotCoins** | "
+                        f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
                         f"❤️ {pv} PV"
                     )
 
