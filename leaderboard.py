@@ -1,34 +1,47 @@
 import discord
-from storage import leaderboard, hp
-from embeds import build_embed_from_item
-from leaderboard_utils import update_leaderboard
-from data import leaderboard
-from economy_utils import get_gotcoins
+from economy import gotcoins_balance
+from storage import hp
+from data import shield_status  # si ton shield est stocké ici, ajuste selon ton code
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
     medals = ["🥇", "🥈", "🥉"]
     guild_id = str(guild.id)
-    server_lb = leaderboard.get(guild_id, {})
+    server_balance = gotcoins_balance.get(guild_id, {})
 
-    # Trié par GotCoins
+    # Trié par balance réelle
     sorted_lb = sorted(
-        server_lb.items(),
-        key=lambda x: get_gotcoins(x[1]),
+        server_balance.items(),
+        key=lambda x: x[1],  # balance pure
         reverse=True
     )
 
     lines = []
-    for rank, (uid, stats) in enumerate(sorted_lb[:10]):
+    for rank, (uid, balance) in enumerate(sorted_lb[:10]):
         member = guild.get_member(int(uid))
         if not member:
             continue
 
-        total_gotcoins = get_gotcoins(stats)
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
 
-        lines.append(
-            f"{prefix} **{member.display_name}** → 💰 **{total_gotcoins} GotCoins**"
-        )
+        # PV
+        current_hp = hp.get(guild_id, {}).get(uid, 100)
+
+        # PB (Points de bouclier)
+        pb = shield_status.get(guild_id, {}).get(uid, {}).get("value", 0)
+
+        # Ligne : montant + PV + PB éventuel
+        if pb > 0:
+            line = (
+                f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
+                f"❤️ {current_hp} PV / 🛡️ {pb} PB"
+            )
+        else:
+            line = (
+                f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
+                f"❤️ {current_hp} PV"
+            )
+
+        lines.append(line)
 
     embed = discord.Embed(
         title=f"🏆 Classement de richesse - GotValis",
@@ -38,7 +51,7 @@ async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> 
 
     embed.add_field(
         name="📊 Nombre de citoyens actifs",
-        value=f"{len(server_lb)} joueurs enregistrés",
+        value=f"{len(server_balance)} joueurs enregistrés",
         inline=False
     )
 
