@@ -270,9 +270,15 @@ async def send_special_supply_in_channel(bot, guild, channel):
 
 async def special_supply_loop(bot):
     await bot.wait_until_ready()
-    print("🎁 Boucle spéciale supply démarrée (check 5 min)")
+    print("🎁 Boucle spéciale supply démarrée (check 15 min)")
 
     while not bot.is_closed():
+        # Check global ON/OFF
+        if not is_special_supply_enabled():
+            print("⚠️ Boucle supply désactivée temporairement. Skip 15 min...")
+            await asyncio.sleep(900)
+            continue
+
         now_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=2)  # UTC+2 (heure FR courante)
         now_hour = now_dt.hour
         today_str = now_dt.strftime("%Y-%m-%d")
@@ -301,10 +307,9 @@ async def special_supply_loop(bot):
                 # Définir les paliers de proba
                 current_hour = now_hour
                 current_minute = now_dt.minute
-            
+
                 # Créneaux par slot
                 if target_slot == "morning_sent":
-                    # Matin
                     if current_hour == 8:
                         proba = 0.05
                     elif current_hour == 9:
@@ -314,12 +319,11 @@ async def special_supply_loop(bot):
                     elif current_hour == 11:
                         proba = 0.80
                     elif current_hour == 12:
-                        proba = 1.0  # forçage si pas envoyé
+                        proba = 1.0
                     else:
-                        proba = 0.0  # sécurité
-            
+                        proba = 0.0
+
                 elif target_slot == "afternoon_sent":
-                    # Après-midi
                     if current_hour == 13:
                         proba = 0.05
                     elif current_hour == 14:
@@ -332,9 +336,8 @@ async def special_supply_loop(bot):
                         proba = 1.0
                     else:
                         proba = 0.0
-            
+
                 elif target_slot == "evening_sent":
-                    # Soir
                     if current_hour == 18:
                         proba = 0.05
                     elif current_hour == 19:
@@ -349,12 +352,12 @@ async def special_supply_loop(bot):
                         proba = 1.0
                     else:
                         proba = 0.0
-            
+
                 else:
                     proba = 0.0
-            
+
                 print(f"[{guild.name}] Slot {target_slot} - Heure {current_hour}:{current_minute:02} → proba {proba * 100:.1f}%")
-            
+
                 if random.random() < proba:
                     print(f"🎁 Envoi spécial supply sur {guild.name} ({target_slot}) → déclenché !")
                     channel = find_or_update_valid_channel(bot, guild, config)
@@ -365,5 +368,5 @@ async def special_supply_loop(bot):
                 else:
                     print(f"⏳ Supply sur {guild.name} ({target_slot}) → attente (proba pas atteinte).")
 
-
         await asyncio.sleep(900)  # toutes les 15 minutes
+
