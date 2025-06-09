@@ -43,7 +43,7 @@ from utilitaire import register_utilitaire_command
 from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
-from economy_utils import get_gotcoins
+from economy_utils import get_gotcoins, compute_message_gains
 from stats import register_stats_command
 from bank import register_bank_command
 
@@ -154,7 +154,7 @@ async def on_ready():
     asyncio.create_task(virus_damage_loop())
     asyncio.create_task(poison_damage_loop())
     asyncio.create_task(infection_damage_loop())
-
+    
     # Présence du bot
     activity = discord.Activity(type=discord.ActivityType.watching, name="en /help | https://discord.gg/jkbfFRqzZP")
     await bot.change_presence(status=discord.Status.online, activity=activity)
@@ -173,7 +173,8 @@ async def on_ready():
     bot.loop.create_task(daily_restart_loop())
     asyncio.create_task(auto_backup_loop())
     regeneration_loop.start()
-    
+    voice_tracking_loop.start()
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -195,7 +196,11 @@ async def on_message(message):
     except Exception as e:
         print(f"[on_message] Erreur update channel_activity_log : {e}")
 
-    await bot.process_commands(message)
+    gain = compute_message_gains(message.content)
+    if gain > 0:
+        leaderboard.setdefault(guild_id, {}).setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+        leaderboard[guild_id][user_id]["soin"] += gain
+        await bot.process_commands(message)
 
     # 📦 Ravitaillement classique aléatoire
     global message_counter, random_threshold, last_drop_time
@@ -815,6 +820,56 @@ async def regeneration_loop():
                     await channel.send(embed=embed)
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
+voice_tracking = {}  # global
+
+@tasks.loop(seconds=30)
+async def voice_tracking_loop():
+    await bot.wait_until_ready()
+    print("🎙️ Boucle de suivi vocal démarrée.")
+
+    while not bot.is_closed():
+        for guild in bot.guilds:
+            gid = str(guild.id)
+            voice_tracking.setdefault(gid, {})
+
+            # Récupère les salons vocaux actifs
+            for vc in guild.voice_channels:
+                if vc.id == guild.afk_channel.id if guild.afk_channel else False:
+                    continue  # On ignore le salon AFK
+
+                for member in vc.members:
+                    if member.bot:
+                        continue
+
+                    uid = str(member.id)
+                    voice_tracking[gid].setdefault(uid, {
+                        "start": time.time(),
+                        "last_reward": 0
+                    })
+
+                    tracking = voice_tracking[gid][uid]
+                    elapsed = time.time() - tracking["start"]
+
+                    # Si 30 min sont passées depuis la dernière récompense
+                    if elapsed >= 1800 and time.time() - tracking["last_reward"] >= 1800:
+                        leaderboard.setdefault(gid, {}).setdefault(uid, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                        leaderboard[gid][uid]["soin"] += 3
+                        tracking["last_reward"] = time.time()
+
+                        print(f"🎙️ +3 GotCoins pour {member.display_name} (activité vocale 30min atteinte)")
+                        try:
+                            # Optionnel : envoie un DM au joueur (tu peux commenter si tu ne veux pas)
+                            await member.send("💰 Vous avez gagné **+3 GotCoins** pour votre activité vocale (30min) sur GotValis !")
+                        except Exception:
+                            pass  # ignore si le DM échoue
+
+            # Nettoyage : si un membre n'est plus en vocal, on le retire du tracking
+            active_user_ids = {str(member.id) for vc in guild.voice_channels for member in vc.members if not member.bot}
+            tracked_user_ids = set(voice_tracking[gid].keys())
+            for uid in tracked_user_ids - active_user_ids:
+                del voice_tracking[gid][uid]
+
+        await asyncio.sleep(30)
 
 async def auto_backup_loop():
     await bot.wait_until_ready()
