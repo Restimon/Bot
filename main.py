@@ -181,6 +181,10 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    guild_id = str(message.guild.id)
+    user_id = str(message.author.id)
+    channel_id = message.channel.id
+
     from special_supply import update_last_active_channel
     try:
         update_last_active_channel(message)
@@ -188,8 +192,6 @@ async def on_message(message):
         print(f"[on_message] Erreur update_last_active_channel : {e}")
 
     try:
-        guild_id = str(message.guild.id)
-        channel_id = message.channel.id
         supply_data.setdefault(guild_id, {})
         supply_data[guild_id].setdefault("channel_activity_log", {})
         supply_data[guild_id]["channel_activity_log"][channel_id] = time.time()
@@ -197,21 +199,27 @@ async def on_message(message):
     except Exception as e:
         print(f"[on_message] Erreur update channel_activity_log : {e}")
 
+    # Gestion des GotCoins
     gain = compute_message_gains(message.content)
     if gain > 0:
         leaderboard.setdefault(guild_id, {}).setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
         leaderboard[guild_id][user_id]["soin"] += gain
+
+        # Important → si gain, on ne déclenche pas le ravitaillement aléatoire
         await bot.process_commands(message)
+        return
 
     # 📦 Ravitaillement classique aléatoire
     global message_counter, random_threshold, last_drop_time
 
     message_counter += 1
     if message_counter < random_threshold:
+        await bot.process_commands(message)  # important ici aussi
         return
 
     current_time = asyncio.get_event_loop().time()
     if current_time - last_drop_time < 30:
+        await bot.process_commands(message)
         return
 
     last_drop_time = current_time
@@ -237,7 +245,6 @@ async def on_message(message):
                 bot.wait_for("reaction_add", check=check),
                 timeout=end_time - asyncio.get_event_loop().time(),
             )
-            guild_id = str(message.guild.id)
             uid = str(user.id)
             user_inv, _, _ = get_user_data(guild_id, uid)
             user_inv.append(item)
@@ -262,6 +269,9 @@ async def on_message(message):
         )
 
     await message.channel.send(embed=embed)
+
+    # Important → on termine aussi par process_commands pour permettre les commandes texte éventuelles
+    await bot.process_commands(message)
 
 @bot.event
 async def on_raw_reaction_add(payload):
