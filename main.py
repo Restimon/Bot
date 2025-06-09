@@ -67,7 +67,6 @@ last_drop_time = 0
 MAX_SUPPLIES_PER_DAY = 5
 
 gotcoins_cooldowns = {}
-server_balance = gotcoins_balance.get(guild_id, {})
 
 # ===================== Slash Commands ======================
 @bot.command()
