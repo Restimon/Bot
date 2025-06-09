@@ -14,8 +14,7 @@ from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
 from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data, backup_auto_independante
 from utils import get_random_item, OBJETS, handle_death  
-from storage import get_user_data  
-from storage import inventaire, hp, leaderboard
+from storage import get_user_data, inventaire, hp, leaderboard, shields
 from combat import apply_item_with_cooldown, apply_shield
 from inventory import build_inventory_embed
 from leaderboard import build_leaderboard_embed
@@ -43,6 +42,7 @@ from utilitaire import register_utilitaire_command
 from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
+from economy import gotcoins_balance
 from economy_utils import get_gotcoins, compute_message_gains
 from stats import register_stats_command
 from bank import register_bank_command
@@ -67,6 +67,7 @@ last_drop_time = 0
 MAX_SUPPLIES_PER_DAY = 5
 
 gotcoins_cooldowns = {}
+server_balance = gotcoins_balance.get(guild_id, {})
 
 # ===================== Slash Commands ======================
 @bot.command()
@@ -324,8 +325,8 @@ async def on_raw_reaction_add(payload):
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
     from config import get_guild_config, save_config
-    from storage import hp
-    from economy_utils import get_gotcoins  # importe ta fonction propre
+    from storage import hp, shields
+    from economy import gotcoins_balance  # on utilise bien gotcoins_balance ici
 
     while not bot.is_closed():
         print("⏳ [LOOP] Mise à jour des leaderboards spéciaux (GotCoins)...")
@@ -350,19 +351,21 @@ async def update_leaderboard_loop():
                 continue
 
             medals = ["🥇", "🥈", "🥉"]
-            server_lb = leaderboard.get(guild_id, {})
+            server_balance = gotcoins_balance.get(guild_id, {})
             server_hp = hp.get(guild_id, {})
+            server_shields = shields.get(guild_id, {})
 
+            # Trié par argent pur
             sorted_lb = sorted(
-                server_lb.items(),
-                key=lambda x: get_gotcoins(x[1]),
+                server_balance.items(),
+                key=lambda x: x[1],
                 reverse=True
             )
 
             lines = []
             rank = 0
 
-            for uid, stats in sorted_lb:
+            for uid, balance in sorted_lb:
                 try:
                     int_uid = int(uid)
                     user = bot.get_user(int_uid)
@@ -375,13 +378,23 @@ async def update_leaderboard_loop():
                 if rank >= 10:
                     break
 
-                coins = get_gotcoins(stats)
                 pv = server_hp.get(uid, 100)
+                pb = server_shields.get(uid, 0)
 
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-                lines.append(
-                    f"{prefix} **{user.display_name}** → 💰 **{coins} GotCoins** | ❤️ {pv} PV"
-                )
+
+                if pb > 0:
+                    line = (
+                        f"{prefix} **{user.display_name}** → 💰 **{balance} GotCoins** | "
+                        f"❤️ {pv} PV / 🛡️ {pb} PB"
+                    )
+                else:
+                    line = (
+                        f"{prefix} **{user.display_name}** → 💰 **{balance} GotCoins** | "
+                        f"❤️ {pv} PV"
+                    )
+
+                lines.append(line)
                 rank += 1
 
             embed = discord.Embed(
