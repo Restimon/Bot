@@ -1,9 +1,11 @@
+# fight.py
+
 import discord
 from discord import app_commands
 from utils import OBJETS
 from storage import get_user_data
 from data import sauvegarder
-from combat import apply_item_with_cooldown, apply_attack_chain  # <== bien importer apply_attack_chain
+from combat import apply_item_with_cooldown, apply_attack_chain
 from embeds import build_embed_from_item
 
 def register_fight_command(bot):
@@ -34,31 +36,32 @@ def register_fight_command(bot):
                 "❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True
             )
 
-        # On retire "vol" ici :
-        if item not in OBJETS or OBJETS[item]["type"] not in ["attaque", "attaque_chaine", "virus", "poison", "infection"]:
+        attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection"]
+
+        if item not in OBJETS or OBJETS[item]["type"] not in attack_types:
             return await interaction.followup.send(
                 "⚠️ Cet objet n’est pas une arme valide !", ephemeral=True
             )
 
-        # ☠️ Appelle bien apply_attack_chain
+        # ☠️ Attaque en chaîne
         if item == "☠️":
             await apply_attack_chain(interaction, uid, tid, item, action)
 
-            # On retire l'objet après l'attaque en chaîne
+            # Retire l'objet après attaque en chaîne
             user_inv.remove(item)
             sauvegarder()
 
             return
 
-        else:
-            embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
+        # Attaque normale
+        embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
 
-            if success:
-                user_inv.remove(item)
-                sauvegarder()
+        if success:
+            user_inv.remove(item)
+            sauvegarder()
 
-            if embed:
-                await interaction.followup.send(embed=embed, ephemeral=True)
+        if embed:
+            await interaction.followup.send(embed=embed, ephemeral=False)  # Public
 
     # ✅ Autocomplétion des objets d'attaque avec description
     @fight_slash.autocomplete("item")
@@ -67,7 +70,6 @@ def register_fight_command(bot):
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        # On retire "vol" ici :
         attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection"]
 
         attack_items = sorted(set(
