@@ -178,93 +178,105 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author.bot:
+    if message.author.bot or not message.guild:
         return
 
     guild_id = str(message.guild.id)
     user_id = str(message.author.id)
     channel_id = message.channel.id
-    gotcoins_cooldowns = {}
 
-    # 🔄 Mise à jour du salon actif
+    from special_supply import update_last_active_channel
     try:
         update_last_active_channel(message)
     except Exception as e:
         print(f"[on_message] Erreur update_last_active_channel : {e}")
 
-    # 📊 Log activité canal
     try:
-        supply_data.setdefault(guild_id, {}).setdefault("channel_activity_log", {})
+        supply_data.setdefault(guild_id, {})
+        supply_data[guild_id].setdefault("channel_activity_log", {})
         supply_data[guild_id]["channel_activity_log"][channel_id] = time.time()
         sauvegarder()
     except Exception as e:
         print(f"[on_message] Erreur update channel_activity_log : {e}")
 
-    # 💰 Gains passifs (GotCoins)
-    gain = compute_message_gains(message.content)
-    if gain > 0:
-        leaderboard.setdefault(guild_id, {}).setdefault(user_id, {
-            "degats": 0, "soin": 0, "kills": 0, "morts": 0
-        })
-        leaderboard[guild_id][user_id]["soin"] += gain
+    # 💰 Gains passifs (GotCoins) — avec cooldown et longueur minimum
+    min_message_length = 20
+    cooldown_seconds = 30
+    now = time.time()
+    gain = 0
 
-    # 📦 Ravitaillement classique aléatoire
+    if len(message.content.strip()) >= min_message_length:
+        last_gain = gotcoins_cooldowns.get(user_id, 0)
+        if now - last_gain >= cooldown_seconds:
+            gain = compute_message_gains(message.content)
+            if gain > 0:
+                leaderboard.setdefault(guild_id, {}).setdefault(user_id, {
+                    "degats": 0, "soin": 0, "kills": 0, "morts": 0
+                })
+                leaderboard[guild_id][user_id]["soin"] += gain
+                gotcoins_cooldowns[user_id] = now
+                print(f"💰 Gain {gain} GotCoins pour {message.author.display_name} (via message)")
+                await bot.process_commands(message)
+                return  # Pas de ravitaillement classique si gain actif
+
+    # 📦 Ravitaillement classique aléatoire (si pas de gain de GotCoins)
     global message_counter, random_threshold, last_drop_time
 
     message_counter += 1
-    drop = False
+    if message_counter < random_threshold:
+        await bot.process_commands(message)
+        return
+
     current_time = asyncio.get_event_loop().time()
+    if current_time - last_drop_time < 30:
+        await bot.process_commands(message)
+        return
 
-    if message_counter >= random_threshold and (current_time - last_drop_time) >= 30:
-        drop = True
-        last_drop_time = current_time
-        message_counter = 0
-        random_threshold = random.randint(4, 8)
+    last_drop_time = current_time
+    message_counter = 0
+    random_threshold = random.randint(4, 8)
 
-    if drop:
-        item = get_random_item()
-        await message.add_reaction(item)
-        collected_users = []
+    item = get_random_item()
+    await message.add_reaction(item)
+    collected_users = []
 
-        def check(reaction, user):
-            return (
-                reaction.message.id == message.id
-                and str(reaction.emoji) == item
-                and not user.bot
-                and user.id not in [u.id for u in collected_users]
+    def check(reaction, user):
+        return (
+            reaction.message.id == message.id
+            and str(reaction.emoji) == item
+            and not user.bot
+            and user.id not in [u.id for u in collected_users]
+        )
+
+    end_time = current_time + 15
+    while len(collected_users) < 3 and asyncio.get_event_loop().time() < end_time:
+        try:
+            reaction, user = await asyncio.wait_for(
+                bot.wait_for("reaction_add", check=check),
+                timeout=end_time - asyncio.get_event_loop().time(),
             )
+            uid = str(user.id)
+            user_inv, _, _ = get_user_data(guild_id, uid)
+            user_inv.append(item)
+            collected_users.append(user)
+        except asyncio.TimeoutError:
+            break
 
-        end_time = current_time + 15
-        while len(collected_users) < 3 and asyncio.get_event_loop().time() < end_time:
-            try:
-                reaction, user = await asyncio.wait_for(
-                    bot.wait_for("reaction_add", check=check),
-                    timeout=end_time - asyncio.get_event_loop().time(),
-                )
-                uid = str(user.id)
-                user_inv, _, _ = get_user_data(guild_id, uid)
-                user_inv.append(item)
-                collected_users.append(user)
-            except asyncio.TimeoutError:
-                break
+    if collected_users:
+        mention_list = "\n".join(f"✅ {user.mention}" for user in collected_users)
+        embed = discord.Embed(
+            title="📦 Ravitaillement récupéré",
+            description=f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mention_list}",
+            color=0x00FFAA
+        )
+    else:
+        embed = discord.Embed(
+            title="💥 Ravitaillement détruit",
+            description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
+            color=0xFF0000
+        )
 
-        if collected_users:
-            mentions = "\n".join(f"✅ {user.mention}" for user in collected_users)
-            embed = discord.Embed(
-                title="📦 Ravitaillement récupéré",
-                description=f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mentions}",
-                color=0x00FFAA
-            )
-        else:
-            embed = discord.Embed(
-                title="💥 Ravitaillement détruit",
-                description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
-                color=0xFF0000
-            )
-
-        await message.channel.send(embed=embed)
-
-    # ✅ Toujours en fin pour détecter les éventuelles commandes
+    await message.channel.send(embed=embed)
     await bot.process_commands(message)
 
 @bot.event
