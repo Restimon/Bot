@@ -22,7 +22,7 @@ def register_profile_command(bot):
         uid = str(member.id)
 
         user_inv, user_hp, _ = get_user_data(guild_id, uid)
-        total_gotcoins = compute_total_gotcoins(guild_id, uid)
+        total_gotcoins = get_balance(guild_id, uid)
 
         # Classement basé sur compute_total_gotcoins
         from economy import gotcoins_balance
