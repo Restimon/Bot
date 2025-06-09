@@ -4,41 +4,47 @@ from storage import hp
 from data import shield_status  # si ton shield est stocké ici, ajuste selon ton code
 
 async def build_leaderboard_embed(bot: discord.Client, guild: discord.Guild) -> discord.Embed:
+    from storage import hp, shields
+    from economy import gotcoins_balance
+
     medals = ["🥇", "🥈", "🥉"]
     guild_id = str(guild.id)
     server_balance = gotcoins_balance.get(guild_id, {})
+    server_hp = hp.get(guild_id, {})
+    server_shields = shields.get(guild_id, {})
 
-    # Trié par balance réelle
+    # Trié par argent pur
     sorted_lb = sorted(
         server_balance.items(),
-        key=lambda x: x[1],  # balance pure
+        key=lambda x: x[1],
         reverse=True
     )
 
     lines = []
     for rank, (uid, balance) in enumerate(sorted_lb[:10]):
-        member = guild.get_member(int(uid))
-        if not member:
+        try:
+            int_uid = int(uid)
+            member = guild.get_member(int_uid)
+            if not member:
+                continue  # Si le membre n'est plus dans le serveur, on l'ignore
+        except (ValueError, TypeError):
+            print(f"⚠️ UID non valide ignoré : {uid}")
             continue
+
+        pv = server_hp.get(uid, 100)
+        pb = server_shields.get(uid, 0)
 
         prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
 
-        # PV
-        current_hp = hp.get(guild_id, {}).get(uid, 100)
-
-        # PB (Points de bouclier)
-        pb = shield_status.get(guild_id, {}).get(uid, {}).get("value", 0)
-
-        # Ligne : montant + PV + PB éventuel
         if pb > 0:
             line = (
                 f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
-                f"❤️ {current_hp} PV / 🛡️ {pb} PB"
+                f"❤️ {pv} PV / 🛡️ {pb} PB"
             )
         else:
             line = (
                 f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
-                f"❤️ {current_hp} PV"
+                f"❤️ {pv} PV"
             )
 
         lines.append(line)
