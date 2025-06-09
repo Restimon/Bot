@@ -2,8 +2,9 @@ import discord
 import time
 from discord import app_commands
 from storage import get_user_data
-from economy import get_gotcoins, get_balance, get_gotcoins_stats
-from data import gotcoins_stats, gotcoins_balance  # pour profil complet si besoin
+from economy import get_balance, get_gotcoins_stats
+from economy_utils import get_gotcoins
+from data import gotcoins_stats, gotcoins_balance
 
 def register_stats_command(bot):
     @bot.tree.command(name="stats", description="📊 Affiche les statistiques de GotCoins et de combat d’un membre.")
@@ -17,14 +18,14 @@ def register_stats_command(bot):
 
         # Récupère les stats actuelles et balance
         user_stats = get_gotcoins_stats(guild_id, uid)
-        gotcoins_total = get_gotcoins(guild_id, uid)
+        gotcoins_total = get_gotcoins(user_stats)  # ← ici on passe juste le dict stats
         balance = get_balance(guild_id, uid)
 
         # Classement basé sur GotCoins
         server_lb = gotcoins_stats.get(guild_id, {})
         sorted_lb = sorted(
             server_lb.items(),
-            key=lambda x: get_gotcoins(guild_id, x[0]),
+            key=lambda x: get_gotcoins(x[1]),  # ← ici on passe juste le dict stats
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
