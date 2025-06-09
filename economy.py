@@ -23,46 +23,39 @@ def get_balance(guild_id, user_id):
     gotcoins_balance.setdefault(guild_id, {}).setdefault(user_id, 0)
     return gotcoins_balance[guild_id][user_id]
 
-# Ajouter des GotCoins à la balance (utilise la catégorie "autre" par défaut sauf si combat)
+# Ajouter des GotCoins à la balance (+ trace dans les stats)
 def add_gotcoins(guild_id, user_id, amount, category="autre"):
+    if amount <= 0:
+        return  # sécurité inutile de faire une op pour 0 ou -x
     init_gotcoins_stats(guild_id, user_id)
     gotcoins_balance[guild_id][user_id] += amount
 
-    # On ajoute aussi dans les stats (utile pour l'affichage leaderboard par catégorie)
+    # On trace la provenance (stats)
     if category in gotcoins_stats[guild_id][user_id]:
         gotcoins_stats[guild_id][user_id][category] += amount
     else:
-        # Si catégorie inconnue, on le met quand même dans "autre"
         gotcoins_stats[guild_id][user_id]["autre"] += amount
 
     sauvegarder()
 
 # Retirer des GotCoins (ex: achats)
 def remove_gotcoins(guild_id, user_id, amount):
+    if amount <= 0:
+        return  # sécurité
     init_gotcoins_stats(guild_id, user_id)
     current_balance = gotcoins_balance[guild_id][user_id]
     new_balance = max(0, current_balance - amount)
     gotcoins_balance[guild_id][user_id] = new_balance
 
-    # Ici on ne touche pas aux stats → juste la balance
     sauvegarder()
 
-# Retourne les stats complètes d'un joueur
+# Retourne les stats complètes d'un joueur (utile pour affichage détaillé)
 def get_gotcoins_stats(guild_id, user_id):
     init_gotcoins_stats(guild_id, user_id)
     return gotcoins_stats[guild_id][user_id]
 
-# Calcul du total de GotCoins pour affichage (balance réelle + score combat "virtuel")
-def compute_total_gotcoins(guild_id, user_id):
-    stats = get_gotcoins_stats(guild_id, user_id)
-    # Le score combat virtuel (non déductible) :
-    combat_score = (
-        stats.get("degats", 0)
-        + stats.get("soin", 0)
-        + stats.get("kills", 0) * 50
-        - stats.get("morts", 0) * 25
-    )
-    # La balance réelle
-    balance = get_balance(guild_id, user_id)
-
-    return balance + combat_score
+# Retourne le leaderboard global (balance réelle)
+def get_leaderboard_ranking(guild_id):
+    balances = gotcoins_balance.get(guild_id, {})
+    sorted_balances = sorted(balances.items(), key=lambda x: x[1], reverse=True)
+    return sorted_balances
