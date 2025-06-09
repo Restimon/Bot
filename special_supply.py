@@ -106,6 +106,62 @@ def choose_reward(user_id, guild_id):
     else:
         return "regen", True
 
+async def reset_supply_flags(bot):
+    print("🔄 Reset automatique des flags supply + vérification des messages.")
+
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        config = supply_data.setdefault(gid, {})
+        active_msg_id = config.get("active_supply_id")
+        last_channel_id = config.get("last_channel_id")
+        is_open = config.get("is_open", False)
+
+        if active_msg_id and last_channel_id:
+            try:
+                channel = bot.get_channel(last_channel_id)
+                if not channel:
+                    print(f"❌ [Guild {guild.name}] Salon {last_channel_id} introuvable.")
+                    continue
+
+                msg = await channel.fetch_message(int(active_msg_id))
+                now = datetime.datetime.utcnow()
+
+                # Vérifie que le message est bien un supply et récent (< 5 min)
+                if (
+                    msg.author == bot.user
+                    and msg.embeds
+                    and "Ravitaillement spécial GotValis" in msg.embeds[0].title
+                ):
+                    message_age_sec = (now - msg.created_at.replace(tzinfo=None)).total_seconds()
+                    if message_age_sec <= 300:
+                        print(f"🗑️ Suppression du message supply récent ({int(message_age_sec)}s) dans {guild.name}.")
+                        await msg.delete()
+                        config["active_supply_id"] = None
+                        config["is_open"] = False
+                        sauvegarder()
+                    else:
+                        print(f"⏳ Message supply trop ancien ({int(message_age_sec)}s), pas supprimé.")
+
+                else:
+                    print(f"⏭️ Message {active_msg_id} ignoré (pas un supply valide).")
+
+            except discord.NotFound:
+                print(f"⚠️ Message supply {active_msg_id} introuvable (probablement déjà supprimé).")
+                config["active_supply_id"] = None
+                config["is_open"] = False
+                sauvegarder()
+
+            except Exception as e:
+                print(f"❌ Erreur reset supply dans {guild.name} : {e}")
+
+        else:
+            # Pas de message actif → juste reset au cas où
+            config["active_supply_id"] = None
+            config["is_open"] = False
+            sauvegarder()
+
+    print("✅ Reset supply terminé.")
+
 # ========================== Envoi du supply ==========================
 
 async def send_special_supply_in_channel(bot, guild, channel):
