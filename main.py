@@ -178,7 +178,7 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author.bot or not message.guild:
+    if message.author.bot:
         return
 
     guild_id = str(message.guild.id)
@@ -203,7 +203,6 @@ async def on_message(message):
     min_message_length = 20
     cooldown_seconds = 30
     now = time.time()
-    gain = 0
 
     if len(message.content.strip()) >= min_message_length:
         last_gain = gotcoins_cooldowns.get(user_id, 0)
@@ -214,12 +213,15 @@ async def on_message(message):
                     "degats": 0, "soin": 0, "kills": 0, "morts": 0
                 })
                 leaderboard[guild_id][user_id]["soin"] += gain
-                gotcoins_cooldowns[user_id] = now
+                gotcoins_cooldowns[user_id] = now  # Cooldown mis à jour uniquement si gain
                 print(f"💰 Gain {gain} GotCoins pour {message.author.display_name} (via message)")
-                await bot.process_commands(message)
-                return  # Pas de ravitaillement classique si gain actif
 
-    # 📦 Ravitaillement classique aléatoire (si pas de gain de GotCoins)
+                # Si gain actif → on ne déclenche pas de ravitaillement aléatoire
+                await bot.process_commands(message)
+                return
+    # Sinon, pas de gain ou pas de cooldown prêt → continue vers ravitaillement
+
+    # 📦 Ravitaillement classique aléatoire
     global message_counter, random_threshold, last_drop_time
 
     message_counter += 1
@@ -266,7 +268,9 @@ async def on_message(message):
         mention_list = "\n".join(f"✅ {user.mention}" for user in collected_users)
         embed = discord.Embed(
             title="📦 Ravitaillement récupéré",
-            description=f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mention_list}",
+            description=(
+                f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mention_list}"
+            ),
             color=0x00FFAA
         )
     else:
@@ -277,6 +281,8 @@ async def on_message(message):
         )
 
     await message.channel.send(embed=embed)
+
+    # Terminer avec process_commands
     await bot.process_commands(message)
 
 @bot.event
