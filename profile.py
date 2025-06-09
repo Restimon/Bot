@@ -9,7 +9,7 @@ from data import (
     shields, esquive_status, casque_status, immunite_status,
     regeneration_status,
 )
-from economy import get_balance
+from economy_utils import get_gotcoins
 
 def register_profile_command(bot):
     @bot.tree.command(name="profile", description="Affiche le profil GotValis d’un membre.")
@@ -31,7 +31,7 @@ def register_profile_command(bot):
         # Tri manuel (pour l’instant simple)
         sorted_lb = sorted(
             server_lb.items(),
-            key=lambda x: compute_total_gotcoins(guild_id, x[0]),
+            key=lambda x: get_gotcoins(guild_id, x[0]),
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
