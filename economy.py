@@ -1,6 +1,3 @@
-from data import sauvegarder
-
-# Données économiques par serveur → à sauvegarder
 gotcoins_stats = {}   # {guild_id: {user_id: {"degats": X, "soin": X, "kills": X, "morts": X, "autre": X, "achats": X}}}
 gotcoins_balance = {} # {guild_id: {user_id: balance_int}}
 
@@ -11,52 +8,43 @@ DEFAULT_STATS = {
     "kills": 0,
     "morts": 0,
     "autre": 0,
-    "achats": 0   # ✅ nouvelle catégorie
+    "achats": 0
 }
 
-# Initialisation des stats d'un joueur (à appeler au besoin)
+# Initialisation des stats d'un joueur
 def init_gotcoins_stats(guild_id, user_id):
     gotcoins_stats.setdefault(guild_id, {}).setdefault(user_id, DEFAULT_STATS.copy())
     gotcoins_balance.setdefault(guild_id, {}).setdefault(user_id, 0)
 
-# Récupérer la balance actuelle (GotCoins disponibles)
+# Récupérer la balance actuelle
 def get_balance(guild_id, user_id):
     init_gotcoins_stats(guild_id, user_id)
     return gotcoins_balance[guild_id][user_id]
 
-# Vérifie si le joueur a assez de GotCoins pour une action donnée
-# → utilisé pour bloquer un achat par exemple
+# Vérifie si le joueur a assez de GotCoins
 def can_afford(guild_id, user_id, amount):
     if amount <= 0:
-        return True  # on autorise les dépenses nulles
+        return True
     init_gotcoins_stats(guild_id, user_id)
     return gotcoins_balance[guild_id][user_id] >= amount
 
-# Ajouter des GotCoins à la balance (+ trace dans les stats)
-# → par défaut catégorie = "autre" → utilisé pour : messages, vocal, daily, ravitaillement spécial
-# → combat utilise les catégories "degats", "soin", "kills", "morts"
-# → achats utilisera la catégorie "achats"
+# Ajouter des GotCoins
 def add_gotcoins(guild_id, user_id, amount, category="autre"):
+    from data import sauvegarder
     if amount <= 0:
-        return  # sécurité inutile de faire une op pour 0 ou négatif
+        return
     init_gotcoins_stats(guild_id, user_id)
 
     gotcoins_balance[guild_id][user_id] += amount
-
-    # On trace la provenance (utile pour affichage de détail)
-    if category in gotcoins_stats[guild_id][user_id]:
-        gotcoins_stats[guild_id][user_id][category] += amount
-    else:
-        gotcoins_stats[guild_id][user_id]["autre"] += amount  # fallback sécurité
+    gotcoins_stats[guild_id][user_id][category] += amount
 
     sauvegarder()
 
-# Retirer des GotCoins (ex: achats, pénalités)
-# → solde final ne peut pas être < 0
-# → optionnellement on peut aussi logger le retrait en "achats"
+# Retirer des GotCoins
 def remove_gotcoins(guild_id, user_id, amount, log_as_purchase=True):
+    from data import sauvegarder
     if amount <= 0:
-        return  # sécurité
+        return
     init_gotcoins_stats(guild_id, user_id)
 
     current_balance = gotcoins_balance[guild_id][user_id]
@@ -64,33 +52,24 @@ def remove_gotcoins(guild_id, user_id, amount, log_as_purchase=True):
     gotcoins_balance[guild_id][user_id] = new_balance
 
     if log_as_purchase:
-        # On log la dépense dans la catégorie "achats"
-        if "achats" in gotcoins_stats[guild_id][user_id]:
-            gotcoins_stats[guild_id][user_id]["achats"] += amount
-        else:
-            gotcoins_stats[guild_id][user_id]["autre"] += amount  # fallback
+        gotcoins_stats[guild_id][user_id]["achats"] += amount
 
     sauvegarder()
 
-# Retourne les stats complètes d'un joueur (utile pour affichage détaillé / debug)
-# → combat + "autre" + "achats"
+# Retourne les stats complètes d'un joueur
 def get_gotcoins_stats(guild_id, user_id):
     init_gotcoins_stats(guild_id, user_id)
     return gotcoins_stats[guild_id][user_id]
 
-# Retourne le leaderboard global (trié par balance réelle)
-# → utilisé pour afficher le classement de richesse
+# Retourne le leaderboard global
 def get_leaderboard_ranking(guild_id):
     balances = gotcoins_balance.get(guild_id, {})
     sorted_balances = sorted(balances.items(), key=lambda x: x[1], reverse=True)
     return sorted_balances
 
-# Retourne le total de GotCoins *gagnés dans la vie du joueur* (toutes catégories SAUF "achats")
-# → utile pour afficher en /profile ou /bank : "Total gagné dans votre carrière"
+# Retourne le total de GotCoins gagnés (hors achats)
 def get_total_gotcoins_earned(guild_id, user_id):
     init_gotcoins_stats(guild_id, user_id)
     stats = gotcoins_stats[guild_id][user_id]
-
-    # On additionne tout sauf la catégorie "achats"
     total = sum(v for k, v in stats.items() if k != "achats")
     return total
