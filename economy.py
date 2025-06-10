@@ -4,15 +4,18 @@ from data import sauvegarder
 gotcoins_stats = {}   # {guild_id: {user_id: {"degats": X, "soin": X, "kills": X, "morts": X, "autre": X}}}
 gotcoins_balance = {} # {guild_id: {user_id: balance_int}}
 
+# Valeurs par défaut pour les stats
+DEFAULT_STATS = {
+    "degats": 0,
+    "soin": 0,
+    "kills": 0,
+    "morts": 0,
+    "autre": 0
+}
+
 # Initialisation des stats d'un joueur (à appeler au besoin)
 def init_gotcoins_stats(guild_id, user_id):
-    gotcoins_stats.setdefault(guild_id, {}).setdefault(user_id, {
-        "degats": 0,
-        "soin": 0,
-        "kills": 0,
-        "morts": 0,
-        "autre": 0
-    })
+    gotcoins_stats.setdefault(guild_id, {}).setdefault(user_id, DEFAULT_STATS.copy())
     gotcoins_balance.setdefault(guild_id, {}).setdefault(user_id, 0)
 
 # Récupérer la balance actuelle (GotCoins disponibles)
