@@ -212,9 +212,10 @@ async def on_message(message):
             gain = compute_message_gains(message.content)
             if gain > 0:
                 leaderboard.setdefault(guild_id, {}).setdefault(user_id, {
-                    "degats": 0, "soin": 0, "kills": 0, "morts": 0
+                    "degats": 0, "soin": 0, "kills": 0, "morts": 0, "autre": 0
                 })
-                leaderboard[guild_id][user_id]["soin"] += gain
+                leaderboard[guild_id][user_id]["autre"] += gain
+
                 gotcoins_cooldowns[user_id] = now  # Cooldown mis à jour uniquement si gain
                 print(f"💰 Gain {gain} GotCoins pour {message.author.display_name} (via message)")
 
