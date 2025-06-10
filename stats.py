@@ -1,9 +1,9 @@
 import discord
 import time
 from discord import app_commands
-from storage import get_user_data
-from economy import gotcoins_stats, gotcoins_balance
-from economy_utils import get_gotcoins
+from storage import get_user_data, get_user_balance
+from economy import gotcoins_stats
+from economy_utils import get_total_gotcoins_earned
 
 def register_stats_command(bot):
     @bot.tree.command(name="stats", description="📊 Affiche les statistiques de GotCoins et de combat d’un membre.")
@@ -16,15 +16,15 @@ def register_stats_command(bot):
         uid = str(member.id)
 
         # Récupère les stats actuelles et balance
-        user_stats = get_gotcoins_stats(guild_id, uid)
-        gotcoins_total = get_gotcoins(user_stats)  # ← ici on passe juste le dict stats
-        balance = get_balance(guild_id, uid)
+        user_stats = gotcoins_stats.get(guild_id, {}).get(uid, {})
+        gotcoins_total = get_total_gotcoins_earned(guild_id, uid)  # ✅ total carrière
+        balance = get_user_balance(guild_id, uid)  # ✅ propre via storage.py
 
-        # Classement basé sur GotCoins
+        # Classement basé sur total gagné
         server_lb = gotcoins_stats.get(guild_id, {})
         sorted_lb = sorted(
             server_lb.items(),
-            key=lambda x: get_gotcoins(x[1]),  # ← ici on passe juste le dict stats
+            key=lambda x: get_total_gotcoins_earned(guild_id, x[0]),  # ✅ on trie bien sur total carrière
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
@@ -39,7 +39,7 @@ def register_stats_command(bot):
         embed.set_thumbnail(url=member.display_avatar.url)
 
         embed.add_field(
-            name="💰 GotCoins totaux",
+            name="💰 GotCoins totaux gagnés",
             value=f"**{gotcoins_total}**",
             inline=False
         )
@@ -55,7 +55,8 @@ def register_stats_command(bot):
                 f"• ✨ Soins prodigués : **{user_stats.get('soin', 0)}**\n"
                 f"• ☠️ Kills : **{user_stats.get('kills', 0)}**\n"
                 f"• 💀 Morts : **{user_stats.get('morts', 0)}**\n"
-                f"• 🎁 Gains divers (autre) : **{user_stats.get('autre', 0)}**"
+                f"• 🎁 Gains divers (autre) : **{user_stats.get('autre', 0)}**\n"
+                f"• 🛒 Dépenses (achats) : **{user_stats.get('achats', 0)}**"
             ),
             inline=False
         )
