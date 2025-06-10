@@ -73,3 +73,28 @@ def get_total_gotcoins_earned(guild_id, user_id):
     stats = gotcoins_stats[guild_id][user_id]
     total = sum(v for k, v in stats.items() if k != "achats")
     return total
+
+# Gain par message (GotCoins gagnés selon la longueur du message)
+def compute_message_gains(message_content):
+    length = len(message_content.strip())
+    if length == 0:
+        return 0
+    elif length < 20:
+        return 1
+    elif length < 50:
+        return 2
+    elif length < 100:
+        return 3
+    elif length < 200:
+        return 4
+    else:
+        return 5
+
+# Gain par vocal (3 GotCoins par tranche de 30 min)
+def compute_voice_gains(minutes_in_voice):
+    num_chunks = minutes_in_voice // 30
+    total_gain = 0
+    for _ in range(num_chunks):
+        total_gain += random.randint(1, 4)  # entre 1 et 4 par tranche
+    return total_gain
+
