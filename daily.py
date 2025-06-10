@@ -2,8 +2,7 @@ import discord
 import time
 from utils import get_random_item
 from storage import get_user_data
-from data import sauvegarder, last_daily_claim, leaderboard
-from embeds import build_embed_from_item
+from data import sauvegarder, last_daily_claim, leaderboard, OBJETS
 from economy import gotcoins_stats, gotcoins_balance, add_gotcoins, init_gotcoins_stats
 
 def register_daily_command(bot):
@@ -25,34 +24,54 @@ def register_daily_command(bot):
                 ephemeral=True
             )
 
-        # Récompenses
+        # --- Récompenses ---
         reward1 = get_random_item()
         reward2 = get_random_item()
 
-        # Inventaire
+        # --- Inventaire ---
         user_inv, _, _ = get_user_data(guild_id, user_id)
         user_inv.extend([reward1, reward2])
 
-        # GotCoins → +25
-        leaderboard.setdefault(guild_id, {}).setdefault(user_id, {
-            "degats": 0, "soin": 0, "kills": 0, "morts": 0
-        })
-        leaderboard[guild_id][user_id]["soin"] += 25
+        # --- GotCoins → +25 ---
+        add_gotcoins(guild_id, user_id, 25, category="autre")
 
-        # Enregistrer date daily
+        # --- Enregistrer date daily ---
         last_daily_claim[guild_id][user_id] = now
 
-        sauvegarder()  # sauvegarde globale
+        # --- Sauvegarde globale ---
+        sauvegarder()
 
+        # --- Construction de l'embed ---
         embed = discord.Embed(
             title="🎁 Récompense quotidienne de GotValis",
-            description=(
-                f"{interaction.user.mention} a reçu : {reward1} et {reward2} !\n"
-                f"💰 **+25 GotCoins** ajoutés à ton compte.\n"
-                f"Merci pour ta fidélité à **GotValis**."
-            ),
+            description=f"{interaction.user.mention}, voici ta récompense :",
             color=discord.Color.green()
         )
-        embed.set_footer(text="À réutiliser dans 24h.")
 
+        # --- Récompense 1 ---
+        desc1 = OBJETS.get(reward1, {}).get("description", "*Pas de description*")
+        embed.add_field(
+            name=f"{reward1}",
+            value=f"{desc1}",
+            inline=False
+        )
+
+        # --- Récompense 2 ---
+        desc2 = OBJETS.get(reward2, {}).get("description", "*Pas de description*")
+        embed.add_field(
+            name=f"{reward2}",
+            value=f"{desc2}",
+            inline=False
+        )
+
+        # --- GotCoins ---
+        embed.add_field(
+            name="💰 GotCoins",
+            value="💰 **+25 GotCoins** ajoutés à ton compte.",
+            inline=False
+        )
+
+        embed.set_footer(text="⏳ Disponible à nouveau dans 24h.")
+
+        # --- Envoi ---
         await interaction.response.send_message(embed=embed)
