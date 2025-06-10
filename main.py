@@ -350,7 +350,7 @@ async def update_leaderboard_loop():
             server_balance = gotcoins_balance.get(guild_id, {})
             server_hp = hp.get(guild_id, {})
             server_shields = shields.get(guild_id, {})
-            
+
             # Trié par argent pur
             sorted_lb = sorted(
                 server_balance.items(),
@@ -379,16 +379,14 @@ async def update_leaderboard_loop():
 
                 prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
 
+                # ✅ ligne simplifiée : toujours 💰 + ❤️, et on ajoute 🛡️ seulement si > 0
+                line = (
+                    f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
+                    f"❤️ {pv} PV"
+                )
+
                 if pb > 0:
-                    line = (
-                        f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
-                        f"❤️ {pv} PV / 🛡️ {pb} PB"
-                    )
-                else:
-                    line = (
-                        f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
-                        f"❤️ {pv} PV"
-                    )
+                    line += f" / 🛡️ {pb} PB"
 
                 lines.append(line)
                 rank += 1
