@@ -92,3 +92,16 @@ def get_evade_chance(guild_id, user_id):
 
     return base_chance + bonus
 
+def handle_death(guild_id, target_id, source_id=None):
+    hp[guild_id][target_id] = 100  # Remise à 100 PV
+
+    try:
+        remove_status_effects(guild_id, target_id)
+    except Exception as e:
+        print(f"[handle_death] Erreur lors de la suppression des statuts : {e}")
+
+    if source_id and source_id != target_id:
+        add_gotcoins(guild_id, source_id, 50, category="kills")
+        add_gotcoins(guild_id, target_id, -25, category="morts")
+    else:
+        add_gotcoins(guild_id, target_id, -25, category="morts")
