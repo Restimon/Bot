@@ -14,31 +14,29 @@ def register_bank_command(bot):
         uid = str(member.id)
 
         _, _, user_stats = get_user_data(guild_id, uid)
-        gotcoins = get_gotcoins(user_stats)
+
+        # ✅ Ici la correction → on passe guild_id + uid
+        gotcoins = get_gotcoins(guild_id, uid)
 
         # Classement basé sur GotCoins
         server_leaderboard = leaderboard.get(guild_id, {})
         sorted_lb = sorted(
             server_leaderboard.items(),
-            key=lambda x: get_gotcoins(x[1]),
+            key=lambda x: get_gotcoins(guild_id, x[0]),  # ✅ pareil ici
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, "")
 
-        # Date d’arrivée
-        join_date = member.joined_at.strftime("%d/%m/%Y à %H:%M")
-
         # Construction de l'embed
         embed = discord.Embed(
-            title=f"🏦 Banque GotValis de {member.display_name}",
-            description="💳 Dossier bancaire personnel — analyse en cours...",
+            title=f"📄 Banque GotValis de {member.display_name}",
             color=discord.Color.gold()
         )
         embed.set_thumbnail(url=member.display_avatar.url)
 
         embed.add_field(
-            name="💰 GotCoins disponibles",
+            name="💰 GotCoins",
             value=f"**{gotcoins}** GotCoins",
             inline=False
         )
@@ -48,7 +46,5 @@ def register_bank_command(bot):
             value=f"{medal} Rang {rank}" if rank else "Non classé",
             inline=False
         )
-
-        embed.set_footer(text="💳 Solde officiel — VolmiCorp Financial Services.")
 
         await interaction.followup.send(embed=embed)
