@@ -5,6 +5,7 @@ import shutil
 from datetime import datetime
 
 from storage import inventaire, hp, leaderboard
+from economy import gotcoins_balance  # ← ajout nécessaire ✅
 
 # ✅ Utilisation du disque persistant
 PERSISTENT_PATH = "/persistent"
@@ -50,6 +51,7 @@ def sauvegarder():
                 "inventaire": inventaire,
                 "hp": hp,
                 "leaderboard": leaderboard,
+                "gotcoins_balance": gotcoins_balance,  # ← ICI ajouté ✅
                 "cooldowns": cooldowns,
                 "virus_status": virus_status,
                 "poison_status": poison_status,
@@ -89,6 +91,9 @@ def charger():
 
         leaderboard.clear()
         leaderboard.update(data.get("leaderboard", {}))
+
+        gotcoins_balance.clear()  # ← ICI ajouté ✅
+        gotcoins_balance.update(data.get("gotcoins_balance", {}))  # ← ICI ajouté ✅
 
         cooldowns["attack"].clear()
         cooldowns["heal"].clear()
@@ -145,7 +150,8 @@ def backup_auto_independante():
         data = {
             "inventaire": inventaire,
             "hp": hp,
-            "leaderboard": leaderboard
+            "leaderboard": leaderboard,
+            "gotcoins_balance": gotcoins_balance  # ← ICI ajouté ✅
         }
 
         with open(path, "w", encoding="utf-8") as f:
