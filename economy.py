@@ -84,3 +84,13 @@ def get_leaderboard_ranking(guild_id):
     balances = gotcoins_balance.get(guild_id, {})
     sorted_balances = sorted(balances.items(), key=lambda x: x[1], reverse=True)
     return sorted_balances
+
+# Retourne le total de GotCoins *gagnés dans la vie du joueur* (toutes catégories SAUF "achats")
+# → utile pour afficher en /profile ou /bank : "Total gagné dans votre carrière"
+def get_total_gotcoins_earned(guild_id, user_id):
+    init_gotcoins_stats(guild_id, user_id)
+    stats = gotcoins_stats[guild_id][user_id]
+
+    # On additionne tout sauf la catégorie "achats"
+    total = sum(v for k, v in stats.items() if k != "achats")
+    return total
