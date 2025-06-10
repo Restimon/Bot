@@ -11,7 +11,6 @@ from config import get_config, save_config, get_guild_config
 from data import sauvegarder, virus_status, poison_status, infection_status, regeneration_status, leaderboard
 from special_supply import find_or_update_valid_channel, send_special_supply_in_channel, supply_data, set_special_supply_enabled, is_special_supply_enabled
 from embeds import build_embed_from_item
-from leaderboard_utils import update_leaderboard
 
 BACKUP_DIR = "/persistent/backups"
 DATA_FILE = "/persistent/data.json"
