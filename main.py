@@ -251,8 +251,9 @@ async def on_message(message):
             and user.id not in [u.id for u in collected_users]
         )
     
-    # --- Réaction pendant 15 sec ---
     end_time = current_time + 15
+    user_rewards = {}  # pour savoir ce que chaque user a eu
+    
     while len(collected_users) < 3 and asyncio.get_event_loop().time() < end_time:
         try:
             reaction, user = await asyncio.wait_for(
@@ -260,63 +261,46 @@ async def on_message(message):
                 timeout=end_time - asyncio.get_event_loop().time(),
             )
             uid = str(user.id)
+            collected_users.append(user)
     
-            # --- Traitement spécial pour 💰 ---
+            # Si c'est 💰 → on donne des GotCoins, pas d'item
             if item == "💰":
-                gain = random.randint(3, 13)
+                gain = random.randint(3, 12)
                 add_gotcoins(guild_id, uid, gain, category="autre")
-                collected_users.append( (user, gain) )  # on stocke (user, gain) pour l'affichage
+                user_rewards[user] = f"💰 +{gain} GotCoins"
             else:
-                # --- Traitement classique OBJETS ---
+                # Objet classique → inventaire
                 user_inv, _, _ = get_user_data(guild_id, uid)
                 user_inv.append(item)
-                collected_users.append( (user, None) )  # gain=None pour les objets
+                user_rewards[user] = f"{item}"
     
         except asyncio.TimeoutError:
             break
     
-    # --- Embed final ---
+    # --- Embed final
     if collected_users:
-        if item == "💰":
-            # Affichage spécial pour GotCoins
-            mention_list = "\n".join(
-                f"✅ {user.mention} → +{gain} 💰"
-                for user, gain in collected_users
-            )
-            embed = discord.Embed(
-                title="💰 Ravitaillement GotCoins récupéré",
-                description=(
-                    f"Le dépôt de **GotValis** a distribué des GotCoins :\n\n{mention_list}"
-                ),
-                color=discord.Color.gold()
-            )
-        else:
-            # Affichage normal pour OBJETS
-            mention_list = "\n".join(
-                f"✅ {user.mention}"
-                for user, _ in collected_users
-            )
-            embed = discord.Embed(
-                title="📦 Ravitaillement récupéré",
-                description=(
-                    f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mention_list}"
-                ),
-                color=0x00FFAA
-            )
+        lines = []
+        for user in collected_users:
+            reward_text = user_rewards.get(user, "❓")
+            lines.append(f"✅ {user.mention} a récupéré : {reward_text}")
+    
+        embed = discord.Embed(
+            title="📦 Ravitaillement récupéré",
+            description="\n".join(lines),
+            color=0x00FFAA
+        )
     else:
-        # Aucun utilisateur n'a réagi à temps
         embed = discord.Embed(
             title="💥 Ravitaillement détruit",
             description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
             color=0xFF0000
         )
     
-    # Envoi de l'embed final
     await message.channel.send(embed=embed)
     
     # Terminer avec process_commands
     await bot.process_commands(message)
-    
+
 # ===================== Auto-Update Leaderboard ======================
 
 async def update_leaderboard_loop():
