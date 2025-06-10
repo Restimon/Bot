@@ -2,8 +2,7 @@ import discord
 import time
 from discord import app_commands
 from storage import get_user_data, get_user_balance
-from economy import gotcoins_stats
-from economy_utils import get_total_gotcoins_earned
+from economy import gotcoins_stats, get_total_gotcoins_earned, compute_message_gains, compute_voice_gains
 from data import weekly_message_count, weekly_voice_time  # ✅ On importe les nouveaux compteurs
 
 def register_stats_command(bot):
