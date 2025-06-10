@@ -7,7 +7,7 @@ import datetime
 from data import virus_status, poison_status, infection_status, regeneration_status, supply_data, sauvegarder
 from storage import get_user_data, hp
 from utils import get_random_item, OBJETS
-from economy import add_gotcoins
+from economy import add_gotcoins, get_balance
 
 # Flag global pour (dés)activer la boucle supply
 SPECIAL_SUPPLY_ENABLED = True
