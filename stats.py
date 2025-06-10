@@ -4,6 +4,7 @@ from discord import app_commands
 from storage import get_user_data, get_user_balance
 from economy import gotcoins_stats
 from economy_utils import get_total_gotcoins_earned
+from data import weekly_message_count, weekly_voice_time  # ✅ On importe les nouveaux compteurs
 
 def register_stats_command(bot):
     @bot.tree.command(name="stats", description="📊 Affiche les statistiques de GotCoins et de combat d’un membre.")
@@ -29,6 +30,13 @@ def register_stats_command(bot):
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, "")
+
+        # Récupère les stats de messages / vocal
+        msg_count = weekly_message_count.get(guild_id, {}).get(uid, 0)
+        voice_sec = weekly_voice_time.get(guild_id, {}).get(uid, 0)
+        voice_min = voice_sec // 60
+        voice_h = voice_min // 60
+        voice_m = voice_min % 60
 
         # Build embed
         embed = discord.Embed(
@@ -57,6 +65,14 @@ def register_stats_command(bot):
                 f"• 💀 Morts : **{user_stats.get('morts', 0)}**\n"
                 f"• 🎁 Gains divers (autre) : **{user_stats.get('autre', 0)}**\n"
                 f"• 🛒 Dépenses (achats) : **{user_stats.get('achats', 0)}**"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="📊 Activité hebdomadaire",
+            value=(
+                f"• ✉️ Messages envoyés : **{msg_count}**\n"
+                f"• 🎙️ Temps en vocal : **{voice_h}h {voice_m}min**"
             ),
             inline=False
         )
