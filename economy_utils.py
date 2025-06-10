@@ -1,17 +1,15 @@
-from economy import gotcoins_balance 
+from economy import gotcoins_balance, gotcoins_stats
 
+# Récupérer la balance ACTUELLE (solde disponible en ce moment)
 def get_gotcoins(guild_id, user_id):
     return gotcoins_balance.get(guild_id, {}).get(user_id, 0)
 
+# Calculer l'ARGENT TOTAL GAGNÉ depuis toujours (toutes catégories)
+# → c'est ça qu'on veut pour afficher en /leaderboard, /profile, etc.
 def get_gotcoins_from_stats(user_stats):
-    return (
-        user_stats.get("degats", 0)
-        + user_stats.get("soin", 0)
-        + user_stats.get("kills", 0) * 50
-        - user_stats.get("morts", 0) * 25
-    )
+    return sum(user_stats.values())
 
-# Gain par message
+# Gain par message (GotCoins gagnés selon la longueur du message)
 def compute_message_gains(message_content):
     length = len(message_content.strip())
     if length == 0:
