@@ -8,7 +8,7 @@ from data import (
     regeneration_status,
 )
 from economy_utils import get_gotcoins
-from data import leaderboard
+from economy import get_total_gotcoins_earned, get_balance, gotcoins_stats
 
 def register_profile_command(bot):
     @bot.tree.command(name="profile", description="Affiche le profil GotValis d’un membre.")
@@ -21,13 +21,14 @@ def register_profile_command(bot):
         uid = str(member.id)
 
         user_inv, user_hp, _ = get_user_data(guild_id, uid)
-        total_gotcoins = get_gotcoins(guild_id, uid)
+        total_gotcoins = get_total_gotcoins_earned(guild_id, uid)
+        balance = get_balance(guild_id, uid)
 
-        # Classement basé sur get_gotcoins
-        server_lb = leaderboard.get(guild_id, {})
+        # Classement basé sur argent total gagné
+        server_lb = gotcoins_stats.get(guild_id, {})
         sorted_lb = sorted(
             server_lb.items(),
-            key=lambda x: get_gotcoins(guild_id, x[0]),
+            key=lambda x: get_total_gotcoins_earned(guild_id, x[0]),
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
@@ -45,7 +46,8 @@ def register_profile_command(bot):
         embed.set_thumbnail(url=member.display_avatar.url)
 
         embed.add_field(name="❤️ Points de vie", value=hp_display, inline=False)
-        embed.add_field(name="💰 GotCoins", value=f"**{total_gotcoins}** GotCoins", inline=False)
+        embed.add_field(name="💰 GotCoins totaux (carrière)", value=f"**{total_gotcoins}**", inline=False)
+        embed.add_field(name="💵 Solde actuel (dépensable)", value=f"**{balance} GotCoins**", inline=False)
         embed.add_field(
             name="🏆 Classement général",
             value=f"{medal} Rang {rank}" if rank else "Non classé",
