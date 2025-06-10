@@ -1,4 +1,5 @@
 from economy import gotcoins_balance, gotcoins_stats
+import random
 
 # Récupérer la balance ACTUELLE (solde disponible en ce moment)
 def get_gotcoins(guild_id, user_id):
@@ -28,4 +29,7 @@ def compute_message_gains(message_content):
 # Gain par vocal (3 GotCoins par tranche de 30 min)
 def compute_voice_gains(minutes_in_voice):
     num_chunks = minutes_in_voice // 30
-    return num_chunks * 3
+    total_gain = 0
+    for _ in range(num_chunks):
+        total_gain += random.randint(1, 4)  # entre 1 et 4 par tranche
+    return total_gain
