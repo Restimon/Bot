@@ -30,6 +30,7 @@ esquive_status = {}
 casque_status = {}
 last_daily_claim = {}
 supply_data = {}
+gotcoins_balance = {} 
 
 # ============================
 # ✅ Sauvegarde manuelle (data.json + backup horodatée)
