@@ -223,25 +223,26 @@ async def on_message(message):
 
     # 📦 Ravitaillement classique aléatoire
     global message_counter, random_threshold, last_drop_time
-
+    
     message_counter += 1
     if message_counter < random_threshold:
         await bot.process_commands(message)
         return
-
+    
     current_time = asyncio.get_event_loop().time()
     if current_time - last_drop_time < 30:
         await bot.process_commands(message)
         return
-
+    
     last_drop_time = current_time
     message_counter = 0
     random_threshold = random.randint(4, 8)
-
+    
+    # --- Choisir l'item ---
     item = get_random_item()
     await message.add_reaction(item)
     collected_users = []
-
+    
     def check(reaction, user):
         return (
             reaction.message.id == message.id
@@ -249,7 +250,8 @@ async def on_message(message):
             and not user.bot
             and user.id not in [u.id for u in collected_users]
         )
-
+    
+    # --- Réaction pendant 15 sec ---
     end_time = current_time + 15
     while len(collected_users) < 3 and asyncio.get_event_loop().time() < end_time:
         try:
@@ -258,64 +260,62 @@ async def on_message(message):
                 timeout=end_time - asyncio.get_event_loop().time(),
             )
             uid = str(user.id)
-            user_inv, _, _ = get_user_data(guild_id, uid)
-            user_inv.append(item)
-            collected_users.append(user)
+    
+            # --- Traitement spécial pour 💰 ---
+            if item == "💰":
+                gain = random.randint(3, 13)
+                add_gotcoins(guild_id, uid, gain, category="autre")
+                collected_users.append( (user, gain) )  # on stocke (user, gain) pour l'affichage
+            else:
+                # --- Traitement classique OBJETS ---
+                user_inv, _, _ = get_user_data(guild_id, uid)
+                user_inv.append(item)
+                collected_users.append( (user, None) )  # gain=None pour les objets
+    
         except asyncio.TimeoutError:
             break
-
+    
+    # --- Embed final ---
     if collected_users:
-        mention_list = "\n".join(f"✅ {user.mention}" for user in collected_users)
-        embed = discord.Embed(
-            title="📦 Ravitaillement récupéré",
-            description=(
-                f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mention_list}"
-            ),
-            color=0x00FFAA
-        )
+        if item == "💰":
+            # Affichage spécial pour GotCoins
+            mention_list = "\n".join(
+                f"✅ {user.mention} → +{gain} 💰"
+                for user, gain in collected_users
+            )
+            embed = discord.Embed(
+                title="💰 Ravitaillement GotCoins récupéré",
+                description=(
+                    f"Le dépôt de **GotValis** a distribué des GotCoins :\n\n{mention_list}"
+                ),
+                color=discord.Color.gold()
+            )
+        else:
+            # Affichage normal pour OBJETS
+            mention_list = "\n".join(
+                f"✅ {user.mention}"
+                for user, _ in collected_users
+            )
+            embed = discord.Embed(
+                title="📦 Ravitaillement récupéré",
+                description=(
+                    f"Le dépôt de **GotValis** contenant {item} a été récupéré par :\n\n{mention_list}"
+                ),
+                color=0x00FFAA
+            )
     else:
+        # Aucun utilisateur n'a réagi à temps
         embed = discord.Embed(
             title="💥 Ravitaillement détruit",
             description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
             color=0xFF0000
         )
-
+    
+    # Envoi de l'embed final
     await message.channel.send(embed=embed)
-
+    
     # Terminer avec process_commands
     await bot.process_commands(message)
-
-@bot.event
-async def on_raw_reaction_add(payload):
-    gid = str(payload.guild_id)
-    mid = str(payload.message_id)
-    uid = str(payload.user_id)
-
-    if gid not in supply_data:
-        return
-
-    data = supply_data[gid]
-
-    # Check si supply est bien ouvert
-    if not data.get("is_open", False):
-        return
-
-    # Check si c'est le bon message
-    active_msg_id = data.get("active_supply_id")
-    if active_msg_id != mid:
-        return
-
-    # Check si c'est la bonne emoji
-    if str(payload.emoji) != "📦":
-        return
-
-    # Check si ce n'est pas un bot
-    if payload.user_id == bot.user.id:
-        return
-
-    # Ici tu ne supprimes plus la réaction !!
-    # Juste log si tu veux :
-    print(f"✅ Réaction validée : {payload.user_id} sur {mid} (supply actif)")
     
 # ===================== Auto-Update Leaderboard ======================
 
