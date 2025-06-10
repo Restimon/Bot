@@ -1,10 +1,8 @@
-from data import gotcoins_balance
+from economy import gotcoins_balance 
 
-# Version "officielle", utilisée par profile, stats, leaderboard
 def get_gotcoins(guild_id, user_id):
     return gotcoins_balance.get(guild_id, {}).get(user_id, 0)
 
-# Ancienne formule "calculée" à partir du leaderboard, utilisée si besoin
 def get_gotcoins_from_stats(user_stats):
     return (
         user_stats.get("degats", 0)
