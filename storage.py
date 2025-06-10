@@ -1,3 +1,5 @@
+from economy import get_balance  # ✅ pour exposer get_user_balance proprement
+
 inventaire = {}    # {guild_id: {user_id: [objets]}}
 hp = {}            # {guild_id: {user_id: hp_value}}
 leaderboard = {}   # {guild_id: {user_id: {"degats": X, "soin": X, "kills": X, "morts": X}}}
@@ -15,7 +17,11 @@ def set_hp(guild_id, user_id, value):
 def get_leaderboard(guild_id):
     return leaderboard.setdefault(str(guild_id), {})
 
+# Accès au solde GotCoins d'un joueur (argent total actuel) → exposé ici proprement
+def get_user_balance(guild_id, user_id):
+    return get_balance(guild_id, user_id)
 
+# Accès combiné complet aux données d'un joueur : inventaire, PV, stats de combat
 def get_user_data(guild_id, user_id):
     gid = str(guild_id)
     uid = str(user_id)
@@ -41,6 +47,7 @@ def get_user_data(guild_id, user_id):
 
     return inv, pv, stats
 
+# Reset complet des données d'un serveur
 def reset_guild_data(guild_id):
     gid = str(guild_id)
     inventaire[gid] = {}
