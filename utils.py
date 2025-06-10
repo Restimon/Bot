@@ -41,18 +41,15 @@ def check_crit(chance):
     return random.random() < chance
 
 def get_random_item():
-    pool = []
+    if random.random() < 0.05:  # 5 % → coins
+        return random.choice(list(REWARD_EMOJIS))
 
-    # Ajout des objets classiques
+    # 95 % → objets
+    pool = []
     for emoji, data in OBJETS.items():
         poids = 26 - data["rarete"]
         if poids > 0:
             pool.extend([emoji] * poids)
-
-    # Ajout des récompenses directes (comme 💰), avec un poids "personnalisable" si tu veux
-    reward_weight = 15  # par exemple, ajustable
-    for reward_emoji in REWARD_EMOJIS:
-        pool.extend([reward_emoji] * reward_weight)
 
     print(f"[get_random_item] Pool = {pool}")
     return random.choice(pool) if pool else None
