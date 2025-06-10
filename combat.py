@@ -209,7 +209,7 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
             pertes = start_hp - end_hp
 
             if source != user_id:
-                update_leaderboard_dmg(guild_id, source, pertes)
+                add_gotcoins(guild_id, source, pertes, category="degats")
 
             del virus_status[guild_id][user_id]
 
