@@ -1,7 +1,7 @@
 from data import sauvegarder
 
 # Données économiques par serveur → à sauvegarder
-gotcoins_stats = {}   # {guild_id: {user_id: {"degats": X, "soin": X, "kills": X, "morts": X, "autre": X}}}
+gotcoins_stats = {}   # {guild_id: {user_id: {"degats": X, "soin": X, "kills": X, "morts": X, "autre": X, "achats": X}}}
 gotcoins_balance = {} # {guild_id: {user_id: balance_int}}
 
 # Valeurs par défaut pour les stats
@@ -10,7 +10,8 @@ DEFAULT_STATS = {
     "soin": 0,
     "kills": 0,
     "morts": 0,
-    "autre": 0
+    "autre": 0,
+    "achats": 0   # ✅ nouvelle catégorie
 }
 
 # Initialisation des stats d'un joueur (à appeler au besoin)
@@ -26,6 +27,7 @@ def get_balance(guild_id, user_id):
 # Ajouter des GotCoins à la balance (+ trace dans les stats)
 # → par défaut catégorie = "autre" → utilisé pour : messages, vocal, daily, ravitaillement spécial
 # → combat utilise les catégories "degats", "soin", "kills", "morts"
+# → achats utilisera la catégorie "achats"
 def add_gotcoins(guild_id, user_id, amount, category="autre"):
     if amount <= 0:
         return  # sécurité inutile de faire une op pour 0 ou négatif
@@ -37,13 +39,14 @@ def add_gotcoins(guild_id, user_id, amount, category="autre"):
     if category in gotcoins_stats[guild_id][user_id]:
         gotcoins_stats[guild_id][user_id][category] += amount
     else:
-        gotcoins_stats[guild_id][user_id]["autre"] += amount
+        gotcoins_stats[guild_id][user_id]["autre"] += amount  # fallback sécurité
 
     sauvegarder()
 
 # Retirer des GotCoins (ex: achats, pénalités)
 # → solde final ne peut pas être < 0
-def remove_gotcoins(guild_id, user_id, amount):
+# → optionnellement on peut aussi logger le retrait en "achats"
+def remove_gotcoins(guild_id, user_id, amount, log_as_purchase=True):
     if amount <= 0:
         return  # sécurité
     init_gotcoins_stats(guild_id, user_id)
@@ -52,10 +55,17 @@ def remove_gotcoins(guild_id, user_id, amount):
     new_balance = max(0, current_balance - amount)
     gotcoins_balance[guild_id][user_id] = new_balance
 
+    if log_as_purchase:
+        # On log la dépense dans la catégorie "achats"
+        if "achats" in gotcoins_stats[guild_id][user_id]:
+            gotcoins_stats[guild_id][user_id]["achats"] += amount
+        else:
+            gotcoins_stats[guild_id][user_id]["autre"] += amount  # fallback
+
     sauvegarder()
 
 # Retourne les stats complètes d'un joueur (utile pour affichage détaillé / debug)
-# → combat + "autre"
+# → combat + "autre" + "achats"
 def get_gotcoins_stats(guild_id, user_id):
     init_gotcoins_stats(guild_id, user_id)
     return gotcoins_stats[guild_id][user_id]
