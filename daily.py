@@ -1,8 +1,8 @@
 import discord
 import time
-from utils import get_random_item
+from utils import get_random_item, OBJETS
 from storage import get_user_data
-from data import sauvegarder, last_daily_claim, leaderboard, OBJETS
+from data import sauvegarder, last_daily_claim, leaderboard
 from economy import gotcoins_stats, gotcoins_balance, add_gotcoins, init_gotcoins_stats
 
 def register_daily_command(bot):
