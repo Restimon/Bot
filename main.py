@@ -42,7 +42,7 @@ from utilitaire import register_utilitaire_command
 from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
-from economy import gotcoins_balance
+from economy import add_gotcoins, gotcoins_balance
 from economy_utils import get_gotcoins, compute_message_gains
 from stats import register_stats_command
 from bank import register_bank_command
@@ -211,10 +211,7 @@ async def on_message(message):
         if now - last_gain >= cooldown_seconds:
             gain = compute_message_gains(message.content)
             if gain > 0:
-                leaderboard.setdefault(guild_id, {}).setdefault(user_id, {
-                    "degats": 0, "soin": 0, "kills": 0, "morts": 0, "autre": 0
-                })
-                leaderboard[guild_id][user_id]["autre"] += gain
+                add_gotcoins(guild_id, user_id, gain, category="autre")
 
                 gotcoins_cooldowns[user_id] = now  # Cooldown mis à jour uniquement si gain
                 print(f"💰 Gain {gain} GotCoins pour {message.author.display_name} (via message)")
@@ -885,11 +882,7 @@ async def voice_tracking_loop():
 
                     # Si 30 min sont passées depuis la dernière récompense
                     if elapsed >= 1800 and time.time() - tracking["last_reward"] >= 1800:
-                        leaderboard.setdefault(gid, {}).setdefault(uid, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard.setdefault(gid, {}).setdefault(uid, {
-                            "degats": 0, "soin": 0, "kills": 0, "morts": 0, "autre": 0
-                        })
-                        leaderboard[gid][uid]["autre"] += 3
+                        add_gotcoins(gid, uid, 3, category="autre")
                         tracking["last_reward"] = time.time()
 
                         print(f"🎙️ +3 GotCoins pour {member.display_name} (activité vocale 30min atteinte)")
