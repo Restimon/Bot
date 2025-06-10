@@ -31,6 +31,7 @@ OBJETS = {
     "👟": {"type": "esquive+", "valeur": 0.2, "duree": 3 * 3600, "rarete": 14},
     "🪖": {"type": "reduction", "valeur": 0.5, "duree": 4 * 3600, "rarete": 16},
     "⭐️": {"type": "immunite", "duree": 2 * 3600, "rarete": 22}
+    "💰": {"type": "gotcoins", "min": 3, "max": 12, "rarete": 10} 
 }
 
 # Objets avec pondération (plus rare = moins probable)
