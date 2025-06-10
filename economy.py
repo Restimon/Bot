@@ -24,6 +24,14 @@ def get_balance(guild_id, user_id):
     init_gotcoins_stats(guild_id, user_id)
     return gotcoins_balance[guild_id][user_id]
 
+# Vérifie si le joueur a assez de GotCoins pour une action donnée
+# → utilisé pour bloquer un achat par exemple
+def can_afford(guild_id, user_id, amount):
+    if amount <= 0:
+        return True  # on autorise les dépenses nulles
+    init_gotcoins_stats(guild_id, user_id)
+    return gotcoins_balance[guild_id][user_id] >= amount
+
 # Ajouter des GotCoins à la balance (+ trace dans les stats)
 # → par défaut catégorie = "autre" → utilisé pour : messages, vocal, daily, ravitaillement spécial
 # → combat utilise les catégories "degats", "soin", "kills", "morts"
