@@ -126,10 +126,6 @@ def apply_shield(guild_id, user_id, dmg):
     shields.setdefault(guild_id, {})[user_id] = max(0, current_shield - lost_pb)
     return remaining_dmg, lost_pb, current_shield - lost_pb <= 0
 
-def update_leaderboard_dmg(guild_id, source_id, dmg):
-    leaderboard.setdefault(guild_id, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-    leaderboard[guild_id][source_id]["degats"] += dmg
-
 ### 🧪🦠🧟 STATUTS SECONDAIRES
 
 def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
@@ -188,7 +184,7 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 ))
 
             if source != target_id:
-                update_leaderboard_dmg(guild_id, source, start_hp - end_hp)
+                add_gotcoins(guild_id, source, start_hp - end_hp, category="degats")
 
 
     # --- 🦠 Virus ---
@@ -263,8 +259,7 @@ async def appliquer_soin(ctx, user_id, target_id, action):
             is_crit=False
         )
 
-    leaderboard.setdefault(guild_id, {}).setdefault(user_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-    leaderboard[guild_id][user_id]["soin"] += real_heal
+    add_gotcoins(guild_id, user_id, real_heal, category="soin")
 
     # Ligne 1 : action de soin
     if user_id == target_id:
@@ -317,9 +312,9 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
 
     # MAJ leaderboard
     if real_dmg > 0:
-        update_leaderboard_dmg(guild_id, user_id, real_dmg)
+        add_gotcoins(guild_id, user_id, real_dmg, category="degats")
     if src_credit and src_credit != target_id:
-        update_leaderboard_dmg(guild_id, src_credit, bonus_dmg)
+        add_gotcoins(guild_id, src_credit, bonus_dmg, category="degats")
 
     # KO ?
     ko_embed = None
