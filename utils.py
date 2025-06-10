@@ -40,18 +40,23 @@ def check_crit(chance):
     """Renvoie True si un coup critique a lieu selon la probabilité `chance` (0.0 à 1.0)."""
     return random.random() < chance
 
-def get_random_item():
-    if random.random() < 0.05:  # 5 % → coins
+def get_random_item(debug=False):
+    # 5 % → Coins
+    if random.random() < 0.05:
+        if debug:
+            print("[get_random_item] 💰 Tirage spécial : Coins")
         return random.choice(list(REWARD_EMOJIS))
 
-    # 95 % → objets
+    # 95 % → Objets classiques
     pool = []
     for emoji, data in OBJETS.items():
         poids = 26 - data["rarete"]
         if poids > 0:
             pool.extend([emoji] * poids)
 
-    print(f"[get_random_item] Pool = {pool}")
+    if debug:
+        print(f"[get_random_item] Pool objets = {pool}")
+
     return random.choice(pool) if pool else None
 
 def handle_death(guild_id, target_id, source_id=None):
