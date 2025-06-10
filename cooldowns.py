@@ -1,3 +1,5 @@
+import time
+
 cooldowns = {
     "attack": {},  # cooldowns["attack"][guild_id][user_id]
     "heal": {}     # cooldowns["heal"][(guild_id, user_id, target_id)]
@@ -6,26 +8,28 @@ cooldowns = {
 ATTACK_COOLDOWN = 120
 HEAL_COOLDOWN = 180
 
-import time
-
 def is_on_cooldown(guild_id, key, action):
     now = time.time()
-    cd = cooldowns[action].get(guild_id, {})
-    if isinstance(key, tuple):
-        value = cd.get(tuple(key))
-    else:
-        value = cd.get(key)
+    cd_dict = cooldowns[action].get(guild_id, {})
+    
+    # Récupérer la dernière utilisation
+    value = cd_dict.get(tuple(key) if isinstance(key, tuple) else key)
 
     if value is None:
         return False, 0
-    remaining = int(value + (ATTACK_COOLDOWN if action == "attack" else HEAL_COOLDOWN) - now)
+
+    base_cd = ATTACK_COOLDOWN if action == "attack" else HEAL_COOLDOWN
+    remaining = int(value + base_cd - now)
     return remaining > 0, remaining
 
 def set_cooldown(guild_id, key, action, duration=None):
     now = time.time()
-    cd_time = now if duration is None else now - (ATTACK_COOLDOWN if action == "attack" else HEAL_COOLDOWN) + duration
+    base_cd = ATTACK_COOLDOWN if action == "attack" else HEAL_COOLDOWN
 
-    if isinstance(key, tuple):
-        cooldowns[action].setdefault(guild_id, {})[tuple(key)] = cd_time
+    if duration is None:
+        cd_time = now
     else:
-        cooldowns[action].setdefault(guild_id, {})[key] = cd_time
+        cd_time = now - base_cd + duration
+
+    cd_dict = cooldowns[action].setdefault(guild_id, {})
+    cd_dict[tuple(key) if isinstance(key, tuple) else key] = cd_time
