@@ -886,7 +886,10 @@ async def voice_tracking_loop():
                     # Si 30 min sont passées depuis la dernière récompense
                     if elapsed >= 1800 and time.time() - tracking["last_reward"] >= 1800:
                         leaderboard.setdefault(gid, {}).setdefault(uid, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                        leaderboard[gid][uid]["soin"] += 3
+                        leaderboard.setdefault(gid, {}).setdefault(uid, {
+                            "degats": 0, "soin": 0, "kills": 0, "morts": 0, "autre": 0
+                        })
+                        leaderboard[gid][uid]["autre"] += 3
                         tracking["last_reward"] = time.time()
 
                         print(f"🎙️ +3 GotCoins pour {member.display_name} (activité vocale 30min atteinte)")
