@@ -5,7 +5,6 @@ import shutil
 from datetime import datetime
 
 from storage import inventaire, hp, leaderboard
-from economy import gotcoins_balance  # ← ajout nécessaire ✅
 
 # ✅ Utilisation du disque persistant
 PERSISTENT_PATH = "/persistent"
@@ -30,7 +29,9 @@ esquive_status = {}
 casque_status = {}
 last_daily_claim = {}
 supply_data = {}
-gotcoins_balance = {} 
+
+# ✅ Miroir local → pour éviter circular import (sera MAJ par charger)
+gotcoins_balance = {}
 
 # ============================
 # ✅ Sauvegarde manuelle (data.json + backup horodatée)
@@ -38,6 +39,9 @@ gotcoins_balance = {}
 
 def sauvegarder():
     try:
+        # Import ici → pour éviter circular import
+        import economy
+
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         os.makedirs(BACKUP_DIR, exist_ok=True)
 
@@ -52,7 +56,7 @@ def sauvegarder():
                 "inventaire": inventaire,
                 "hp": hp,
                 "leaderboard": leaderboard,
-                "gotcoins_balance": gotcoins_balance,  # ← ICI ajouté ✅
+                "gotcoins_balance": economy.gotcoins_balance,  # on sauvegarde l'original
                 "cooldowns": cooldowns,
                 "virus_status": virus_status,
                 "poison_status": poison_status,
@@ -93,8 +97,10 @@ def charger():
         leaderboard.clear()
         leaderboard.update(data.get("leaderboard", {}))
 
-        gotcoins_balance.clear()  # ← ICI ajouté ✅
-        gotcoins_balance.update(data.get("gotcoins_balance", {}))  # ← ICI ajouté ✅
+        # Import ici → pour éviter circular import
+        import economy
+        economy.gotcoins_balance.clear()
+        economy.gotcoins_balance.update(data.get("gotcoins_balance", {}))
 
         cooldowns["attack"].clear()
         cooldowns["heal"].clear()
@@ -142,6 +148,8 @@ def charger():
 
 def backup_auto_independante():
     try:
+        import economy
+
         os.makedirs(AUTO_BACKUP_DIR, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -152,7 +160,7 @@ def backup_auto_independante():
             "inventaire": inventaire,
             "hp": hp,
             "leaderboard": leaderboard,
-            "gotcoins_balance": gotcoins_balance  # ← ICI ajouté ✅
+            "gotcoins_balance": economy.gotcoins_balance  # on sauvegarde l'original
         }
 
         with open(path, "w", encoding="utf-8") as f:
