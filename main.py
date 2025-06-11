@@ -179,28 +179,6 @@ async def on_ready():
     cleanup_weekly_logs.start()
 
 @bot.event
-async def on_voice_state_update(member, before, after):
-    guild_id = str(member.guild.id)
-    user_id = str(member.id)
-
-    from data import weekly_voice_time  # ← pareil on importe
-
-    # Si l'utilisateur rejoint un canal vocal
-    if after.channel is not None and before.channel is None:
-        voice_state_start_times.setdefault(guild_id, {})[user_id] = time.time()
-
-    # Si l'utilisateur quitte un canal vocal
-    elif after.channel is None and before.channel is not None:
-        start_time = voice_state_start_times.get(guild_id, {}).pop(user_id, None)
-        if start_time is not None:
-            duration_seconds = time.time() - start_time
-            minutes = int(duration_seconds // 60)
-
-            if minutes > 0:
-                weekly_voice_time.setdefault(guild_id, {}).setdefault(user_id, 0)
-                weekly_voice_time[guild_id][user_id] += minutes
-                
-@bot.event
 async def on_message(message):
     if message.author.bot:
         return
@@ -875,35 +853,51 @@ async def voice_tracking_loop():
             gid = str(guild.id)
             voice_tracking.setdefault(gid, {})
 
-            # Récupère les salons vocaux actifs
+            # Récupère les membres actuellement en vocal (hors bots et AFK)
+            active_user_ids = set()
             for vc in guild.voice_channels:
                 if vc.id == guild.afk_channel.id if guild.afk_channel else False:
-                    continue  # On ignore le salon AFK
+                    continue
 
                 for member in vc.members:
                     if member.bot:
                         continue
 
                     uid = str(member.id)
+                    active_user_ids.add(uid)
                     voice_tracking[gid].setdefault(uid, {
                         "start": time.time(),
-                        "last_reward": 0
+                        "last_reward": time.time()
                     })
 
                     tracking = voice_tracking[gid][uid]
-                    elapsed = time.time() - tracking["start"]
+                    elapsed = time.time() - tracking["last_reward"]
 
-                    # Si 30 min sont passées depuis la dernière récompense
-                    if elapsed >= 1800 and time.time() - tracking["last_reward"] >= 1800:
+                    # Ajoute +3 GotCoins toutes les 30 min
+                    if elapsed >= 1800:
                         add_gotcoins(gid, uid, 3, category="autre")
                         tracking["last_reward"] = time.time()
 
-                        print(f"🎙️ +3 GotCoins pour {member.display_name} (activité vocale 30min atteinte)")
+                        # Ajoute 1800 sec dans les stats
+                        weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
+                        weekly_voice_time[gid][uid] += 1800
 
-            # Nettoyage : si un membre n'est plus en vocal, on le retire du tracking
-            active_user_ids = {str(member.id) for vc in guild.voice_channels for member in vc.members if not member.bot}
+                        print(f"🎙️ +3 GotCoins pour {member.display_name} (30 min atteinte)")
+
+            # Nettoyage → membres qui ne sont plus en vocal
             tracked_user_ids = set(voice_tracking[gid].keys())
             for uid in tracked_user_ids - active_user_ids:
+                tracking = voice_tracking[gid][uid]
+                elapsed = time.time() - tracking["last_reward"]
+
+                # On ajoute le temps restant (moins de 30 min restant) à weekly_voice_time
+                if elapsed > 0:
+                    weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
+                    weekly_voice_time[gid][uid] += int(elapsed)
+
+                    print(f"🎙️ {uid} a quitté → +{int(elapsed)} sec ajoutés (partiel)")
+
+                # On retire le user du tracking
                 del voice_tracking[gid][uid]
 
         await asyncio.sleep(30)
