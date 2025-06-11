@@ -884,7 +884,6 @@ async def voice_tracking_loop():
 
                         print(f"🎙️ +3 GotCoins pour {member.display_name} (30 min atteinte)")
 
-                        sauvegarder()
             # Nettoyage → membres qui ne sont plus en vocal
             tracked_user_ids = set(voice_tracking[gid].keys())
             for uid in tracked_user_ids - active_user_ids:
@@ -897,6 +896,8 @@ async def voice_tracking_loop():
                     weekly_voice_time[gid][uid] += int(elapsed)
 
                     print(f"🎙️ {uid} a quitté → +{int(elapsed)} sec ajoutés (partiel)")
+
+                    sauvegarder()
 
                 # On retire le user du tracking
                 del voice_tracking[gid][uid]
