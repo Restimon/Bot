@@ -66,6 +66,7 @@ MAX_SUPPLIES_PER_DAY = 5
 
 gotcoins_cooldowns = {}
 voice_state_start_times = {}  # {guild_id: {user_id: start_time}}
+weekly_message_log = {}
 
 # ===================== Slash Commands ======================
 @bot.command()
@@ -176,6 +177,7 @@ async def on_ready():
     asyncio.create_task(auto_backup_loop())
     regeneration_loop.start()
     voice_tracking_loop.start()
+    cleanup_weekly_logs.start()
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -207,9 +209,9 @@ async def on_message(message):
     guild_id = str(message.guild.id)
     user_id = str(message.author.id)
     channel_id = message.channel.id
-
-    weekly_message_count.setdefault(guild_id, {}).setdefault(user_id, 0)
-    weekly_message_count[guild_id][user_id] += 1
+    
+    weekly_message_log.setdefault(guild_id, {}).setdefault(user_id, [])
+    weekly_message_log[guild_id][user_id].append(time.time())
 
     # Puis process les commandes si besoin
     await bot.process_commands(message)
@@ -811,6 +813,7 @@ async def infection_damage_loop():
         await asyncio.sleep(30)
         
 @tasks.loop(seconds=30)
+
 async def regeneration_loop():
     now = time.time()
     for guild_id, users in list(regeneration_status.items()):
@@ -906,6 +909,18 @@ async def voice_tracking_loop():
 
         await asyncio.sleep(30)
 
+@tasks.loop(hours=1)
+async def cleanup_weekly_logs():
+    print("🧹 Nettoyage des logs hebdomadaires...")
+    now = time.time()
+    seven_days_seconds = 7 * 24 * 3600
+
+    # Messages
+    for gid, users in weekly_message_log.items():
+        for uid, timestamps in users.items():
+            # Ne garder que les messages des 7 derniers jours
+            users[uid] = [t for t in timestamps if now - t <= seven_days_seconds]
+            
 async def auto_backup_loop():
     await bot.wait_until_ready()
     print("🔄 Boucle de backup auto indépendante démarrée")
