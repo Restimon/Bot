@@ -843,8 +843,6 @@ async def regeneration_loop():
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
                 
-voice_tracking.setdefault(gid, {})
-
 @tasks.loop(seconds=30)
 async def voice_tracking_loop():
     await bot.wait_until_ready()
@@ -854,7 +852,7 @@ async def voice_tracking_loop():
         for guild in bot.guilds:
             gid = str(guild.id)
             voice_tracking.setdefault(gid, {})
-
+            
             # Récupère les membres actuellement en vocal (hors bots et AFK)
             active_user_ids = set()
             for vc in guild.voice_channels:
