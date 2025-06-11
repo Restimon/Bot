@@ -32,19 +32,27 @@ def build_embed_from_item(item, description, is_heal_other=False, is_crit=False,
     embed = discord.Embed(
         title=custom_title or f"{item} Action de GotValis",
         description=description,
-        color=discord.Color.green() if is_heal_other else discord.Color.red()
+        color=discord.Color.green() if is_heal_other or OBJETS.get(item, {}).get("type") == "soin" else discord.Color.red()
     )
 
     if disable_gif:
         return embed
 
     gif_url = None
-    if is_crit and not is_heal_other:
-        gif_url = GIFS.get("critique")
-    elif OBJETS.get(item, {}).get("type") == "soin":
+
+    # On met en priorité le GIF de soin (toujours normal même si critique)
+    if OBJETS.get(item, {}).get("type") == "soin":
         gif_url = GIFS.get("soin_autre") if is_heal_other else GIFS.get(item)
+
+    # Sinon pour attaque critique on met le GIF critique
+    elif is_crit:
+        gif_url = GIFS.get("critique")
+
+    # Cas spécial esquive
     elif description.startswith("💨"):
         gif_url = GIFS.get("esquive")
+
+    # Sinon GIF standard de l'item si dispo
     elif item in GIFS:
         gif_url = GIFS[item]
 
