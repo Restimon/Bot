@@ -1,3 +1,5 @@
+import random
+
 gotcoins_stats = {}   # {guild_id: {user_id: {"degats": X, "soin": X, "kills": X, "morts": X, "autre": X, "achats": X}}}
 gotcoins_balance = {} # {guild_id: {user_id: balance_int}}
 
@@ -35,13 +37,17 @@ def add_gotcoins(guild_id, user_id, amount, category="autre"):
         return
     init_gotcoins_stats(guild_id, user_id)
 
+    # Mise à jour de la balance
     gotcoins_balance[guild_id][user_id] += amount
 
-    gotcoins_stats[guild_id][user_id].setdefault(category, 0)  # 🟢 protection ici
+    # Mise à jour des stats
+    gotcoins_stats[guild_id][user_id].setdefault(category, 0)
     gotcoins_stats[guild_id][user_id][category] += amount
 
-    sauvegarder()
+    # Log optionnel pour vérifier
+    # print(f"[add_gotcoins] +{amount} ({category}) → {gotcoins_balance[guild_id][user_id]} balance")
 
+    sauvegarder()
 
 # Retirer des GotCoins
 def remove_gotcoins(guild_id, user_id, amount, log_as_purchase=True):
@@ -74,7 +80,12 @@ def get_leaderboard_ranking(guild_id):
 def get_total_gotcoins_earned(guild_id, user_id):
     init_gotcoins_stats(guild_id, user_id)
     stats = gotcoins_stats[guild_id][user_id]
+
+    # On additionne toutes les catégories sauf "achats"
     total = sum(v for k, v in stats.items() if k != "achats")
+
+    # Protection : on ne retourne jamais un total < balance (edge case)
+    total = max(total, gotcoins_balance[guild_id][user_id])
     return total
 
 # Gain par message (GotCoins gagnés selon la longueur du message)
@@ -100,4 +111,3 @@ def compute_voice_gains(minutes_in_voice):
     for _ in range(num_chunks):
         total_gain += random.randint(1, 4)  # entre 1 et 4 par tranche
     return total_gain
-
