@@ -41,8 +41,7 @@ from utilitaire import register_utilitaire_command
 from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
-from economy import add_gotcoins, gotcoins_balance
-from economy_utils import get_gotcoins, compute_message_gains
+from economy import add_gotcoins, gotcoins_balance, get_balance, compute_message_gains
 from stats import register_stats_command
 from bank import register_bank_command
 
