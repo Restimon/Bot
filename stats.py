@@ -4,6 +4,7 @@ from discord import app_commands
 from storage import get_user_data, get_user_balance
 from economy import gotcoins_stats, get_total_gotcoins_earned, compute_message_gains, compute_voice_gains, get_balance
 from data import weekly_message_count, weekly_voice_time
+from main import weekly_message_log
 
 def register_stats_command(bot):
     @bot.tree.command(name="stats", description="📊 Affiche les statistiques de GotCoins et de combat d’un membre.")
@@ -31,11 +32,23 @@ def register_stats_command(bot):
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, "")
 
         # Récupère les stats de messages / vocal
-        msg_count = weekly_message_count.get(guild_id, {}).get(uid, 0)
-        voice_sec = weekly_voice_time.get(guild_id, {}).get(uid, 0)
-        voice_min = voice_sec // 60
-        voice_h = voice_min // 60
-        voice_m = voice_min % 60
+        msg_count = len(weekly_message_log.get(guild_id, {}).get(uid, []))
+
+        voice_min = weekly_voice_time.get(guild_id, {}).get(uid, 0)
+        voice_sec_total = voice_min * 60
+
+        voice_days = voice_sec_total // (24 * 3600)
+        voice_sec_total %= (24 * 3600)
+
+        voice_h = voice_sec_total // 3600
+        voice_sec_total %= 3600
+
+        voice_m = voice_sec_total // 60
+        voice_s = voice_sec_total % 60
+
+        voice_time_str = (
+            f"**{voice_days} j** {voice_h} h {voice_m} min {voice_s} sec"
+        )
 
         # Build embed
         embed = discord.Embed(
@@ -71,7 +84,7 @@ def register_stats_command(bot):
             name="📊 Activité hebdomadaire",
             value=(
                 f"• ✉️ Messages envoyés : **{msg_count}**\n"
-                f"• 🎙️ Temps en vocal : **{voice_h}h {voice_m}min**"
+                f"• 🎙️ Temps en vocal : {voice_time_str}"
             ),
             inline=False
         )
