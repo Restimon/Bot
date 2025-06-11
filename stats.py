@@ -36,14 +36,16 @@ def register_stats_command(bot):
 
         voice_days = voice_sec_total // (24 * 3600)
         voice_sec_total %= (24 * 3600)
-
+        
         voice_h = voice_sec_total // 3600
         voice_sec_total %= 3600
-
+        
         voice_m = voice_sec_total // 60
-        voice_s = voice_sec_total % 60
-
-        voice_time_str = f"**{voice_days} j** {voice_h} h {voice_m} min {voice_s} sec"
+        
+        # On n'affiche plus les secondes
+        voice_time_str = (
+            f"**{voice_days} j** {voice_h} h {voice_m} min"
+        )
 
         # Build embed
         embed = discord.Embed(
