@@ -66,6 +66,7 @@ MAX_SUPPLIES_PER_DAY = 5
 
 gotcoins_cooldowns = {}
 voice_state_start_times = {}  # {guild_id: {user_id: start_time}}
+voice_tracking = {}
 
 # ===================== Slash Commands ======================
 @bot.command()
