@@ -15,14 +15,14 @@ def register_bank_command(bot):
 
         _, _, user_stats = get_user_data(guild_id, uid)
 
-        # ✅ Ici la correction → on passe guild_id + uid
-        gotcoins = get_gotcoins(guild_id, uid)
+        # ✅ Utiliser get_balance pour la balance actuelle
+        gotcoins = get_balance(guild_id, uid)
 
-        # Classement basé sur GotCoins
+        # Classement basé sur GotCoins (balance actuelle)
         server_leaderboard = leaderboard.get(guild_id, {})
         sorted_lb = sorted(
             server_leaderboard.items(),
-            key=lambda x: get_gotcoins(guild_id, x[0]),  # ✅ pareil ici
+            key=lambda x: get_balance(guild_id, x[0]),  # ✅ get_balance ici aussi
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
@@ -44,6 +44,14 @@ def register_bank_command(bot):
         embed.add_field(
             name="🏆 Classement général",
             value=f"{medal} Rang {rank}" if rank else "Non classé",
+            inline=False
+        )
+
+        # ✅ Optionnel : total gagné en carrière (ça peut être utile)
+        total_earned = get_total_gotcoins_earned(guild_id, uid)
+        embed.add_field(
+            name="📈 Total gagné en carrière",
+            value=f"**{total_earned}** GotCoins",
             inline=False
         )
 
