@@ -266,17 +266,17 @@ async def appliquer_soin(ctx, user_id, target_id, action):
         ligne_1 = f"{mention_soigneur} se soigne de **{real_heal} PV** avec {item}"
     else:
         ligne_1 = f"{mention_soigneur} soigne de **{real_heal} PV** {mention_cible} avec {item}"
-    if crit_txt:
-        ligne_1 += f" {crit_txt}"
 
-    # Ligne 2 : calcul des PV
-    ligne_2 = f"❤️ {start_hp} PV + {real_heal} PV = {new_hp} PV"
+    # Ligne 2 : calcul des PV → avec ❤️ devant le résultat + crit_txt à la fin
+    ligne_2 = f"❤️ {start_hp} PV + {real_heal} PV = ❤️ {new_hp} PV"
+    if crit_txt:
+        ligne_2 += f" {crit_txt}"
 
     return build_embed_from_item(
         item=item,
         description=f"{ligne_1}\n{ligne_2}",
         is_heal_other=(user_id != target_id),
-        is_crit=("💥" in crit_txt)
+        is_crit=False  # on force False → pas de GIF critique sur les soins
     )
 
 ### 🎯 CALCUL DES DÉGÂTS
