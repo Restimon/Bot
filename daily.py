@@ -2,8 +2,8 @@ import discord
 import time
 from utils import get_random_item, OBJETS
 from storage import get_user_data
-from data import sauvegarder, last_daily_claim, leaderboard
-from economy import gotcoins_stats, gotcoins_balance, add_gotcoins, init_gotcoins_stats
+from data import sauvegarder, last_daily_claim
+from economy import add_gotcoins
 
 def register_daily_command(bot):
     @bot.tree.command(name="daily", description="Réclame ta récompense quotidienne GotValis")
@@ -42,36 +42,20 @@ def register_daily_command(bot):
         sauvegarder()
 
         # --- Construction de l'embed ---
+        desc1 = OBJETS.get(reward1, {}).get("description", "*Pas de description*")
+        desc2 = OBJETS.get(reward2, {}).get("description", "*Pas de description*")
+
         embed = discord.Embed(
             title="🎁 Récompense quotidienne de GotValis",
-            description=f"{interaction.user.mention}, voici ta récompense :",
+            description=(
+                f"{interaction.user.mention}, voici ta récompense :\n\n"
+                f"{reward1} {desc1}\n"
+                f"{reward2} {desc2}\n"
+                f"\n💰 +25 GotCoins\n"
+                f"\n⏳ Disponible à nouveau dans 24h."
+            ),
             color=discord.Color.green()
         )
-
-        # --- Récompense 1 ---
-        desc1 = OBJETS.get(reward1, {}).get("description", "*Pas de description*")
-        embed.add_field(
-            name=f"{reward1}",
-            value=f"{desc1}",
-            inline=False
-        )
-
-        # --- Récompense 2 ---
-        desc2 = OBJETS.get(reward2, {}).get("description", "*Pas de description*")
-        embed.add_field(
-            name=f"{reward2}",
-            value=f"{desc2}",
-            inline=False
-        )
-
-        # --- GotCoins ---
-        embed.add_field(
-            name="💰 GotCoins",
-            value="💰 **+25 GotCoins** ajoutés à ton compte.",
-            inline=False
-        )
-
-        embed.set_footer(text="⏳ Disponible à nouveau dans 24h.")
 
         # --- Envoi ---
         await interaction.response.send_message(embed=embed)
