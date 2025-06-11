@@ -36,9 +36,12 @@ def add_gotcoins(guild_id, user_id, amount, category="autre"):
     init_gotcoins_stats(guild_id, user_id)
 
     gotcoins_balance[guild_id][user_id] += amount
+
+    gotcoins_stats[guild_id][user_id].setdefault(category, 0)  # 🟢 protection ici
     gotcoins_stats[guild_id][user_id][category] += amount
 
     sauvegarder()
+
 
 # Retirer des GotCoins
 def remove_gotcoins(guild_id, user_id, amount, log_as_purchase=True):
