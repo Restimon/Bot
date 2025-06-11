@@ -31,6 +31,7 @@ last_daily_claim = {}
 supply_data = {}
 weekly_message_count = {}
 weekly_voice_time = {}
+weekly_message_log = {}
 
 # ✅ Miroir local → pour éviter circular import (sera MAJ par charger)
 gotcoins_balance = {}
