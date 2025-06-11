@@ -3,6 +3,7 @@ import time
 from discord import app_commands
 from storage import get_user_data, get_user_balance
 from economy import gotcoins_stats, get_total_gotcoins_earned, compute_message_gains, compute_voice_gains, get_balance
+from data import weekly_message_count, weekly_voice_time
 
 def register_stats_command(bot):
     @bot.tree.command(name="stats", description="📊 Affiche les statistiques de GotCoins et de combat d’un membre.")
