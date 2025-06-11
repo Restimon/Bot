@@ -7,7 +7,7 @@ from data import (
     shields, esquive_status, casque_status, immunite_status,
     regeneration_status,
 )
-from economy import get_total_gotcoins_earned, get_balance, gotcoins_stats, get_gotcoins
+from economy import get_total_gotcoins_earned, get_balance, gotcoins_stats
 
 def register_profile_command(bot):
     @bot.tree.command(name="profile", description="Affiche le profil GotValis d’un membre.")
