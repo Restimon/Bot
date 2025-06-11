@@ -31,7 +31,7 @@ last_daily_claim = {}
 supply_data = {}
 weekly_message_count = {}
 weekly_voice_time = {}
-weekly_message_log = {}
+weekly_message_log = {}  # On le met dans la sauvegarde aussi
 
 # ✅ Miroir local → pour éviter circular import (sera MAJ par charger)
 gotcoins_balance = {}
@@ -60,6 +60,7 @@ def sauvegarder():
                 "hp": hp,
                 "leaderboard": leaderboard,
                 "gotcoins_balance": economy.gotcoins_balance,  # on sauvegarde l'original
+                "gotcoins_stats": gotcoins_stats,
                 "cooldowns": cooldowns,
                 "virus_status": virus_status,
                 "poison_status": poison_status,
@@ -70,7 +71,10 @@ def sauvegarder():
                 "esquive_status": esquive_status,
                 "casque_status": casque_status,
                 "last_daily_claim": last_daily_claim,
-                "supply_data": supply_data
+                "supply_data": supply_data,
+                "weekly_message_count": weekly_message_count,
+                "weekly_voice_time": weekly_voice_time,
+                "weekly_message_log": weekly_message_log  # Ajouté ici
             }, f, indent=4, ensure_ascii=False)
 
         print("💾 Données sauvegardées avec backup horodatée.")
@@ -104,6 +108,9 @@ def charger():
         import economy
         economy.gotcoins_balance.clear()
         economy.gotcoins_balance.update(data.get("gotcoins_balance", {}))
+
+        gotcoins_stats.clear()
+        gotcoins_stats.update(data.get("gotcoins_stats", {}))
 
         cooldowns["attack"].clear()
         cooldowns["heal"].clear()
@@ -139,6 +146,15 @@ def charger():
         last_daily_claim.clear()
         last_daily_claim.update(data.get("last_daily_claim", {}))
 
+        weekly_message_count.clear()
+        weekly_message_count.update(data.get("weekly_message_count", {}))
+
+        weekly_voice_time.clear()
+        weekly_voice_time.update(data.get("weekly_voice_time", {}))
+
+        weekly_message_log.clear()
+        weekly_message_log.update(data.get("weekly_message_log", {}))
+
         print(f"✅ Données chargées depuis data.json : {len(inventaire)} serveurs | {sum(len(u) for u in inventaire.values())} joueurs.")
     except json.JSONDecodeError:
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
@@ -163,7 +179,10 @@ def backup_auto_independante():
             "inventaire": inventaire,
             "hp": hp,
             "leaderboard": leaderboard,
-            "gotcoins_balance": economy.gotcoins_balance  # on sauvegarde l'original
+            "gotcoins_balance": economy.gotcoins_balance,
+            "gotcoins_stats": gotcoins_stats,
+            "weekly_voice_time": weekly_voice_time,
+            "weekly_message_log": weekly_message_log
         }
 
         with open(path, "w", encoding="utf-8") as f:
