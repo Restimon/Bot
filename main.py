@@ -845,21 +845,23 @@ async def regeneration_loop():
                 
 @tasks.loop(seconds=30)
 async def voice_tracking_loop():
-    global weekly_voice_time  # <--- on rend visible la variable globale
-    global voice_tracking     # <--- idem
+    global voice_tracking
+
     await bot.wait_until_ready()
     print("🎙️ Boucle de suivi vocal démarrée.")
 
     while not bot.is_closed():
+        # On réimporte weekly_voice_time à chaque itération
+        from data import weekly_voice_time
+
         for guild in bot.guilds:
             gid = str(guild.id)
             voice_tracking.setdefault(gid, {})
-            weekly_voice_time.setdefault(gid, {})
 
             # Récupère les membres actuellement en vocal (hors bots et AFK)
             active_user_ids = set()
             for vc in guild.voice_channels:
-                if guild.afk_channel and vc.id == guild.afk_channel.id:
+                if vc.id == guild.afk_channel.id if guild.afk_channel else False:
                     continue
 
                 for member in vc.members:
@@ -868,15 +870,9 @@ async def voice_tracking_loop():
 
                     uid = str(member.id)
                     active_user_ids.add(uid)
-
-                    # Prépare tracking avec prise en compte du temps partiel précédent
-                    weekly_voice_time[gid].setdefault(uid, 0)
-                    current_voice_seconds = weekly_voice_time[gid][uid]
-                    remainder = current_voice_seconds % 1800
-
                     voice_tracking[gid].setdefault(uid, {
                         "start": time.time(),
-                        "last_reward": time.time() - remainder
+                        "last_reward": time.time()
                     })
 
                     tracking = voice_tracking[gid][uid]
@@ -888,10 +884,10 @@ async def voice_tracking_loop():
                         tracking["last_reward"] = time.time()
 
                         # Ajoute 1800 sec dans les stats
+                        weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
                         weekly_voice_time[gid][uid] += 1800
 
                         print(f"🎙️ +3 GotCoins pour {member.display_name} (30 min atteinte)")
-                        sauvegarder()
 
             # Nettoyage → membres qui ne sont plus en vocal
             tracked_user_ids = set(voice_tracking[gid].keys())
@@ -901,7 +897,7 @@ async def voice_tracking_loop():
 
                 # On ajoute le temps restant (moins de 30 min restant) à weekly_voice_time
                 if elapsed > 0:
-                    weekly_voice_time[gid].setdefault(uid, 0)
+                    weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
                     weekly_voice_time[gid][uid] += int(elapsed)
 
                     print(f"🎙️ {uid} a quitté → +{int(elapsed)} sec ajoutés (partiel)")
