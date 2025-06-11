@@ -12,7 +12,7 @@ import random
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
-from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data, backup_auto_independante
+from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data, backup_auto_independante, weekly_message_count, voice_state_start_times
 from utils import get_random_item, OBJETS, handle_death  
 from storage import get_user_data, inventaire, hp, leaderboard
 from combat import apply_item_with_cooldown, apply_shield
@@ -65,6 +65,7 @@ last_drop_time = 0
 MAX_SUPPLIES_PER_DAY = 5
 
 gotcoins_cooldowns = {}
+voice_state_start_times = {}  # {guild_id: {user_id: start_time}}
 
 # ===================== Slash Commands ======================
 @bot.command()
@@ -177,6 +178,28 @@ async def on_ready():
     voice_tracking_loop.start()
 
 @bot.event
+async def on_voice_state_update(member, before, after):
+    guild_id = str(member.guild.id)
+    user_id = str(member.id)
+
+    from data import weekly_voice_time  # ← pareil on importe
+
+    # Si l'utilisateur rejoint un canal vocal
+    if after.channel is not None and before.channel is None:
+        voice_state_start_times.setdefault(guild_id, {})[user_id] = time.time()
+
+    # Si l'utilisateur quitte un canal vocal
+    elif after.channel is None and before.channel is not None:
+        start_time = voice_state_start_times.get(guild_id, {}).pop(user_id, None)
+        if start_time is not None:
+            duration_seconds = time.time() - start_time
+            minutes = int(duration_seconds // 60)
+
+            if minutes > 0:
+                weekly_voice_time.setdefault(guild_id, {}).setdefault(user_id, 0)
+                weekly_voice_time[guild_id][user_id] += minutes
+                
+@bot.event
 async def on_message(message):
     if message.author.bot:
         return
@@ -184,6 +207,12 @@ async def on_message(message):
     guild_id = str(message.guild.id)
     user_id = str(message.author.id)
     channel_id = message.channel.id
+
+    weekly_message_count.setdefault(guild_id, {}).setdefault(user_id, 0)
+    weekly_message_count[guild_id][user_id] += 1
+
+    # Puis process les commandes si besoin
+    await bot.process_commands(message)
 
     from special_supply import update_last_active_channel
     try:
