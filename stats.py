@@ -44,7 +44,7 @@ def register_stats_command(bot):
         
         # On n'affiche plus les secondes
         voice_time_str = (
-            f"**{voice_days} j** {voice_h} h {voice_m} min"
+            f"**{voice_days} j {voice_h} h {voice_m} min**"
         )
 
         # Build embed
