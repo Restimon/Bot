@@ -845,6 +845,8 @@ async def regeneration_loop():
                 
 @tasks.loop(seconds=30)
 async def voice_tracking_loop():
+    global weekly_voice_time  # <--- on rend visible la variable globale
+    global voice_tracking     # <--- idem
     await bot.wait_until_ready()
     print("🎙️ Boucle de suivi vocal démarrée.")
 
