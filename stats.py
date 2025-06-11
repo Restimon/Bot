@@ -1,8 +1,7 @@
 import discord
-import time
 from discord import app_commands
 from storage import get_user_data, get_user_balance
-from economy import gotcoins_stats, get_total_gotcoins_earned, compute_message_gains, compute_voice_gains, get_balance
+from economy import gotcoins_stats, get_total_gotcoins_earned
 from data import weekly_message_count, weekly_voice_time, weekly_message_log
 
 def register_stats_command(bot):
@@ -17,14 +16,14 @@ def register_stats_command(bot):
 
         # Récupère les stats actuelles et balance
         user_stats = gotcoins_stats.get(guild_id, {}).get(uid, {})
-        gotcoins_total = get_total_gotcoins_earned(guild_id, uid)  # ✅ total carrière
-        balance = get_user_balance(guild_id, uid)  # ✅ propre via storage.py
+        gotcoins_total = get_total_gotcoins_earned(guild_id, uid)
+        balance = get_user_balance(guild_id, uid)
 
         # Classement basé sur total gagné
         server_lb = gotcoins_stats.get(guild_id, {})
         sorted_lb = sorted(
             server_lb.items(),
-            key=lambda x: get_total_gotcoins_earned(guild_id, x[0]),  # ✅ on trie bien sur total carrière
+            key=lambda x: get_total_gotcoins_earned(guild_id, x[0]),
             reverse=True
         )
         rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
@@ -33,8 +32,7 @@ def register_stats_command(bot):
         # Récupère les stats de messages / vocal
         msg_count = len(weekly_message_log.get(guild_id, {}).get(uid, []))
 
-        voice_min = weekly_voice_time.get(guild_id, {}).get(uid, 0)
-        voice_sec_total = voice_min * 60
+        voice_sec_total = weekly_voice_time.get(guild_id, {}).get(uid, 0)
 
         voice_days = voice_sec_total // (24 * 3600)
         voice_sec_total %= (24 * 3600)
@@ -45,9 +43,7 @@ def register_stats_command(bot):
         voice_m = voice_sec_total // 60
         voice_s = voice_sec_total % 60
 
-        voice_time_str = (
-            f"**{voice_days} j** {voice_h} h {voice_m} min {voice_s} sec"
-        )
+        voice_time_str = f"**{voice_days} j** {voice_h} h {voice_m} min {voice_s} sec"
 
         # Build embed
         embed = discord.Embed(
