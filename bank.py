@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from storage import get_user_data, leaderboard
-from economy_utils import get_gotcoins
+from economy import get_balance, get_total_gotcoins_earned
 
 def register_bank_command(bot):
     @bot.tree.command(name="bank", description="💰 Consulte ton solde de GotCoins et ton classement.")
