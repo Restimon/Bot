@@ -841,7 +841,8 @@ async def regeneration_loop():
                     await channel.send(embed=embed)
             except Exception as e:
                 print(f"[regeneration_loop] Erreur: {e}")
-voice_tracking = {}  # global
+                
+voice_tracking.setdefault(gid, {})
 
 @tasks.loop(seconds=30)
 async def voice_tracking_loop():
