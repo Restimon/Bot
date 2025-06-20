@@ -1,4 +1,4 @@
-# SomniCorp Bot
+# GotValis Bot
 
 Bot Discord de combat, soins et classement avec système d'inventaire.
 
