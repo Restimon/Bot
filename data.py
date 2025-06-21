@@ -32,7 +32,7 @@ supply_data = {}
 weekly_message_count = {}
 weekly_voice_time = {}
 weekly_message_log = {}  # On le met dans la sauvegarde aussi
-
+tirages = {}
 # ✅ Miroir local → pour éviter circular import (sera MAJ par charger)
 gotcoins_balance = {}
 
@@ -74,6 +74,7 @@ def sauvegarder():
                 "supply_data": supply_data,
                 "weekly_message_count": weekly_message_count,
                 "weekly_voice_time": weekly_voice_time,
+                "tirages": tirages,
                 "weekly_message_log": weekly_message_log  # Ajouté ici
             }, f, indent=4, ensure_ascii=False)
 
@@ -151,6 +152,9 @@ def charger():
 
         weekly_voice_time.clear()
         weekly_voice_time.update(data.get("weekly_voice_time", {}))
+
+        tirages.clear()
+        tirages.update(data.get("tirages", {}))
 
         weekly_message_log.clear()
         weekly_message_log.update(data.get("weekly_message_log", {}))
