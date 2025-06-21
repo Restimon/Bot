@@ -71,7 +71,7 @@ def build_embed_transmission_virale(from_user_mention, to_user_mention, pv_avant
         color=0x55ffff
     )
 
-def build_personnage_embed(perso):
+def build_personnage_embed(perso, user=None):
     RARETE_COLORS = {
         "Commun": discord.Color.light_gray(),
         "Rare": discord.Color.blue(),
@@ -81,19 +81,29 @@ def build_personnage_embed(perso):
 
     color = RARETE_COLORS.get(perso["rarete"], discord.Color.dark_teal())
 
+    titre = f"🎲 {user.mention} a reçu un personnage !" if user else f"Nouveau personnage obtenu"
     embed = discord.Embed(
-        title=f"{perso['nom']} — {perso['rarete']} | {perso['faction']}",
-        description=perso["description"],
+        title=titre,
         color=color
     )
 
+    embed.add_field(name="📛 Nom", value=f"**{perso['nom']}**", inline=False)
+    embed.add_field(name="🏷️ Faction", value=perso["faction"], inline=True)
+    embed.add_field(name="🎖️ Rareté", value=perso["rarete"], inline=True)
+    embed.add_field(name="📜 Description", value=perso["description"], inline=False)
+
+    # 🖼️ Image d'abord
+    if "image" in perso:
+        image_filename = perso["image"].split("/")[-1]
+        embed.set_image(url=f"attachment://{image_filename}")
+
+    # 🎁 Ensuite le passif (affiché en dessous)
     if "passif" in perso:
         nom_passif = perso["passif"].get("nom", "Passif inconnu")
         effet_passif = perso["passif"].get("effet", "Effet inconnu")
         embed.add_field(name=f"🎁 {nom_passif}", value=effet_passif, inline=False)
 
-    if "image" in perso:
-        image_filename = perso["image"].split("/")[-1]
-        embed.set_image(url=f"attachment://{image_filename}")
+    embed.set_footer(text="Prochain tirage disponible dans 24h.")
 
     return embed
+
