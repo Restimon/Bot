@@ -53,3 +53,17 @@ def reset_guild_data(guild_id):
     inventaire[gid] = {}
     hp[gid] = {}
     leaderboard[gid] = {}
+
+def get_collection(guild_id, user_id):
+    gid = str(guild_id)
+    uid = str(user_id)
+
+    inv = inventaire.setdefault(gid, {}).setdefault(uid, [])
+    collection = {}
+
+    for item in inv:
+        if isinstance(item, dict) and "personnage" in item:
+            nom = item["personnage"]
+            collection[nom] = collection.get(nom, 0) + 1
+
+    return collection
