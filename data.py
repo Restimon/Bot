@@ -160,7 +160,17 @@ def charger():
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
     except Exception as e:
         print(f"❌ Erreur inattendue lors du chargement : {e}")
+        
+# ============================
+# ✅ Import des personnages
+# ============================
 
+try:
+    from personnage import PERSONNAGES
+except ImportError:
+    PERSONNAGES = {}
+    print("⚠️ Impossible d'importer les personnages depuis personnage.py")
+    
 # ============================
 # ✅ Backup auto indépendante (RAM vers fichier)
 # ============================
