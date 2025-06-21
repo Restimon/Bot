@@ -208,6 +208,30 @@ PERSONNAGES = [
         "image": "assets/personnage/Tessa Korrin.png"
     },
 
+    # Hotel Dormant
+    {
+        "nom": "Alen Drave",
+        "rarete": "Commun",
+        "faction": "Hôtel Dormant",
+        "description": "Silencieux, rapide, toujours à l’heure. Alen transporte plus que les bagages… parfois, un soupçon de magie de l’Hôtel l’accompagne.",
+        "passif": {
+            "nom": "Bénédiction des Bagages 🧳",
+            "effet": "5 % de chance de réduire de 50 % les dégâts subis."
+        },
+        "image": "assets/personnage/Alen Drave.png"
+    },
+    {
+        "nom": "Veylor Cassian",
+        "rarete": "Commun",
+        "faction": "Hôtel Dormant",
+        "description": "On ne sait ni pourquoi il est venu, ni pourquoi il reste. Mais dans cet Hôtel, Veylor Cassian est chez lui… et nul n’ose troubler son repos.",
+        "passif": {
+            "nom": "Faveur de l’Hôte 🌙",
+            "effet": "Réduit les dégâts reçus de 1 PV, avec 50 % de chance de réduire de 2 PV supplémentaires."
+        },
+        "image": "assets/personnage/Veylor Cassian.png"
+    }
+
     # La Fracture
     {
         "nom": "Niv Kress",
