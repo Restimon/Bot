@@ -6,17 +6,16 @@ import random
 import json
 import os
 
-from data import PERSONNAGES, OBJETS  # Tu dois avoir ces dictionnaires
+from data import PERSONNAGES
+from embeds import build_personnage_embed
 
-# ===============================
-# 🎲 TIRAGE DE PERSONNAGE PAR RARETÉ
-# ===============================
+TIRAGE_FILE = "persistent/tirages.json"
 
 RARETE_PROBABILITES_MILLIEMES = {
     "Commun": 845,
     "Rare": 100,
     "Epique": 54,
-    "Legendaire": 1  # ≈ 0.19 % → 50 % chance cumulée sur 1 an
+    "Legendaire": 1
 }
 
 def get_random_rarity(probabilities=None):
@@ -32,31 +31,12 @@ def get_random_rarity(probabilities=None):
     return "Commun"
 
 def get_random_character(rarity="Commun"):
-    candidats = [nom for nom, data in PERSONNAGES.items() if data["rarete"].lower() == rarity.lower()]
-    if not candidats:
-        return None
-    return random.choice(candidats)
+    candidats = [data for data in PERSONNAGES.values() if data["rarete"].lower() == rarity.lower()]
+    return random.choice(candidats) if candidats else None
 
 def get_random_character_by_probability(probabilities=None):
     rarete = get_random_rarity(probabilities)
     return get_random_character(rarete)
-
-# ===============================
-# 🎁 TIRAGE D’OBJET
-# ===============================
-
-def get_random_object():
-    return random.choice(list(OBJETS.keys()))
-
-def get_random_object_by_type(type_):
-    candidats = [nom for nom, data in OBJETS.items() if data["type"] == type_]
-    return random.choice(candidats) if candidats else None
-
-# ===============================
-# 🧭 COMMANDE /tirage
-# ===============================
-
-TIRAGE_FILE = "persistent/tirages.json"
 
 def load_tirages():
     if not os.path.exists(TIRAGE_FILE):
@@ -75,7 +55,7 @@ class Tirage(commands.Cog):
     @app_commands.command(name="tirage", description="Effectue ton tirage quotidien de personnage.")
     async def tirage(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        
+
         user_id = str(interaction.user.id)
         guild_id = str(interaction.guild_id)
         key = f"{guild_id}-{user_id}"
@@ -95,29 +75,26 @@ class Tirage(commands.Cog):
                 )
                 return
 
-        personnage = get_random_character_by_probability()
-        infos = PERSONNAGES.get(personnage, {})
-        rarete = infos.get("rarete", "Commun")
+        perso = get_random_character_by_probability()
+        if not perso:
+            await interaction.followup.send("❌ Aucun personnage disponible pour cette rareté.", ephemeral=True)
+            return
 
+        embed = build_personnage_embed(perso)
         tirages[key] = now.isoformat()
         save_tirages(tirages)
 
-        couleurs = {
-            "Commun": 0xaaaaaa,
-            "Rare": 0x4a90e2,
-            "Epique": 0x9b59b6,
-            "Legendaire": 0xf1c40f
-        }
-
-        embed = discord.Embed(
-            title="🎲 Tirage quotidien - GotValis",
-            description=f"Tu as obtenu : **{personnage}**",
-            color=couleurs.get(rarete, 0xffffff)
-        )
-        embed.add_field(name="Rareté", value=f"`{rarete}`", inline=True)
-        embed.set_footer(text="Prochain tirage disponible dans 24h.")
-
-        await interaction.followup.send(embed=embed)
+        try:
+            image_path = perso["image"]
+            image_filename = os.path.basename(image_path)
+            with open(image_path, "rb") as f:
+                file = discord.File(f, filename=image_filename)
+                await interaction.followup.send(embed=embed, file=file)
+        except Exception as e:
+            await interaction.followup.send(
+                f"✅ Tu as obtenu : **{perso['nom']}**\n⚠️ Impossible d’afficher l’image ({e})",
+                embed=embed
+            )
 
 async def setup(bot):
     await bot.add_cog(Tirage(bot))
