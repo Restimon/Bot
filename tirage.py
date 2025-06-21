@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from data import PERSONNAGES, tirages, sauvegarder
 from embeds import build_personnage_embed
-from storage import get_inventory
+from storage import get_inventory, ajouter_personnage
 
 # 🎲 Probabilités de rareté (en millièmes)
 RARETE_PROBABILITES_MILLIEMES = {
@@ -77,8 +77,7 @@ class Tirage(commands.Cog):
             return
 
         # ✅ Ajout dans l'inventaire
-        inventaire = get_inventory(guild_id)
-        inventaire.setdefault(user_id, []).append({"personnage": perso["nom"]})
+        ajouter_personnage(guild_id, user_id, perso["nom"])
 
         # 💾 Mise à jour de la date de tirage + sauvegarde globale
         tirages[key] = now.isoformat()
