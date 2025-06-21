@@ -72,10 +72,19 @@ def build_embed_transmission_virale(from_user_mention, to_user_mention, pv_avant
     )
 
 def build_personnage_embed(perso):
+    RARETE_COLORS = {
+        "Commun": discord.Color.light_gray(),
+        "Rare": discord.Color.blue(),
+        "Épique": discord.Color.purple(),
+        "Légendaire": discord.Color.gold()
+    }
+
+    color = RARETE_COLORS.get(perso["rarete"], discord.Color.dark_teal())
+
     embed = discord.Embed(
         title=f"{perso['nom']} — {perso['rarete']} | {perso['faction']}",
         description=perso["description"],
-        color=discord.Color.dark_teal()  # tu peux changer la couleur selon la faction/rarete
+        color=color
     )
 
     if "passif" in perso:
