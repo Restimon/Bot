@@ -54,6 +54,15 @@ def reset_guild_data(guild_id):
     hp[gid] = {}
     leaderboard[gid] = {}
 
+def ajouter_personnage(guild_id, user_id, nom_perso):
+    gid = str(guild_id)
+    uid = str(user_id)
+
+    inventaire.setdefault(gid, {})
+    inventaire[gid].setdefault(uid, [])
+    inventaire[gid][uid].append({"personnage": nom_perso})
+
+
 def get_collection(guild_id, user_id):
     gid = str(guild_id)
     uid = str(user_id)
@@ -67,3 +76,4 @@ def get_collection(guild_id, user_id):
             collection[nom] = collection.get(nom, 0) + 1
 
     return collection
+
