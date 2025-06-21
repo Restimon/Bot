@@ -1,7 +1,7 @@
 RARETES = ["Commun", "Rare", "Épique", "Légendaire"]
 FACTION_ORDER = ["Monarchie", "Gouvernement", "Citoyen", "GotValis", "Hôtel Dormant", "La Fracture", "Infection"]
 
-PERSONNAGES = [
+PERSONNAGES_LIST = [
 
 
     # Gouvernement 
@@ -573,20 +573,16 @@ PERSONNAGES = [
         "image": "assets/personnage/Zeyra Kael.png"
     }
 ]
+PERSONNAGES = {p["nom"]: p for p in PERSONNAGES_LIST}
 
 def get_par_rarete(rarete):
-    """Retourne tous les personnages d'une rareté, triés par faction."""
     return sorted(
-        [p for p in PERSONNAGES if p["rarete"] == rarete],
+        [p for p in PERSONNAGES.values() if p["rarete"] == rarete],
         key=lambda p: FACTION_ORDER.index(p.get("faction", ""))
     )
 
-
 def get_par_nom(nom):
-    """Retourne un personnage selon son nom exact."""
-    return next((p for p in PERSONNAGES if p["nom"] == nom), None)
-
+    return PERSONNAGES.get(nom)
 
 def get_tous_les_noms():
-    """Retourne la liste des noms de tous les personnages."""
-    return [p["nom"] for p in PERSONNAGES]
+    return list(PERSONNAGES.keys())
