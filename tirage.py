@@ -1,13 +1,14 @@
 import discord
-from discord import app_commands
-from discord.ext import commands
-from datetime import datetime, timedelta
 import random
 import json
 import os
 
+from discord import app_commands
+from discord.ext import commands
+from datetime import datetime, timedelta
 from data import PERSONNAGES
 from embeds import build_personnage_embed
+from storage import get_inventory
 
 TIRAGE_FILE = "persistent/tirages.json"
 
@@ -81,6 +82,11 @@ class Tirage(commands.Cog):
             return
 
         embed = build_personnage_embed(perso, user=interaction.user)
+
+        # ✅ Ajout du personnage dans la collection
+        from storage import get_inventory
+        get_inventory(guild_id).setdefault(user_id, []).append({"personnage": perso["nom"]})
+
         tirages[key] = now.isoformat()
         save_tirages(tirages)
 
@@ -98,3 +104,5 @@ class Tirage(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Tirage(bot))
+
+
