@@ -35,6 +35,8 @@ weekly_message_log = {}  # On le met dans la sauvegarde aussi
 tirages = {}
 # ✅ Miroir local → pour éviter circular import (sera MAJ par charger)
 gotcoins_balance = {}
+personnages_equipés = {}  # {guild_id: {user_id: nom_du_personnage}}
+derniere_equip = {}  
 
 # ============================
 # ✅ Sauvegarde manuelle (data.json + backup horodatée)
