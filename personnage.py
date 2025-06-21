@@ -3,6 +3,64 @@ FACTION_ORDER = ["Monarchie", "Gouvernement", "Citoyen", "GotValis", "Hôtel Dor
 
 PERSONNAGES = [
 
+
+    # Gouvernement 
+    {
+        "nom": "Cassian Vale",
+        "rarete": "Commun",
+        "faction": "Gouvernement",
+        "description": "Je ne représente pas un homme. Je représente un système.",
+        "passif": {
+            "nom": "Éloquence officielle 🕊️",
+            "effet": "+1 % de résistance durant 24h pour chaque attaque reçue."
+        },
+        "image": "assets/personnage/Cassian Vale.png"
+    },
+    {
+        "nom": "Darin Venhal",
+        "rarete": "Commun",
+        "faction": "Gouvernement",
+        "description": "Je ferai mes preuves... tôt ou tard !",
+        "passif": {
+            "nom": "Volonté mal orientée 💼",
+            "effet": "10 % de chance de réduire les dégâts entrants de moitié."
+        },
+        "image": "assets/personnage/Darin Venhal.png"
+    },
+    {
+        "nom": "Elwin Jarr",
+        "rarete": "Commun",
+        "faction": "Gouvernement",
+        "description": "Je fais ce qu’on me dit. Et je le fais bien.",
+        "passif": {
+            "nom": "Archivage parfait 📑",
+            "effet": "L'objet 'vol' a 10 % de chance de voler un deuxième item."
+        },
+        "image": "assets/personnage/Elwin Jarr.png"
+    },
+    {
+        "nom": "Liora Venhal",
+        "rarete": "Commun",
+        "faction": "Gouvernement",
+        "description": "Je ne veux pas d’ennuis... mais je sais qui appeler si j’en ai.",
+        "passif": {
+            "nom": "Protection implicite 👑",
+            "effet": "Chaque attaque reçue a 25 % de chance d’augmenter son esquive de 3 % pendant 24h."
+        },
+        "image": "assets/personnage/Liora Venhal.png"
+    },
+    {
+        "nom": "Maelis Dorné",
+        "rarete": "Commun",
+        "faction": "Gouvernement",
+        "description": "Les souvenirs s'effacent. Les documents, eux, restent.",
+        "passif": {
+            "nom": "Mémoire d'État 📚",
+            "effet": "+1 % de chance d’être purgé d’un effet toutes les heures."
+        },
+        "image": "assets/personnage/Maelis Dorné.png"
+    }
+
     # Citoyens
     {
         "nom": "Lior Danen",
