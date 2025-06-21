@@ -17,8 +17,6 @@ class Collection(commands.Cog):
         guild_id = interaction.guild.id
         user_id = user.id
 
-        # Obtenir les personnages possédés
-        inventaire = get_inventaire(guild_id, user_id)
         collection = get_collection(guild_id, user_id)
         compteur = Counter(collection)
 
@@ -50,6 +48,7 @@ class Collection(commands.Cog):
                 description=f"```{texte}```",
                 color=discord.Color.blue()
             )
+            embed.set_footer(text="Utilise /perso <numéro> pour afficher un personnage.")
             return embed
 
         message = await interaction.followup.send(embed=build_embed(RARETES[index]))
