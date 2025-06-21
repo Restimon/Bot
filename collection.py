@@ -4,7 +4,7 @@ from discord.ext import commands
 from collections import Counter
 
 from personnage import get_par_rarete, RARETES
-from storage import get_inventaire
+from storage import get_collection
 
 class Collection(commands.Cog):
     def __init__(self, bot):
@@ -19,8 +19,8 @@ class Collection(commands.Cog):
 
         # Obtenir les personnages possédés
         inventaire = get_inventaire(guild_id, user_id)
-        perso_possedes = inventaire.get("personnages", [])
-        compteur = Counter(perso_possedes)
+        collection = get_collection(guild_id, user_id)
+        compteur = Counter(collection)
 
         index = 0
 
