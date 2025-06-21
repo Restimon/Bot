@@ -1,17 +1,20 @@
 import discord
+from discord import app_commands
+from discord.ext import commands
+
 import random
 import json
 import os
-
-from discord import app_commands
-from discord.ext import commands
 from datetime import datetime, timedelta
+
 from data import PERSONNAGES
 from embeds import build_personnage_embed
 from storage import get_inventory
 
+# 📁 Fichier où sont enregistrés les tirages
 TIRAGE_FILE = "persistent/tirages.json"
 
+# 🎲 Probabilités de rareté (en millièmes)
 RARETE_PROBABILITES_MILLIEMES = {
     "Commun": 845,
     "Rare": 100,
@@ -19,35 +22,48 @@ RARETE_PROBABILITES_MILLIEMES = {
     "Legendaire": 1
 }
 
+
+# 🔢 Tire une rareté selon les probabilités définies
 def get_random_rarity(probabilities=None):
     if probabilities is None:
         probabilities = RARETE_PROBABILITES_MILLIEMES
+
     total = sum(probabilities.values())
     tirage = random.randint(1, total)
     cumul = 0
+
     for rarete, poids in probabilities.items():
         cumul += poids
         if tirage <= cumul:
             return rarete
     return "Commun"
 
+
+# 🎴 Tire un personnage d'une rareté donnée
 def get_random_character(rarity="Commun"):
     candidats = [data for data in PERSONNAGES.values() if data["rarete"].lower() == rarity.lower()]
     return random.choice(candidats) if candidats else None
 
+
+# 🔁 Tire un personnage selon les probabilités complètes
 def get_random_character_by_probability(probabilities=None):
     rarete = get_random_rarity(probabilities)
     return get_random_character(rarete)
 
+
+# 📂 Chargement des données de tirage
 def load_tirages():
     if not os.path.exists(TIRAGE_FILE):
         return {}
     with open(TIRAGE_FILE, "r") as f:
         return json.load(f)
 
+
+# 💾 Sauvegarde des tirages
 def save_tirages(data):
     with open(TIRAGE_FILE, "w") as f:
         json.dump(data, f, indent=2)
+
 
 class Tirage(commands.Cog):
     def __init__(self, bot):
@@ -57,13 +73,14 @@ class Tirage(commands.Cog):
     async def tirage(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
-        user_id = str(interaction.user.id)
+        user = interaction.user
         guild_id = str(interaction.guild_id)
-        key = f"{guild_id}-{user_id}"
-
+        user_id = str(user.id)
         tirages = load_tirages()
+        key = f"{guild_id}-{user_id}"
         now = datetime.utcnow()
 
+        # ⏳ Vérifie si un tirage a déjà été effectué aujourd'hui
         if key in tirages:
             last_time = datetime.fromisoformat(tirages[key])
             if now - last_time < timedelta(days=1):
@@ -76,20 +93,25 @@ class Tirage(commands.Cog):
                 )
                 return
 
+        # 🎯 Tirage du personnage
         perso = get_random_character_by_probability()
         if not perso:
             await interaction.followup.send("❌ Aucun personnage disponible pour cette rareté.", ephemeral=True)
             return
 
-        embed = build_personnage_embed(perso, user=interaction.user)
+        # ✅ Ajout dans l'inventaire
+        inventaire = get_inventory(guild_id)
+        inventaire.setdefault(user_id, []).append({"personnage": perso["nom"]})
 
-        # ✅ Ajout du personnage dans la collection
-        from storage import get_inventory
-        get_inventory(guild_id).setdefault(user_id, []).append({"personnage": perso["nom"]})
-
+        # 💾 Mise à jour de la date de tirage
         tirages[key] = now.isoformat()
         save_tirages(tirages)
 
+        # 📦 Construction de l'embed
+        embed = build_personnage_embed(perso, user=user)
+        embed.set_footer(text="🎴 Le personnage a été ajouté à ta collection.")
+
+        # 🖼 Envoi avec image si disponible
         try:
             image_path = perso["image"]
             image_filename = os.path.basename(image_path)
@@ -102,7 +124,6 @@ class Tirage(commands.Cog):
                 embed=embed
             )
 
+
 async def setup(bot):
     await bot.add_cog(Tirage(bot))
-
-
