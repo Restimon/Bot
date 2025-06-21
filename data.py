@@ -77,6 +77,8 @@ def sauvegarder():
                 "weekly_message_count": weekly_message_count,
                 "weekly_voice_time": weekly_voice_time,
                 "tirages": tirages,
+                "personnages_equipés": personnages_equipés,
+                "derniere_equip": derniere_equip,
                 "weekly_message_log": weekly_message_log  # Ajouté ici
             }, f, indent=4, ensure_ascii=False)
 
@@ -136,6 +138,12 @@ def charger():
 
         shields.clear()
         shields.update(data.get("shields", {}))
+
+        personnages_equipés.clear()
+        personnages_equipés.update(data.get("personnages_equipés", {}))
+        
+        derniere_equip.clear()
+        derniere_equip.update(data.get("derniere_equip", {}))
 
         esquive_status.clear()
         esquive_status.update(data.get("esquive_status", {}))
