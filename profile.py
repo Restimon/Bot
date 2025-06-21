@@ -5,7 +5,7 @@ from storage import get_user_data, hp
 from data import (
     virus_status, poison_status, infection_status,
     shields, esquive_status, casque_status, immunite_status,
-    regeneration_status,
+    regeneration_status, personnages_equipés,
 )
 from economy import get_total_gotcoins_earned, get_balance, gotcoins_stats
 
