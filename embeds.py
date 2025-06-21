@@ -70,3 +70,21 @@ def build_embed_transmission_virale(from_user_mention, to_user_mention, pv_avant
         ),
         color=0x55ffff
     )
+
+def build_personnage_embed(perso):
+    embed = discord.Embed(
+        title=f"{perso['nom']} — {perso['rarete']} | {perso['faction']}",
+        description=perso["description"],
+        color=discord.Color.dark_teal()  # tu peux changer la couleur selon la faction/rarete
+    )
+
+    if "passif" in perso:
+        nom_passif = perso["passif"].get("nom", "Passif inconnu")
+        effet_passif = perso["passif"].get("effet", "Effet inconnu")
+        embed.add_field(name=f"🎁 {nom_passif}", value=effet_passif, inline=False)
+
+    if "image" in perso:
+        image_filename = perso["image"].split("/")[-1]
+        embed.set_image(url=f"attachment://{image_filename}")
+
+    return embed
