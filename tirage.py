@@ -80,7 +80,7 @@ class Tirage(commands.Cog):
             await interaction.followup.send("❌ Aucun personnage disponible pour cette rareté.", ephemeral=True)
             return
 
-        embed = build_personnage_embed(perso)
+        embed = build_personnage_embed(perso, user=interaction.user)
         tirages[key] = now.isoformat()
         save_tirages(tirages)
 
