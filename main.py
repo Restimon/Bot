@@ -44,6 +44,7 @@ from bite import register_bite_command
 from economy import add_gotcoins, gotcoins_balance, get_balance, compute_message_gains
 from stats import register_stats_command
 from bank import register_bank_command
+from passifs import appliquer_passif
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -495,6 +496,16 @@ async def virus_damage_loop():
                 if now < next_tick:
                     continue
 
+                # ✅ Passif Maelis Dorne : purge possible
+                purge_result = appliquer_passif("purge_auto", {
+                    "guild_id": gid,
+                    "user_id": uid,
+                    "last_timestamp": start
+                })
+                if purge_result and purge_result.get("purger_statut"):
+                    del virus_status[gid][uid]
+                    continue
+
                 virus_status[gid][uid]["next_tick"] = now + 3600  # prochain tick dans 1h
 
                 dmg = 5
@@ -570,7 +581,7 @@ async def virus_damage_loop():
                     print(f"[virus_damage_loop] Erreur d’envoi embed : {e}")
 
         await asyncio.sleep(30)
-        
+
 @tasks.loop(seconds=30)
 async def poison_damage_loop():
     await bot.wait_until_ready()
@@ -601,6 +612,16 @@ async def poison_damage_loop():
                     continue
 
                 if now < next_tick:
+                    continue
+
+                # ✅ Tentative de purge via passif Maelis Dorne
+                purge_result = appliquer_passif("purge_auto", {
+                    "guild_id": gid,
+                    "user_id": uid,
+                    "last_timestamp": start
+                })
+                if purge_result and purge_result.get("purger_statut"):
+                    del poison_status[gid][uid]
                     continue
 
                 poison_status[gid][uid]["next_tick"] = now + 1800  # Prochain tick dans 30 min
@@ -716,6 +737,16 @@ async def infection_damage_loop():
                 if now < next_tick:
                     continue
 
+                # ✅ Tentative de purge via passif Maelis Dorne
+                purge_result = appliquer_passif("purge_auto", {
+                    "guild_id": gid,
+                    "user_id": uid,
+                    "last_timestamp": start
+                })
+                if purge_result and purge_result.get("purger_statut"):
+                    del infection_status[gid][uid]
+                    continue
+
                 # Tick : mise à jour du prochain tick
                 infection_status[gid][uid]["next_tick"] = now + 1800
 
@@ -790,8 +821,6 @@ async def infection_damage_loop():
                     print(f"[infection_damage_loop] Erreur d’envoi embed : {e}")
 
         await asyncio.sleep(30)
-        
-@tasks.loop(seconds=30)
 
 async def regeneration_loop():
     now = time.time()
@@ -928,11 +957,21 @@ async def burn_damage_loop():
 
                 if now < status.get("next_tick", 0):
                     continue
-
+                
+                # 🔥 Tentative de purge du statut
+                purge_result = appliquer_passif("purge_auto", {
+                    "guild_id": gid,
+                    "user_id": uid,
+                    "last_timestamp": status["start"]
+                })
+                if purge_result and purge_result.get("purger_statut"):
+                    del burn_status[gid][uid]
+                    continue
+                
+                # ✅ On applique le tick si pas purgé
                 status["ticks_restants"] -= 1
-                status["next_tick"] = now + 3600  # Prochain tick dans 1h
-
-                # Retire le statut s’il est terminé
+                status["next_tick"] = now + 3600
+                
                 if status["ticks_restants"] <= 0:
                     del burn_status[gid][uid]
                     continue
