@@ -9,7 +9,7 @@ from statuts import appliquer_poison, appliquer_infection, appliquer_virus, appl
 from embeds import build_embed_from_item, build_embed_transmission_virale
 from cooldowns import is_on_cooldown, set_cooldown
 from economy import gotcoins_stats, gotcoins_balance, add_gotcoins, init_gotcoins_stats
-
+from passifs import appliquer_passif
 ### 🔧 UTILITAIRES GÉNÉRAUX
 
 async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
@@ -360,6 +360,24 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "pb_avant_bonus": pb_taken_base,
     }
 
+contexte = "attaque"  # ou autre, selon le type d’action
+données_passif = {
+    "guild_id": guild_id,
+    "attaquant_id": user_id,
+    "cible_id": target_id,
+    "ctx": ctx,
+    "degats": real_dmg,
+    "objet": item
+}
+effets = []
+result_passif_attaquant = appliquer_passif(user_id, contexte, données_passif)
+result_passif_cible = appliquer_passif(target_id, "défense", données_passif)
+
+# Tu peux exploiter les résultats si besoin :
+if result_passif_attaquant:
+    effets.extend(result_passif_attaquant.get("embeds", []))
+if result_passif_cible:
+    effets.extend(result_passif_cible.get("embeds", []))
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
     """Applique les statuts appropriés après une attaque."""
     # Récupération sécurisée du channel_id
