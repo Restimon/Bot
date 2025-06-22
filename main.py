@@ -12,7 +12,7 @@ import random
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
-from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data, backup_auto_independante, weekly_message_count, weekly_message_log
+from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data, backup_auto_independante, weekly_message_count, weekly_message_log, malus_degat, zeyra_last_survive_time, valen_seuils
 from utils import get_random_item, OBJETS, handle_death  
 from storage import get_user_data, inventaire, hp, leaderboard
 from combat import apply_item_with_cooldown, apply_shield
