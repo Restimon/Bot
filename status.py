@@ -3,7 +3,7 @@ import time
 from discord import app_commands
 from data import (
     virus_status, poison_status, infection_status,
-    immunite_status, regeneration_status  # ✅ Ajouté ici
+    immunite_status, regeneration_status
 )
 from embeds import build_embed_from_item
 
@@ -17,111 +17,91 @@ def register_status_command(bot):
         now = time.time()
 
         embed = discord.Embed(
-            title=f"🧬 Rapport médical GotValis — {member.display_name}",
+            title=f"🧬 Rapport médical — {member.display_name}",
             color=discord.Color.orange()
         )
 
+        # 🧩 Fonction utilitaire pour formater les durées
+        def format_time(seconds):
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+
         # ⭐️ Immunité
-        immunite = immunite_status.get(guild_id, {}).get(user_id)
-        if immunite:
-            elapsed = now - immunite["start"]
-            remaining = max(0, immunite["duration"] - elapsed)
-            minutes = int(remaining // 60)
-            seconds = int(remaining % 60)
+        if (im := immunite_status.get(guild_id, {}).get(user_id)):
+            remaining = max(0, im["duration"] - (now - im["start"]))
             embed.add_field(
                 name="⭐️ Immunité active",
-                value=f"• Invulnérabilité restante : **{minutes}m {seconds}s**",
+                value=f"• Temps restant : **{format_time(remaining)}**",
                 inline=False
             )
 
         # 💕 Régénération
-        regen = regeneration_status.get(guild_id, {}).get(user_id)
-        if regen:
+        if (regen := regeneration_status.get(guild_id, {}).get(user_id)):
             elapsed = now - regen["start"]
             remaining = max(0, regen["duration"] - elapsed)
             next_tick = 1800 - (elapsed % 1800)
-            r_m = int(remaining // 60)
-            t_m = int(next_tick // 60)
-            t_s = int(next_tick % 60)
-            warning = " ⚠️" if next_tick < 300 else ""
+            warn = " ⚠️" if next_tick < 300 else ""
             embed.add_field(
-                name="💕 Régénération en cours",
+                name="💕 Régénération cellulaire",
                 value=(
-                    f"• Temps restant : **{r_m} min**\n"
-                    f"• Prochain soin : **dans {t_m}m {t_s}s**{warning}\n"
-                    f"• ✨ Vous regagnez **3 PV toutes les 30 min**"
+                    f"• Temps restant : **{int(remaining // 60)} min**\n"
+                    f"• Prochain soin : **dans {format_time(next_tick)}**{warn}\n"
+                    f"• ✨ Régénère **3 PV toutes les 30 min**"
                 ),
                 inline=False
             )
 
         # 🦠 Virus
-        v_stat = virus_status.get(guild_id, {}).get(user_id)
-        if v_stat:
-            v_elapsed = now - v_stat["start"]
-            v_remaining = max(0, v_stat["duration"] - v_elapsed)
-            v_next_tick = 3600 - (v_elapsed % 3600)
-            v_hours = int(v_remaining // 3600)
-            v_minutes = int((v_remaining % 3600) // 60)
-            v_tick_m = int(v_next_tick // 60)
-            v_tick_s = int(v_next_tick % 60)
-            warning = " ⚠️" if v_tick_m < 5 else ""
-
+        if (virus := virus_status.get(guild_id, {}).get(user_id)):
+            elapsed = now - virus["start"]
+            remaining = max(0, virus["duration"] - elapsed)
+            tick = 3600 - (elapsed % 3600)
+            warn = " ⚠️" if tick < 300 else ""
             embed.add_field(
-                name="🦠 Infection virale détectée",
+                name="🦠 Infection virale",
                 value=(
-                    f"• Temps restant : **{v_hours}h {v_minutes}min**\n"
-                    f"• Prochain dégât : **dans {v_tick_m}min {v_tick_s}s**{warning}\n"
-                    f"• ⚔️ En attaquant, vous perdez **2 PV** et **propagez le virus** à votre cible.\n"
-                    f"💉 Utilisez un vaccin via `/heal` pour éradiquer le virus."
+                    f"• Temps restant : **{int(remaining // 3600)}h {int((remaining % 3600) // 60)}min**\n"
+                    f"• Prochain dégât : **dans {format_time(tick)}**{warn}\n"
+                    f"• ⚔️ Vous perdez **2 PV** par attaque et propagez le virus.\n"
+                    f"💉 Utilisez un vaccin via `/heal`."
                 ),
                 inline=False
             )
         else:
-            embed.add_field(name="🦠 Infection virale", value="✅ Aucun virus détecté par GotValis", inline=False)
+            embed.add_field(name="🦠 Infection virale", value="✅ Aucun virus détecté", inline=False)
 
         # 🧪 Poison
-        p_stat = poison_status.get(guild_id, {}).get(user_id)
-        if p_stat:
-            p_elapsed = now - p_stat["start"]
-            p_remaining = max(0, p_stat["duration"] - p_elapsed)
-            p_next_tick = 1800 - (p_elapsed % 1800)
-            p_hours = int(p_remaining // 3600)
-            p_minutes = int((p_remaining % 3600) // 60)
-            p_tick_m = int(p_next_tick // 60)
-            p_tick_s = int(p_next_tick % 60)
-            warning = " ⚠️" if p_tick_m < 5 else ""
-
+        if (poison := poison_status.get(guild_id, {}).get(user_id)):
+            elapsed = now - poison["start"]
+            remaining = max(0, poison["duration"] - elapsed)
+            tick = 1800 - (elapsed % 1800)
+            warn = " ⚠️" if tick < 300 else ""
             embed.add_field(
-                name="🧪 Empoisonnement détecté",
+                name="🧪 Empoisonnement",
                 value=(
-                    f"• Temps restant : **{p_hours}h {p_minutes}min**\n"
-                    f"• Prochain dégât : **dans {p_tick_m}min {p_tick_s}s**{warning}\n"
-                    f"• ⚔️ Vos attaques infligent **1 dégât en moins** tant que vous êtes empoisonné.\n"
-                    f"🧼 Aucun antidote connu. Survivez."
+                    f"• Temps restant : **{int(remaining // 3600)}h {int((remaining % 3600) // 60)}min**\n"
+                    f"• Prochain dégât : **dans {format_time(tick)}**{warn}\n"
+                    f"• ⚔️ Vos attaques infligent **1 dégât en moins**.\n"
+                    f"🧼 Aucun antidote connu."
                 ),
                 inline=False
             )
         else:
-            embed.add_field(name="🧪 Empoisonnement", value="✅ Aucun poison détecté par GotValis", inline=False)
+            embed.add_field(name="🧪 Empoisonnement", value="✅ Aucun poison détecté", inline=False)
 
-        # 🧟 Infection
-        i_stat = infection_status.get(guild_id, {}).get(user_id)
-        if i_stat:
-            i_elapsed = now - i_stat["start"]
-            i_remaining = max(0, i_stat["duration"] - i_elapsed)
-            i_next_tick = 1800 - (i_elapsed % 1800)
-            i_hours = int(i_remaining // 3600)
-            i_minutes = int((i_remaining % 3600) // 60)
-            i_tick_m = int(i_next_tick // 60)
-            i_tick_s = int(i_next_tick % 60)
-            warning = " ⚠️" if i_tick_m < 5 else ""
-
+        # 🧟 Infection GotValis
+        if (infect := infection_status.get(guild_id, {}).get(user_id)):
+            elapsed = now - infect["start"]
+            remaining = max(0, infect["duration"] - elapsed)
+            tick = 1800 - (elapsed % 1800)
+            warn = " ⚠️" if tick < 300 else ""
             embed.add_field(
-                name="🧟 Infection détectée",
+                name="🧟 Infection GotValis",
                 value=(
-                    f"• Temps restant : **{i_hours}h {i_minutes}min**\n"
-                    f"• Prochain dégât : **dans {i_tick_m}min {i_tick_s}s**{warning}\n"
-                    f"• ⚔️ Attaquer donne **25% de chance** d’infecter votre cible.\n"
+                    f"• Temps restant : **{int(remaining // 3600)}h {int((remaining % 3600) // 60)}min**\n"
+                    f"• Prochain dégât : **dans {format_time(tick)}**{warn}\n"
+                    f"• ⚔️ Vous avez **25% de chance** d’infecter votre cible.\n"
                     f"• 😵 Vous subissez **2 dégâts toutes les 30 min.**"
                 ),
                 inline=False
@@ -129,5 +109,5 @@ def register_status_command(bot):
         else:
             embed.add_field(name="🧟 Infection", value="✅ Aucun agent infectieux détecté", inline=False)
 
-        embed.set_footer(text="📡 Données scannées et transmises par les serveurs de GotValis.")
+        embed.set_footer(text="📡 Données scannées via les serveurs GotValis.")
         await interaction.response.send_message(embed=embed)
