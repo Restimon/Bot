@@ -140,10 +140,11 @@ def register_profile_command(bot):
 
         # Personnage actif
         perso_nom = personnages_equipés.get(guild_id, {}).get(uid)
+        file = None  # ← à déclarer pour l'image éventuelle
+
         if perso_nom and perso_nom in PERSONNAGES:
             collection = get_collection(guild_id, uid)
             if perso_nom in collection:
-                # Numéro dans la collection (ordre rareté/faction/alpha)
                 sorted_names = sorted(
                     collection.keys(),
                     key=lambda nom: (
@@ -156,7 +157,7 @@ def register_profile_command(bot):
                 perso_data = PERSONNAGES[perso_nom]
                 image_path = perso_data.get("image")
                 image_name = os.path.basename(image_path) if image_path else None
-        
+
                 embed.add_field(
                     name="🎭 Personnage équipé",
                     value=(
@@ -166,9 +167,14 @@ def register_profile_command(bot):
                     ),
                     inline=False
                 )
-        
+
                 if image_path and os.path.exists(image_path):
                     file = discord.File(image_path, filename=image_name)
                     embed.set_image(url=f"attachment://{image_name}")
-                    await interaction.followup.send(embed=embed, file=file)
-                    return
+
+        # Envoi final (toujours à la fin)
+        if bonus_lines:
+            await interaction.followup.send(embed=embed, file=file)
+            await interaction.followup.send(embed=bonus_embed)
+        else:
+            await interaction.followup.send(embed=embed, file=file)
