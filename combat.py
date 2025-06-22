@@ -3,7 +3,7 @@ import time
 import discord
 import math 
 
-from data import hp, leaderboard, virus_status, poison_status, infection_status, immunite_status, shields, casque_status, sauvegarder
+from data import hp, leaderboard, virus_status, poison_status, infection_status, immunite_status, shields, casque_status, sauvegarder, resistance_bonus
 from utils import get_mention, get_evade_chance
 from statuts import appliquer_poison, appliquer_infection, appliquer_virus, appliquer_regen, supprimer_tous_statuts
 from embeds import build_embed_from_item, build_embed_transmission_virale
@@ -300,7 +300,18 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     total_dmg, casque_active, reduction_val = apply_casque_reduction(
         guild_id, target_id, base_dmg_after_crit + bonus_dmg
     )
-
+    
+    # 💠 Passif de défense - Cassiane Valé
+    donnees_defense = {
+        "guild_id": guild_id,
+        "defenseur": target_id,
+        "attaquant": user_id
+    }
+    res_def = appliquer_passif(target_id, "calcul_defense", donnees_defense)
+    if res_def and "reduction_degats" in res_def:
+        reduc = res_def["reduction_degats"]
+        total_dmg = math.ceil(total_dmg * (1 - reduc))
+        
     # Bouclier
     dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
     pb_after = shields.get(guild_id, {}).get(target_id, 0)
