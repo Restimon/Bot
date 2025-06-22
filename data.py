@@ -37,10 +37,9 @@ tirages = {}
 gotcoins_balance = {}
 personnages_equipés = {}  # {guild_id: {user_id: nom_du_personnage}}
 derniere_equip = {}  
-
-# ============================
-# ✅ Sauvegarde manuelle (data.json + backup horodatée)
-# ============================
+malus_degat = {}  # 👑 Nathaniel Raskov
+zeyra_last_survive_time = {}  # 💥 Zeyra Kael
+valen_seuils = {}  # 🧠 Valen Drexar
 
 def sauvegarder():
     try:
@@ -79,6 +78,9 @@ def sauvegarder():
                 "tirages": tirages,
                 "personnages_equipés": personnages_equipés,
                 "derniere_equip": derniere_equip,
+                "malus_degat": malus_degat,
+                "zeyra_last_survive_time": zeyra_last_survive_time,
+                "valen_seuils": valen_seuils,
                 "weekly_message_log": weekly_message_log  # Ajouté ici
             }, f, indent=4, ensure_ascii=False)
 
