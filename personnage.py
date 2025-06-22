@@ -6,7 +6,7 @@ PERSONNAGES_LIST = [
 
     # Gouvernement 
     {
-        "nom": "Cassian Vale",
+        "nom": "Cassiane Vale",
         "rarete": "Commun",
         "faction": "Gouvernement",
         "description": "Je ne représente pas un homme. Je représente un système.",
@@ -14,7 +14,7 @@ PERSONNAGES_LIST = [
             "nom": "Éloquence officielle 🕊️",
             "effet": "+1 % de résistance durant 24h pour chaque attaque reçue."
         },
-        "image": "assets/personnage/Cassian Vale.png"
+        "image": "assets/personnage/Cassiane Vale.png"
     },
     {
         "nom": "Darin Venhal",
