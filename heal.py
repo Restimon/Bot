@@ -6,6 +6,7 @@ from utils import OBJETS
 from storage import get_user_data
 from data import sauvegarder, virus_status, poison_status, infection_status, regeneration_status
 from embeds import build_embed_from_item
+from passifs import appliquer_passif  # ✅ Ajouté pour les passifs
 
 SPECIAL_HEAL_ITEMS = ["💉", "💕"]
 
@@ -94,10 +95,8 @@ def register_heal_command(bot):
     
             embed = discord.Embed(
                 title="💕 Régénération activée",
-                description=(
-                    f"✨ {member.mention} a déclenché une régénération pour {target.mention} ! 💕\n\n"
-                    f"{target.mention} récupère **3 PV toutes les 30 minutes pendant 3 heures.**"
-                ),
+                description=(f"✨ {member.mention} a déclenché une régénération pour {target.mention} ! 💕\n\n"
+                             f"{target.mention} récupère **3 PV toutes les 30 minutes pendant 3 heures.**"),
                 color=discord.Color.green()
             )
             return await interaction.followup.send(embed=embed)
@@ -106,6 +105,30 @@ def register_heal_command(bot):
         from combat import apply_item_with_cooldown
         action = OBJETS.get(item)
         embed, success = await apply_item_with_cooldown(interaction, uid, tid, item, action)
+
+        # ✅ PASSIFS après soin
+        if success and action.get("type") == "soin":
+            contexte = "soin"
+            données_passif = {
+                "guild_id": guild_id,
+                "soigneur_id": uid,
+                "cible_id": tid,
+                "ctx": interaction,
+                "objet": item,
+                "valeur_soin": action.get("soin", 0)
+            }
+            effets = []
+            result_passif_soigneur = appliquer_passif(uid, contexte, données_passif)
+            result_passif_cible = appliquer_passif(tid, "soin_reçu", données_passif)
+
+            if result_passif_soigneur:
+                effets.extend(result_passif_soigneur.get("embeds", []))
+            if result_passif_cible:
+                effets.extend(result_passif_cible.get("embeds", []))
+
+            for effet_embed in effets:
+                await interaction.followup.send(embed=effet_embed)
+
         if success:
             user_inv.remove(item)
         sauvegarder()
@@ -125,7 +148,7 @@ def register_heal_command(bot):
             o = OBJETS.get(emoji, {})
             typ = o.get("type", "inconnu")
             if typ == "soin":
-                return f"{emoji} {o.get('soin')} PV (🎯 {int(o.get('crit',0)*100)}%)"
+                return f"{emoji} {o.get('soin')} PV (🎯 {int(o.get('crit', 0) * 100)}%)"
             if emoji == "💉": return f"{emoji} Vaccin : soigne les virus, poison ou infection"
             if emoji == "💕": return f"{emoji} Régénère 3 PV / 30min pendant 3h"
             return f"{emoji}"
