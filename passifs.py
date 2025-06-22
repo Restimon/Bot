@@ -720,7 +720,7 @@ def passif_le_roi(contexte, données):
     elif contexte == "kill":
         return {
             "pv_gagnes": 10,
-            "gif_special": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmVqZ3EzNmhzNWZ3YXY2bmE0MzZwbG1zMTY5Z2dnN2Z2M3BjbWdzMSZlcD12MV8yMTY1NWNhZHgzY3VmYzltbDZxdXlkMnJqY3lybmtocW9qZDNrcnE1YjNodjI4eDMyYSZjdD1n/l3vR0qnD2L4IGwwk4/giphy.gif"  # à adapter si besoin
+            "gif_special": "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExNGNqdDg4dmJ1aDVsbno5bzhjZDVzMHR5dXplZzhsaGptZjd3ZDY4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/uD9ys1HkUSbuMJciFe/giphy.gif"  # à adapter si besoin
         }
 
     return None
