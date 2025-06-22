@@ -171,6 +171,15 @@ def charger():
         weekly_message_log.clear()
         weekly_message_log.update(data.get("weekly_message_log", {}))
 
+        malus_degat.clear()
+        malus_degat.update(data.get("malus_degat", {}))
+        
+        zeyra_last_survive_time.clear()
+        zeyra_last_survive_time.update(data.get("zeyra_last_survive_time", {}))
+        
+        valen_seuils.clear()
+        valen_seuils.update(data.get("valen_seuils", {}))
+
         print(f"✅ Données chargées depuis data.json : {len(inventaire)} serveurs | {sum(len(u) for u in inventaire.values())} joueurs.")
     except json.JSONDecodeError:
         print("⚠️ Le fichier data.json est corrompu ou mal formé.")
