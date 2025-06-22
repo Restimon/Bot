@@ -1,7 +1,11 @@
 import time
 import random
 import math
-from data import personnages_equipés, resistance_bonus, esquive_bonus, shields, infection_status, hp, add_gotcoins, immunite_status, esquive_status
+from data import (
+    personnages_equipés, resistance_bonus, esquive_bonus, shields,
+    infection_status, hp, immunite_status, esquive_status,
+    virus_status, poison_status, burn_status, malus_degat  # burn_status et malus_degat étaient manquants
+)
 from personnage import PERSONNAGES
 from cooldowns import daily_limit
 from economy import add_gotcoins
