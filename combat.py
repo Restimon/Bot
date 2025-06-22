@@ -26,24 +26,41 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     if action["type"] == "vol":
         # Aller chercher l'inventaire de la cible
         inv, _, _ = get_user_data(guild_id, target_id)
-
+    
         if not inv:
             embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, target_id)} n'a aucun objet à voler.")
             await ctx.followup.send(embed=embed)
             return None, True
-
-        # Vol aléatoire
+    
+        # Vol principal
         stolen_item = random.choice(inv)
         inv.remove(stolen_item)
-
+    
         # Donne l'objet à l'attaquant
         attacker_inv, _, _ = get_user_data(guild_id, user_id)
         attacker_inv.append(stolen_item)
-
-        # Embed de confirmation
-        embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, user_id)} a volé **{stolen_item}** à {get_mention(ctx.guild, target_id)} !")
+    
+        description = f"🔍 {get_mention(ctx.guild, user_id)} a volé **{stolen_item}** à {get_mention(ctx.guild, target_id)} !"
+    
+        # 💥 Vérifie le passif d'Elwin Jarr
+        donnees_passif = {
+            "guild_id": guild_id,
+            "utilisateur": user_id,
+            "cible": target_id,
+            "ctx": ctx
+        }
+        result = appliquer_passif(user_id, "utilitaire_vol", donnees_passif)
+    
+        if result and result.get("double_vol") and inv:
+            second_item = random.choice(inv)
+            inv.remove(second_item)
+            attacker_inv.append(second_item)
+            description += f"\n🎲 Grâce à un effet passif, {get_mention(ctx.guild, user_id)} a aussi volé **{second_item}** !"
+    
+        # Embed de confirmation (unique)
+        embed = build_embed_from_item(item, description)
         await ctx.followup.send(embed=embed)
-
+    
         sauvegarder()
         return None, True
     
@@ -301,6 +318,16 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         guild_id, target_id, base_dmg_after_crit + bonus_dmg
     )
     
+    # 🎲 Passif de Darin Venhal — 10 % chance de réduire les dégâts de moitié
+    donnees_defense = {
+        "guild_id": guild_id,
+        "defenseur": target_id,
+        "attaquant": user_id
+    }
+    res_darin = appliquer_passif(target_id, "calcul_defense", donnees_defense)
+    if res_darin and "reduction_multiplicateur" in res_darin:
+        total_dmg = math.ceil(total_dmg * res_darin["reduction_multiplicateur"])
+
     # 💠 Passif de défense - Cassiane Valé
     donnees_defense = {
         "guild_id": guild_id,
