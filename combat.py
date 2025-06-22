@@ -24,46 +24,75 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 
     # 🪙 VOL
     if action["type"] == "vol":
-        # Aller chercher l'inventaire de la cible
         inv, _, _ = get_user_data(guild_id, target_id)
     
+        # ❌ Vérifie si la cible est immunisée contre le vol (Lyss Tenra)
+        immunite = appliquer_passif("protection_vol", {
+            "guild_id": guild_id,
+            "user_id": target_id,
+            "item": item,
+            "attacker_id": user_id
+        })
+    
+        if immunite and immunite.get("immunise_contre_vol"):
+            user_inv.remove(item)  # Tu perds l'objet utilisé
+            sauvegarder()
+            embed = build_embed_from_item(item, f"🛡️ {get_mention(ctx.guild, target_id)} est **protégé contre le vol** !")
+            await ctx.followup.send(embed=embed)
+            return None, True
+    
         if not inv:
+            # 🔄 Vérifie si l'attaquant peut tout de même conserver l'objet utilisé grâce à un passif
+            result = appliquer_passif("utilitaire_vol", {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "item": item,
+                "target_id": target_id
+            })
+            conserve = result.get("conserver_objet_vol") if result else False
+    
+            if not conserve:
+                user_inv.remove(item)  # ❌ Pas de chance, on perd l'objet
+            sauvegarder()
+    
             embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, target_id)} n'a aucun objet à voler.")
             await ctx.followup.send(embed=embed)
             return None, True
     
-        # Vol principal
-        stolen_item = random.choice(inv)
-        inv.remove(stolen_item)
+        # 🎯 Vol réussi (au moins 1 objet)
+        stolen_items = [random.choice(inv)]
+        inv.remove(stolen_items[0])
     
-        # Donne l'objet à l'attaquant
-        attacker_inv, _, _ = get_user_data(guild_id, user_id)
-        attacker_inv.append(stolen_item)
-    
-        description = f"🔍 {get_mention(ctx.guild, user_id)} a volé **{stolen_item}** à {get_mention(ctx.guild, target_id)} !"
-    
-        # 💥 Vérifie le passif d'Elwin Jarr
-        donnees_passif = {
+        # 🧠 Vérifie le passif de double vol (Elwin Jarr) + Niv Kress
+        result = appliquer_passif("utilitaire_vol", {
             "guild_id": guild_id,
-            "utilisateur": user_id,
-            "cible": target_id,
-            "ctx": ctx
-        }
-        result = appliquer_passif(user_id, "utilitaire_vol", donnees_passif)
+            "user_id": user_id,
+            "item": item,
+            "target_id": target_id
+        })
     
-        if result and result.get("double_vol") and inv:
+        double_vol = result.get("double_vol", False) if result else False
+        if double_vol and inv:
             second_item = random.choice(inv)
             inv.remove(second_item)
-            attacker_inv.append(second_item)
-            description += f"\n🎲 Grâce à un effet passif, {get_mention(ctx.guild, user_id)} a aussi volé **{second_item}** !"
+            stolen_items.append(second_item)
     
-        # Embed de confirmation (unique)
-        embed = build_embed_from_item(item, description)
-        await ctx.followup.send(embed=embed)
+        conserve = result.get("conserver_objet_vol", False) if result else False
+        if not conserve:
+            user_inv.remove(item)
+    
+        # Ajoute les objets volés à l’attaquant
+        attacker_inv, _, _ = get_user_data(guild_id, user_id)
+        attacker_inv.extend(stolen_items)
     
         sauvegarder()
-        return None, True
     
+        obj_text = "** et **".join([f"**{obj}**" for obj in stolen_items])
+        embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, user_id)} a volé {obj_text} à {get_mention(ctx.guild, target_id)} !")
+        await ctx.followup.send(embed=embed)
+    
+        return None, True
+        
     # ⭐ Immunité
     if is_immune(guild_id, target_id):
         description = f"⭐ {get_mention(ctx.guild, target_id)} est protégé par une **immunité**."
@@ -96,6 +125,25 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         is_crit=("💥" in result["crit_txt"])
     )
     await ctx.followup.send(embed=embed)
+
+    # 🎁 Mira Oskra : 3% de chance de recevoir un objet si elle survit
+    if hp[guild_id].get(target_id, 0) > 0:  # la cible a survécu
+        result_passif = appliquer_passif("defense_survie", {
+            "guild_id": guild_id,
+            "user_id": target_id,
+            "attaquant": user_id,
+            "item_utilise": item
+        })
+        if result_passif and result_passif.get("objet_bonus"):
+            objet_bonus = result_passif["objet_bonus"]
+            inv_cible, _, _ = get_user_data(guild_id, target_id)
+            inv_cible.append(objet_bonus)
+    
+            embed_bonus = discord.Embed(
+                description=f"🎁 {get_mention(ctx.guild, target_id)} a reçu un objet bonus grâce à son sang-froid : **{objet_bonus}** !",
+                color=discord.Color.teal()
+            )
+            await ctx.followup.send(embed=embed_bonus)
 
     # 🔄 Effets secondaires (virus, infection…)
     for effet_embed in result["effets_embeds"]:
