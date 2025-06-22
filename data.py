@@ -41,7 +41,7 @@ malus_degat = {}  # 👑 Nathaniel Raskov
 zeyra_last_survive_time = {}  # 💥 Zeyra Kael
 valen_seuils = {}  # 🧠 Valen Drexar
 burn_status = {}
-
+resistance_bonus = {}
 def sauvegarder():
     try:
         # Import ici → pour éviter circular import
@@ -84,6 +84,7 @@ def sauvegarder():
                 "valen_seuils": valen_seuils,
                 "burn_status": burn_status,
                 "weekly_message_log": weekly_message_log  # Ajouté ici
+                "resistance_bonus": resistance_bonus
             }, f, indent=4, ensure_ascii=False)
 
         print("💾 Données sauvegardées avec backup horodatée.")
@@ -184,6 +185,9 @@ def charger():
 
         burn_status.clear()
         burn_status.update(data.get("burn_status", {}))
+
+        resistance_bonus.clear()
+        resistance_bonus.update(data.get("resistance_bonus", {}))
 
         print(f"✅ Données chargées depuis data.json : {len(inventaire)} serveurs | {sum(len(u) for u in inventaire.values())} joueurs.")
     except json.JSONDecodeError:
