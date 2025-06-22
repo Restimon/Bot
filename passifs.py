@@ -299,7 +299,7 @@ def passif_kerin_dross(contexte, données):
                 chance = random.random()
                 if chance <= 0.05:
                     pid = str(pid)
-                    tous_hp[pid] = min(tous_hp.get(pid, 20), tous_hp.get(pid, 0) + 1)
+                    tous_hp[pid] = min(100, tous_hp.get(pid, 0) + 1)
 
     return None
 
