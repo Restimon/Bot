@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from data import PERSONNAGES, tirages, sauvegarder
 from embeds import build_personnage_embed
 from storage import get_inventory, ajouter_personnage
+from passifs import appliquer_passif  # ✅ Ajouté
 
 # 🎲 Probabilités de rareté (en millièmes)
 RARETE_PROBABILITES_MILLIEMES = {
@@ -70,8 +71,19 @@ class Tirage(commands.Cog):
                 )
                 return
 
-        # 🎯 Tirage du personnage
-        perso = get_random_character_by_probability()
+        # 🎯 Vérifie s’il y a un bonus de rareté via passif (Nael Mirren)
+        bonus_passif = appliquer_passif("tirage_objet", {"guild_id": guild_id, "user_id": user_id})
+        bonus_rarite = bonus_passif.get("bonus_rarite") if bonus_passif else False
+
+        proba_modifiées = RARETE_PROBABILITES_MILLIEMES.copy()
+        if bonus_rarite:
+            proba_modifiées["Legendaire"] += 1
+            proba_modifiées["Epique"] += 3
+            proba_modifiées["Rare"] += 6
+            proba_modifiées["Commun"] = max(0, proba_modifiées["Commun"] - 10)
+
+        # 🎴 Tirage du personnage
+        perso = get_random_character_by_probability(probabilities=proba_modifiées)
         if not perso:
             await interaction.followup.send("❌ Aucun personnage disponible pour cette rareté.", ephemeral=True)
             return
@@ -86,6 +98,8 @@ class Tirage(commands.Cog):
         # 📦 Construction de l'embed
         embed = build_personnage_embed(perso, user=user)
         embed.set_footer(text="🎴 Le personnage a été ajouté à ta collection.")
+        if bonus_rarite:
+            embed.add_field(name="✨ Coup de chance !", value="Le passif de **Nael Mirren** a boosté la rareté du tirage.", inline=False)
 
         # 🖼 Envoi avec image si disponible
         try:
