@@ -10,44 +10,67 @@ class Perso(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="perso", description="Affiche un personnage de ta collection par son numéro (/collection).")
-    @app_commands.describe(index="Numéro du personnage dans ta collection (voir /collection)")
-    async def perso(self, interaction: discord.Interaction, index: int):
+    @app_commands.command(name="perso", description="Affiche un personnage de ta collection ou celle d’un autre joueur.")
+    @app_commands.describe(index="Numéro du personnage (voir /collection)", user="Joueur cible (optionnel)")
+    async def perso(self, interaction: discord.Interaction, index: int, user: discord.Member = None):
         await interaction.response.defer()
 
-        user_id = str(interaction.user.id)
+        target = user or interaction.user
+        user_id = str(target.id)
         guild_id = str(interaction.guild_id)
 
-        # Récupère la collection complète du joueur
         collection = get_collection(guild_id, user_id)
-
         if not collection:
-            await interaction.followup.send("❌ Tu n’as aucun personnage dans ta collection.", ephemeral=True)
+            await interaction.followup.send("❌ Ce joueur n’a aucun personnage dans sa collection.", ephemeral=True)
             return
 
-        # 🔁 On recrée une liste complète avec doublons (ex : si x3 → 3 fois dans la liste)
-        liste_complete = []
+        # Liste complète en fonction de la collection
+        full_list = []
         for perso in get_personnages_trie_par_rarete_et_faction():
             nom = perso["nom"]
             nb = collection.get(nom, 0)
-            liste_complete.extend([perso] * nb)
+            full_list.extend([perso] * nb)
 
-        if index < 1 or index > len(liste_complete):
-            await interaction.followup.send(f"❌ Numéro invalide. Tu as {len(liste_complete)} personnage(s).", ephemeral=True)
+        if index < 1 or index > len(full_list):
+            await interaction.followup.send(f"❌ Numéro invalide. {target.display_name} possède {len(full_list)} personnage(s).", ephemeral=True)
             return
 
-        perso = liste_complete[index - 1]
-        embed = build_personnage_embed(perso, user=interaction.user)
+        perso = full_list[index - 1]
+        embed = build_personnage_embed(perso, user=target)
 
-        # Envoie avec image locale si dispo
+        # Image locale si dispo
         try:
-            image_path = perso["image"]
+            image_path = perso.get("image")
             image_filename = os.path.basename(image_path)
-            with open(image_path, "rb") as f:
-                file = discord.File(f, filename=image_filename)
-                await interaction.followup.send(embed=embed, file=file)
-        except Exception as e:
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            file = discord.File(image_path, filename=image_filename)
+            embed.set_image(url=f"attachment://{image_filename}")
+            await interaction.followup.send(embed=embed, file=file)
+        except Exception:
+            await interaction.followup.send(embed=embed)
+
+    # Autocomplétion dynamique
+    @perso.autocomplete("index")
+    async def index_autocomplete(self, interaction: discord.Interaction, current: str):
+        target = interaction.namespace.user or interaction.user
+        user_id = str(target.id)
+        guild_id = str(interaction.guild_id)
+
+        collection = get_collection(guild_id, user_id)
+        if not collection:
+            return []
+
+        full_list = []
+        for perso in get_personnages_trie_par_rarete_et_faction():
+            nom = perso["nom"]
+            nb = collection.get(nom, 0)
+            full_list.extend([nom] * nb)
+
+        current = current.strip()
+        return [
+            app_commands.Choice(name=f"{i+1}. {nom}", value=i+1)
+            for i, nom in enumerate(full_list[:25])
+            if current in str(i + 1)
+        ]
 
 async def setup(bot):
     await bot.add_cog(Perso(bot))
