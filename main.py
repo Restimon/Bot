@@ -12,7 +12,7 @@ import random
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
-from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data, backup_auto_independante, weekly_message_count, weekly_message_log, malus_degat, zeyra_last_survive_time, valen_seuils
+from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data, backup_auto_independante, weekly_message_count, weekly_message_log, malus_degat, zeyra_last_survive_time, valen_seuils, burn_status
 from utils import get_random_item, OBJETS, handle_death  
 from storage import get_user_data, inventaire, hp, leaderboard
 from combat import apply_item_with_cooldown, apply_shield
@@ -178,6 +178,7 @@ async def on_ready():
     regeneration_loop.start()
     voice_tracking_loop.start()
     cleanup_weekly_logs.start()
+    burn_damage_loop.start()
 
 @bot.event
 async def on_message(message):
@@ -906,6 +907,92 @@ async def voice_tracking_loop():
 
                 # On retire le user du tracking
                 del voice_tracking[gid][uid]
+
+        await asyncio.sleep(30)
+@tasks.loop(seconds=30)
+async def burn_damage_loop():
+    await bot.wait_until_ready()
+    print("🔥 Boucle de dégâts de brûlure démarrée.")
+
+    while not bot.is_closed():
+        now = time.time()
+
+        for guild in bot.guilds:
+            gid = str(guild.id)
+            if gid not in burn_status:
+                continue
+
+            for uid, status in list(burn_status[gid].items()):
+                if not status.get("actif"):
+                    continue
+
+                if now < status.get("next_tick", 0):
+                    continue
+
+                status["ticks_restants"] -= 1
+                status["next_tick"] = now + 3600  # Prochain tick dans 1h
+
+                # Retire le statut s’il est terminé
+                if status["ticks_restants"] <= 0:
+                    del burn_status[gid][uid]
+                    continue
+
+                # Appliquer les dégâts
+                dmg = 5
+                hp.setdefault(gid, {})
+                shields.setdefault(gid, {})
+
+                hp_before = hp[gid].get(uid, 100)
+                pb_before = shields[gid].get(uid, 0)
+
+                dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
+                pb_after = shields[gid].get(uid, 0)
+                hp_after = max(hp_before - dmg_final, 0)
+                hp[gid][uid] = hp_after
+
+                real_dmg = hp_before - hp_after
+                source_id = status.get("source")
+
+                # Leaderboard
+                if uid != source_id and source_id:
+                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                    leaderboard[gid][source_id]["degats"] += real_dmg
+
+                # Annonce dans le salon
+                try:
+                    channel = bot.get_channel(status["channel_id"])
+                    member = await bot.fetch_user(int(uid))
+                    if not channel:
+                        continue
+
+                    desc = (
+                        f"🔥 {member.mention} subit **{real_dmg + lost_pb} dégâts** *(Brûlure)*.\n"
+                        f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB\n"
+                        f"⏳ Brûlure restante : **{status['ticks_restants']}h**"
+                    )
+
+                    embed = discord.Embed(description=desc, color=discord.Color.orange())
+                    await channel.send(embed=embed)
+
+                    if shield_broken:
+                        await channel.send(embed=discord.Embed(
+                            title="🛡 Bouclier détruit",
+                            description=f"Le bouclier de {member.mention} a été **détruit** par la brûlure.",
+                            color=discord.Color.dark_blue()
+                        ))
+
+                    if hp_after == 0:
+                        handle_death(gid, uid, source_id)
+                        embed_ko = discord.Embed(
+                            title="💀 KO par brûlure",
+                            description=(f"{member.mention} a succombé à une **brûlure sévère**.\n"
+                                         "🔄 Stabilisé à **100 PV**."),
+                            color=0xFF5500
+                        )
+                        await channel.send(embed=embed_ko)
+
+                except Exception as e:
+                    print(f"[burn_damage_loop] Erreur : {e}")
 
         await asyncio.sleep(30)
 
