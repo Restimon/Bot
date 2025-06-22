@@ -1,3 +1,6 @@
+from data import personnages_equipés
+from personnage import PERSONNAGES
+
 def appliquer_passif(personnage, contexte, données):
     """
     Applique l’effet du passif du personnage selon le contexte.
