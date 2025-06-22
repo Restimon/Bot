@@ -39,8 +39,16 @@ def register_profile_command(bot):
         shield_amt = shields.get(guild_id, {}).get(uid, 0)
         hp_display = f"{user_hp} / 100" + (f" + 🛡 {shield_amt}" if shield_amt > 0 else "")
 
+        perso_nom = personnages_equipés.get(guild_id, {}).get(uid)
+        faction_line = ""
+        if perso_nom and perso_nom in PERSONNAGES:
+            perso_data = PERSONNAGES[perso_nom]
+            faction = perso_data.get("faction")
+            if faction:
+                faction_line = f"\n🎖 Faction : **{faction}**"
+        
         embed = discord.Embed(
-            title=f"📄 Profil GotValis de {member.display_name}",
+            title=f"📄 Profil GotValis de {member.display_name}{faction_line}",
             description="Analyse médicale et opérationnelle en cours...",
             color=discord.Color.purple()
         )
