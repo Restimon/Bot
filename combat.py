@@ -344,6 +344,13 @@ async def appliquer_soin(ctx, user_id, target_id, action):
         is_crit=False  # on force False → pas de GIF critique sur les soins
     )
 
+# 🎯 Passif de Lysha Varn — +1 PB à chaque soin effectué
+appliquer_passif("soin", {
+    "guild_id": guild_id,
+    "soigneur": user_id,
+    "cible": target_id,
+    "soin_reel": real_heal
+})
 ### 🎯 CALCUL DES DÉGÂTS
 
 async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, action_type, crit_chance, item):
@@ -464,6 +471,7 @@ if result_passif_attaquant:
     effets.extend(result_passif_attaquant.get("embeds", []))
 if result_passif_cible:
     effets.extend(result_passif_cible.get("embeds", []))
+    
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
     """Applique les statuts appropriés après une attaque."""
     # Récupération sécurisée du channel_id
