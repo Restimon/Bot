@@ -537,7 +537,10 @@ def passif_yann_tann(contexte, données):
     burn_status[guild_id][cible_id] = {
         "actif": True,
         "start_time": time.time(),
-        "ticks_restants": 3
+        "ticks_restants": 3,
+        "next_tick": time.time() + 3600,
+        "source": donnees["attaquant_id"],  # 🟢 ajoute cette ligne
+        "channel_id": donnees["channel_id"]  # 🟢 et celle-ci
     }
 
     return {"brulure": True}
