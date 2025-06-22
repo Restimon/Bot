@@ -156,16 +156,19 @@ def register_profile_command(bot):
                 perso_data = PERSONNAGES[perso_nom]
                 image_path = perso_data.get("image")
                 image_name = os.path.basename(image_path) if image_path else None
-
-                perso_embed = discord.Embed(
-                    title="🎭 Personnage équipé",
-                    description=f"**#{index} – {perso_nom}**",
-                    color=discord.Color.gold()
+        
+                embed.add_field(
+                    name="🎭 Personnage équipé",
+                    value=(
+                        f"**#{index} – {perso_nom}**\n"
+                        f"🎁 {perso_data['passif_nom']} {perso_data['emoji']}\n"
+                        f"> {perso_data['passif_desc']}"
+                    ),
+                    inline=False
                 )
-                perso_embed.set_footer(text="Actif en permanence (passif inclus).")
+        
                 if image_path and os.path.exists(image_path):
                     file = discord.File(image_path, filename=image_name)
-                    perso_embed.set_image(url=f"attachment://{image_name}")
-                    await interaction.followup.send(embed=perso_embed, file=file)
-                else:
-                    await interaction.followup.send(embed=perso_embed)
+                    embed.set_image(url=f"attachment://{image_name}")
+                    await interaction.followup.send(embed=embed, file=file)
+                    return
