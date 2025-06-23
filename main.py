@@ -747,6 +747,15 @@ async def infection_damage_loop():
                     del infection_status[gid][uid]
                     continue
 
+                # ✅ Vérifie les passifs d’immunité aux dégâts d’infection
+                passif_result = appliquer_passif(uid, "tick_infection", {
+                    "guild_id": gid,
+                    "user_id": uid,
+                    "cible_id": uid
+                })
+                if passif_result and passif_result.get("ignore_infection_damage"):
+                    continue
+
                 # Tick : mise à jour du prochain tick
                 infection_status[gid][uid]["next_tick"] = now + 1800
 
