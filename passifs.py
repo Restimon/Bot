@@ -10,7 +10,7 @@ from personnage import PERSONNAGES
 from cooldowns import daily_limit
 from economy import add_gotcoins
 from storage import get_user_data
-from utils import remove_random_item, give_random_item
+from utils import remove_random_item, give_random_item, get_random_enemy
 
 zeyra_last_survive_time = {}
 valen_seuils = {}
@@ -526,7 +526,7 @@ def passif_kael_dris(contexte, données):
 
     soin = int(degats * 0.5)
     hp.setdefault(guild_id, {})
-    hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + soin, 20)
+    hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + soin, 100)
 
     return {"soin": soin}
 
@@ -618,20 +618,22 @@ def passif_nathaniel_raskov(contexte, données):
     guild_id = données["guild_id"]
     user_id = données["user_id"]
 
+    # 🎯 1. Lors d'une défense, 10 % de chance d'infliger un malus à l'attaquant
     if contexte == "defense":
-        if random.random() <= 0.10:  # 10 % chance
+        if random.random() <= 0.10:
             attaquant = données["attaquant"]
 
             malus_degat.setdefault(guild_id, {})
             malus_degat[guild_id][attaquant] = {
-                "pourcentage": 10,
-                "expiration": time.time() + 3600  # 1h
+                "pourcentage": 10,  # Réduction de 10 % de ses dégâts
+                "expiration": time.time() + 3600  # Dure 1h
             }
 
-            return {"moitie_degats": True}
+            return {"moitie_degats": True}  # Optionnel selon ton système
 
+    # 🛡️ 2. Résistance accrue aux statuts (passif constant)
     elif contexte == "resistance_statuts":
-        return {"resistance_bonus": 5}  # 5 % en plus contre les statuts
+        return {"resistance_bonus": 5}  # +5 % de résistance
 
     return None
 
@@ -639,14 +641,17 @@ def passif_elira_veska(contexte, données):
     guild_id = données["guild_id"]
     user_id = données["user_id"]
 
+    # 🎯 Passif constant : +10 % esquive
     if contexte == "passif_constant":
         return {"esquive_bonus": 10}
 
+    # 💨 Quand une attaque est esquivée
     elif contexte == "attaque_esquivee":
-        # Rediriger attaque + +5 PB
-        nouveau_cible = get_random_enemy(guild_id, exclude=[user_id, données["attaquant_id"]])
+        exclude = [user_id, données.get("attaquant_id")]
+        nouveau_cible = get_random_enemy(guild_id, exclude=exclude)
+
         if not nouveau_cible:
-            return None
+            return None  # Aucune cible de redirection possible
 
         shields.setdefault(guild_id, {})
         shields[guild_id][user_id] = min(shields[guild_id].get(user_id, 0) + 5, 25)
