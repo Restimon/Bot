@@ -4,6 +4,7 @@ from discord import app_commands
 from storage import get_user_data
 from utils import OBJETS
 from embeds import build_embed_from_item
+from passifs import appliquer_passif  # ✅ Pour Kieran Vox
 
 # Fonction pour décrire un objet
 def describe_item(emoji):
@@ -63,14 +64,18 @@ def register_box_command(bot):
             rarete = data.get("rarete", 1)
             rarete_pool.extend([emoji] * rarete)
 
-        # Nombre d'objets aléatoire
-        nb_objets = random.randint(1, 3)
+        # 🔮 Passif Kieran Vox : +1 objet bonus
+        result_passif = appliquer_passif(user_id, "box", {
+            "guild_id": guild_id,
+            "user_id": user_id
+        })
+        bonus = result_passif.get("bonus_objets_box", 0) if result_passif else 0
+
+        # Nombre d'objets à looter
+        nb_objets = random.randint(1, 3) + bonus
 
         # Loot des objets
-        loot = []
-        for _ in range(nb_objets):
-            item = random.choice(rarete_pool)
-            loot.append(item)
+        loot = [random.choice(rarete_pool) for _ in range(nb_objets)]
 
         # Ajout au joueur
         user_inv.extend(loot)
