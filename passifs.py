@@ -669,14 +669,18 @@ def passif_abomination_rampante(contexte, données):
     user_id = données["user_id"]
 
     if contexte == "attaque":
-        cible_id = données["cible"]
+        cible_id = données["cible_id"]
         effet = {}
 
-        # 5 % de chance d'infecter
-        if random.random() <= 0.05:
-            infection_status.setdefault(guild_id, {})
-            infection_status[guild_id][cible_id] = time.time()
-
+        # 5 % de chance d'infecter la cible
+        if random.random() <= 0.05 and cible_id not in infection_status.get(guild_id, {}):
+            infection_status.setdefault(guild_id, {})[cible_id] = {
+                "start": time.time(),
+                "duration": 3 * 3600,
+                "last_tick": 0,
+                "source": user_id,
+                "channel_id": données.get("channel_id")  # si dispo
+            }
             effet["infection"] = True
 
         # +30 % dégâts si la cible est déjà infectée
@@ -687,11 +691,13 @@ def passif_abomination_rampante(contexte, données):
 
     elif contexte == "kill":
         hp.setdefault(guild_id, {})
-        hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + 3, 20)
+        hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + 3, 100)
         return {"pv_gagnes": 3}
 
     elif contexte == "tick_infection":
-        return {"ignore_infection_damage": True}
+        # Ne subit pas les dégâts d’infection
+        if données["cible_id"] == user_id:
+            return {"annuler_degats": True}
 
     return None
 
