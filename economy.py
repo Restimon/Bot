@@ -1,6 +1,6 @@
 import random
 from data import sauvegarder
-from passifs import appliquer_passif  # ✅ Import pour gérer les passifs
+from passifs import appliquer_passif  # ✅ Gestion des passifs
 
 gotcoins_stats = {}   # {guild_id: {user_id: {"degats": X, "soin": X, "kills": X, "morts": X, "autre": X, "achats": X}}}
 gotcoins_balance = {} # {guild_id: {user_id: balance_int}}
@@ -37,14 +37,25 @@ def add_gotcoins(guild_id, user_id, amount, category="autre"):
     gotcoins_stats[guild_id][user_id][category] += amount
     sauvegarder()
 
-# ✅ Utiliser cette fonction si tu veux déclencher les passifs de type "gain_gotcoins"
+# ✅ Version améliorée : applique les passifs avec effet de bonus GotCoins
 def add_gotcoins_with_passif(guild_id, user_id, amount, category="autre"):
+    if amount <= 0:
+        return
+
+    # 1. Gain normal
     add_gotcoins(guild_id, user_id, amount, category)
-    appliquer_passif(user_id, "gain_gotcoins", {
+
+    # 2. Vérifie les passifs de gain
+    result = appliquer_passif(user_id, "gain_gotcoins", {
         "guild_id": guild_id,
         "user_id": user_id,
-        "category": category
+        "category": category,
+        "montant": amount
     })
+    if result and "gotcoins_bonus" in result:
+        bonus = result["gotcoins_bonus"]
+        add_gotcoins(guild_id, user_id, bonus, category)
+        print(f"💠 Bonus passif appliqué : +{bonus} GotCoins pour {user_id}")
 
 def remove_gotcoins(guild_id, user_id, amount, log_as_purchase=True):
     if amount <= 0:
