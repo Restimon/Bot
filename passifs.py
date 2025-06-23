@@ -314,6 +314,10 @@ def passif_raya_nys(contexte, données):
     return None
     
 def passif_tessa_korrin(contexte, données):
+    """
+    Passif de Tessa Korrin :
+    → Augmente le soin de +1 PV.
+    """
     if contexte == "bonus_soin":
         return {"bonus_pv_soin": 1}
     return None
@@ -337,9 +341,19 @@ def passif_darn_kol(contexte, données):
     if contexte == "attaque":
         if random.random() <= 0.10:
             guild_id = données["guild_id"]
-            attaquant = données["attaquant"]
+            attaquant = données["attaquant_id"]
             hp.setdefault(guild_id, {})
-            hp[guild_id][attaquant] = min(hp[guild_id].get(attaquant, 20), hp[guild_id].get(attaquant, 0) + 1)
+            current_hp = hp[guild_id].get(attaquant, 100)
+            new_hp = min(current_hp + 1, 100)
+            hp[guild_id][attaquant] = new_hp
+
+            # Facultatif : retour d’un embed à afficher
+            import discord
+            embed = discord.Embed(
+                description=f"❤️ <@{attaquant}> récupère **1 PV** grâce à sa rage de combattant.",
+                color=discord.Color.green()
+            )
+            return {"embeds": [embed]}
     return None
 
 def passif_kara_drel(contexte, données):
@@ -367,7 +381,7 @@ def passif_sive_arden(contexte, données):
     if contexte == "attaque":
         if random.random() <= 0.05:
             guild_id = données["guild_id"]
-            user_id = données["attaquant"]
+            user_id = données["attaquant_id"]
             add_gotcoins(guild_id, user_id, 1)
     return None
 
@@ -430,17 +444,17 @@ def passif_rouven_mance(contexte, données):
         return None
 
     if random.random() > 0.25:
-        return None  # 25% de chance de déclenchement
+        return None  # 25 % de chance de déclenchement
 
     effets_possibles = [
-        "degats+",    # 🎯 +10 dégâts infligés
-        "vol",        # 🕵️ Vol d’un objet
-        "soin",       # ❤️ Soigne la cible
-        "gotcoins",   # 💰 +25 GotCoins
-        "bouclier",   # 🛡 Bouclier = dégâts infligés
-        "perte",      # 🧨 Perd un objet
-        "pas_de_conso", # ♻️ Objet pas consommé
-        "revers"      # ❗ Attaquant prend 50% des dégâts
+        "degats+",       # 🎯 +10 dégâts infligés
+        "vol",           # 🕵️ Vol d’un objet
+        "soin",          # ❤️ Soigne la cible
+        "gotcoins",      # 💰 +25 GotCoins
+        "bouclier",      # 🛡 Bouclier = dégâts infligés
+        "perte",         # 🧨 Perd un objet
+        "pas_de_conso",  # ♻️ Objet pas consommé
+        "revers"         # ❗ Attaquant prend 50 % des dégâts
     ]
     effet = random.choice(effets_possibles)
 
@@ -455,11 +469,13 @@ def passif_rouven_mance(contexte, données):
         resultat["bonus_degats"] = 10
 
     elif effet == "vol":
-        give_random_item(guild_id, attaquant, remove_random_item(guild_id, cible))
+        item = remove_random_item(guild_id, cible)
+        if item:
+            give_random_item(guild_id, attaquant, item)
 
     elif effet == "soin":
         hp.setdefault(guild_id, {})
-        hp[guild_id][cible] = min(hp[guild_id].get(cible, 0) + degats, 20)
+        hp[guild_id][cible] = min(100, hp[guild_id].get(cible, 100) + degats)
 
     elif effet == "gotcoins":
         add_gotcoins(guild_id, attaquant, 25)
@@ -476,7 +492,7 @@ def passif_rouven_mance(contexte, données):
 
     elif effet == "revers":
         hp.setdefault(guild_id, {})
-        hp[guild_id][attaquant] = max(0, hp[guild_id].get(attaquant, 0) - int(degats / 2))
+        hp[guild_id][attaquant] = max(0, hp[guild_id].get(attaquant, 100) - int(degats / 2))
 
     return resultat
 
@@ -532,6 +548,8 @@ def passif_yann_tann(contexte, données):
 
     guild_id = données["guild_id"]
     cible_id = données["cible_id"]
+    attaquant = données["attaquant"]
+    channel_id = données.get("channel_id", None)
 
     burn_status.setdefault(guild_id, {})
     burn_status[guild_id][cible_id] = {
@@ -539,8 +557,8 @@ def passif_yann_tann(contexte, données):
         "start_time": time.time(),
         "ticks_restants": 3,
         "next_tick": time.time() + 3600,
-        "source": donnees["attaquant_id"],  # 🟢 ajoute cette ligne
-        "channel_id": donnees["channel_id"]  # 🟢 et celle-ci
+        "source": attaquant,
+        "channel_id": channel_id
     }
 
     return {"brulure": True}
@@ -564,11 +582,10 @@ def passif_selina_vorne(contexte, données):
 
     if contexte == "tick_heures":
         hp.setdefault(guild_id, {})
-        hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + 2, 20)
+        hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + 2, 100)
 
     elif contexte == "tick_30min":
-        if random.random() <= 0.20:  # 20 % de chance de purge par tick 30min (ajustable)
-            # Supprimer 1 effet néfaste (priorité : virus > poison > infection > brûlure)
+        if random.random() <= 0.20:  # 20 % de chance de purge par tick 30min
             for status_dict in [virus_status, poison_status, infection_status, burn_status]:
                 if user_id in status_dict.get(guild_id, {}):
                     del status_dict[guild_id][user_id]
