@@ -8,6 +8,7 @@ from utils import OBJETS, get_mention
 from storage import get_user_data
 from data import sauvegarder, shields, immunite_status, esquive_status, casque_status
 from embeds import build_embed_from_item
+from passifs import appliquer_passif
 
 def register_utilitaire_command(bot):
     @bot.tree.command(name="utilitaire", description="Utilise un objet utilitaire ou de protection")
@@ -49,31 +50,35 @@ def register_utilitaire_command(bot):
         if action["type"] == "bouclier":
             current_pb = shields.get(guild_id, {}).get(tid, 0)
 
-            # Limite de PB max à 20
-            if current_pb >= 20:
+            # 🔷 Vérifie le passif de limite de PB
+            result_passif = appliquer_passif(tid, "max_pb", {"guild_id": guild_id})
+            max_pb = result_passif.get("max_pb", 20) if result_passif else 20
+            bonus_txt = " ✨" if max_pb > 20 else ""
+
+            # Limite atteinte
+            if current_pb >= max_pb:
                 await interaction.followup.send(
-                    f"❌ {get_mention(interaction.guild, tid)} possède déjà le maximum de **20 PB**.",
+                    f"❌ {get_mention(interaction.guild, tid)} possède déjà le maximum de **{max_pb} PB**{bonus_txt}.",
                     ephemeral=True
                 )
                 return
 
-            # Sinon on ajoute 20 PB (max 20)
-            new_pb = min(current_pb + 20, 20)
+            # Ajoute les PB (sans dépasser le max autorisé)
+            new_pb = min(current_pb + 20, max_pb)
             shields.setdefault(guild_id, {})[tid] = new_pb
-
             current_hp = get_user_data(guild_id, tid)[1]
 
-            # Différencier soi-même / autre
+            # Texte
             if uid == tid:
                 description = (
                     f"{interaction.user.mention} a activé un **bouclier** de protection !\n"
-                    f"🛡 Il gagne un total de **{new_pb} PB** → ❤️ {current_hp} PV / 🛡 {new_pb} PB"
+                    f"🛡 Il gagne un total de **{new_pb} PB** → ❤️ {current_hp} PV / 🛡 {new_pb} PB{bonus_txt}"
                 )
             else:
                 mention_cible = get_mention(interaction.guild, tid)
                 description = (
                     f"{interaction.user.mention} a activé un **bouclier** de protection pour {mention_cible} !\n"
-                    f"🛡 Il gagne un total de **{new_pb} PB** → ❤️ {current_hp} PV / 🛡 {new_pb} PB"
+                    f"🛡 Il gagne un total de **{new_pb} PB** → ❤️ {current_hp} PV / 🛡 {new_pb} PB{bonus_txt}"
                 )
 
             embed = build_embed_from_item(item, description)
