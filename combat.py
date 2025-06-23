@@ -175,12 +175,13 @@ def apply_crit(base_dmg, crit_chance):
         return base_dmg * 2, " 💥 **Coup critique !**"
     return base_dmg, ""
 
-def apply_casque_reduction(guild_id, user_id, dmg):
-    if user_id in casque_status.get(guild_id, {}):
-        reduced_dmg = math.ceil(dmg * 0.5)
-        reduction_val = dmg - reduced_dmg
-        return reduced_dmg, True, reduction_val
-    return dmg, False, 0
+def apply_casque_reduction(guild_id, user_id, dmg, ignore=False):
+    if ignore or user_id not in casque_status.get(guild_id, {}):
+        return dmg, False, 0
+
+    reduced_dmg = math.ceil(dmg * 0.5)
+    reduction_val = dmg - reduced_dmg
+    return reduced_dmg, True, reduction_val
 
 def apply_shield(guild_id, user_id, dmg):
     current_shield = shields.get(guild_id, {}).get(user_id, 0)
@@ -301,6 +302,18 @@ async def appliquer_soin(ctx, user_id, target_id, action):
     guild_id = str(ctx.guild.id)
     heal_amount = action.get("soin", 0)
     crit = action.get("crit", 0)
+
+    # 🎯 Appel du passif Tessa Korrin (et autres)
+    bonus_result = appliquer_passif(user_id, "bonus_soin", {
+        "guild_id": guild_id,
+        "soigneur": user_id,
+        "cible": target_id,
+        "base_soin": heal_amount
+    })
+    bonus_soin = bonus_result.get("bonus_pv_soin", 0) if bonus_result else 0
+    heal_amount += bonus_soin
+
+    # 🎲 Critique après bonus
     final_heal, crit_txt = apply_crit(heal_amount, crit)
 
     start_hp = hp[guild_id].get(target_id, 100)
@@ -324,35 +337,33 @@ async def appliquer_soin(ctx, user_id, target_id, action):
             is_crit=False
         )
 
+    # 💰 Gain de GotCoins lié au soin réel
     add_gotcoins(guild_id, user_id, real_heal, category="soin")
 
-    # Ligne 1 : action de soin
+    # 📝 Affichage du soin
     if user_id == target_id:
         ligne_1 = f"{mention_soigneur} se soigne de **{real_heal} PV** avec {item}"
     else:
         ligne_1 = f"{mention_soigneur} soigne de **{real_heal} PV** {mention_cible} avec {item}"
-
-    # Ligne 2 : calcul des PV → avec ❤️ devant le résultat + crit_txt à la fin
     ligne_2 = f"❤️ {start_hp} PV + {real_heal} PV = ❤️ {new_hp} PV"
     if crit_txt:
         ligne_2 += f" {crit_txt}"
+
+    # 🎯 Appel d’autres passifs post-soin (Lysha Varn, etc.)
+    appliquer_passif(user_id, "soin", {
+        "guild_id": guild_id,
+        "soigneur": user_id,
+        "cible": target_id,
+        "soin_reel": real_heal
+    })
 
     return build_embed_from_item(
         item=item,
         description=f"{ligne_1}\n{ligne_2}",
         is_heal_other=(user_id != target_id),
-        is_crit=False  # on force False → pas de GIF critique sur les soins
+        is_crit=False
     )
-
-# 🎯 Passif de Lysha Varn — +1 PB à chaque soin effectué
-appliquer_passif("soin", {
-    "guild_id": guild_id,
-    "soigneur": user_id,
-    "cible": target_id,
-    "soin_reel": real_heal
-})
 ### 🎯 CALCUL DES DÉGÂTS
-
 async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, action_type, crit_chance, item):
     user_mention = get_mention(ctx.guild, user_id)
     target_mention = get_mention(ctx.guild, target_id)
@@ -368,32 +379,41 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     # Critique
     base_dmg_after_crit, crit_txt = apply_crit(base_dmg, crit_chance)
 
-    # Casque
-    total_dmg, casque_active, reduction_val = apply_casque_reduction(
-        guild_id, target_id, base_dmg_after_crit + bonus_dmg
-    )
-    
-    # 🎲 Passif de Darin Venhal — 10 % chance de réduire les dégâts de moitié
-    donnees_defense = {
+    # 🎯 Vérifie le passif de Nehra Vask (ignorer casque)
+    res_nehra = appliquer_passif(user_id, "attaque", {
         "guild_id": guild_id,
-        "defenseur": target_id,
-        "attaquant": user_id
-    }
-    res_darin = appliquer_passif(target_id, "calcul_defense", donnees_defense)
-    if res_darin and "reduction_multiplicateur" in res_darin:
-        total_dmg = math.ceil(total_dmg * res_darin["reduction_multiplicateur"])
+        "attaquant_id": user_id,
+        "cible_id": target_id,
+        "ctx": ctx,
+        "degats": base_dmg_after_crit + bonus_dmg,
+        "objet": item
+    })
+    ignore_helmet = res_nehra.get("ignorer_reduction_casque", False) if res_nehra else False
 
-    # 💠 Passif de défense - Cassiane Valé
-    donnees_defense = {
+    # Casque (avec possibilité de l'ignorer)
+    total_dmg, casque_active, reduction_val = apply_casque_reduction(
+        guild_id, target_id, base_dmg_after_crit + bonus_dmg, ignore=ignore_helmet
+    )
+
+    # 🎯 Appel des passifs de défense (calcul_defense)
+    donnees_defense_calc = {
         "guild_id": guild_id,
         "defenseur": target_id,
         "attaquant": user_id
     }
-    res_def = appliquer_passif(target_id, "calcul_defense", donnees_defense)
-    if res_def and "reduction_degats" in res_def:
-        reduc = res_def["reduction_degats"]
-        total_dmg = math.ceil(total_dmg * (1 - reduc))
-        
+    res_def = appliquer_passif(target_id, "calcul_defense", donnees_defense_calc)
+
+    if res_def:
+        if "reduction_multiplicateur" in res_def:
+            total_dmg = math.ceil(total_dmg * res_def["reduction_multiplicateur"])
+        if "reduction_degats" in res_def:
+            total_dmg = math.ceil(total_dmg * (1 - res_def["reduction_degats"]))
+
+    # 🔰 Passif de Veylor Cassian — réduction fixe
+    res_veylor = appliquer_passif(target_id, "defense", donnees_defense_calc)
+    if res_veylor and "reduction_fixe" in res_veylor:
+        total_dmg = max(0, total_dmg - res_veylor["reduction_fixe"])
+
     # Bouclier
     dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
     pb_after = shields.get(guild_id, {}).get(target_id, 0)
@@ -421,12 +441,28 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
             color=discord.Color.red()
         )
 
-    # --- Calcul pour l'affichage correct des dégâts base pour PV et PB ---
-    # On veut afficher les "PV de base" (coup de base après crit - PB absorbés)
+    # 🎯 Appliquer les passifs d’attaque et de défense
+    contexte = "attaque"
+    donnees_passif = {
+        "guild_id": guild_id,
+        "attaquant_id": user_id,
+        "cible_id": target_id,
+        "ctx": ctx,
+        "degats": real_dmg,
+        "objet": item
+    }
+    result_passif_attaquant = appliquer_passif(user_id, contexte, donnees_passif)
+    result_passif_cible = appliquer_passif(target_id, "défense", donnees_passif)
+
+    if result_passif_attaquant:
+        effets.extend(result_passif_attaquant.get("embeds", []))
+    if result_passif_cible:
+        effets.extend(result_passif_cible.get("embeds", []))
+
+    # --- Affichage correct des dégâts bruts avant défenses ---
     pv_taken_base = max(0, base_dmg_after_crit - lost_pb)
     pb_taken_base = min(base_dmg_after_crit, lost_pb) if lost_pb > 0 else 0
 
-    # Retour complet
     return {
         "dmg_final": dmg_final,
         "real_dmg": real_dmg,
@@ -444,33 +480,13 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "total_affiche_pour_ligne1": real_dmg + lost_pb,
         "dmg_total_apres_bonus_et_crit": base_dmg_after_crit + bonus_dmg,
         "base_dmg_after_crit": base_dmg_after_crit,
-        "casque_active": casque_active,
+        "casque_active": casque_active and not ignore_helmet,
         "total_ressenti": real_dmg + lost_pb,
         "total_dmg_apres_reduc": total_dmg,
-        "reduction_val": reduction_val,
-        # Ajouts nécessaires pour ton affichage
+        "reduction_val": reduction_val if not ignore_helmet else 0,
         "pv_avant_bonus": pv_taken_base,
         "pb_avant_bonus": pb_taken_base,
     }
-
-contexte = "attaque"  # ou autre, selon le type d’action
-données_passif = {
-    "guild_id": guild_id,
-    "attaquant_id": user_id,
-    "cible_id": target_id,
-    "ctx": ctx,
-    "degats": real_dmg,
-    "objet": item
-}
-effets = []
-result_passif_attaquant = appliquer_passif(user_id, contexte, données_passif)
-result_passif_cible = appliquer_passif(target_id, "défense", données_passif)
-
-# Tu peux exploiter les résultats si besoin :
-if result_passif_attaquant:
-    effets.extend(result_passif_attaquant.get("embeds", []))
-if result_passif_cible:
-    effets.extend(result_passif_cible.get("embeds", []))
     
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
     """Applique les statuts appropriés après une attaque."""
