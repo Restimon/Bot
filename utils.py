@@ -35,19 +35,15 @@ OBJETS = {
 
 REWARD_EMOJIS = ["💰"]
 
-# Objets avec pondération (plus rare = moins probable)
 def check_crit(chance):
-    """Renvoie True si un coup critique a lieu selon la probabilité `chance` (0.0 à 1.0)."""
     return random.random() < chance
 
 def get_random_item(debug=False):
-    # 5 % → Coins
     if random.random() < 0.05:
         if debug:
             print("[get_random_item] 💰 Tirage spécial : Coins")
-        return random.choice(list(REWARD_EMOJIS))
+        return random.choice(REWARD_EMOJIS)
 
-    # 95 % → Objets classiques
     pool = []
     for emoji, data in OBJETS.items():
         poids = 26 - data["rarete"]
@@ -60,43 +56,38 @@ def get_random_item(debug=False):
     return random.choice(pool) if pool else None
 
 def handle_death(guild_id, target_id, source_id=None):
-    hp[guild_id][target_id] = 100  # Remise à 100 PV
+    hp[guild_id][target_id] = 100  # Réinitialise les PV
 
     try:
         remove_status_effects(guild_id, target_id)
     except Exception as e:
-        print(f"[handle_death] Erreur lors de la suppression des statuts : {e}")
+        print(f"[handle_death] Erreur de suppression des statuts : {e}")
 
     if source_id and source_id != target_id:
         update_leaderboard(guild_id, source_id, 50, kill=1)
-        update_leaderboard(guild_id, target_id, -25, death=1)
-    else:
-        update_leaderboard(guild_id, target_id, -25, death=1)
+    update_leaderboard(guild_id, target_id, -25, death=1)
 
 def get_mention(guild, user_id):
-    """Renvoie la mention d'un utilisateur à partir de son ID et du serveur."""
     member = guild.get_member(int(user_id))
     return member.mention if member else f"<@{user_id}>"
 
 def get_evade_chance(guild_id, user_id):
-    """Renvoie le pourcentage d'esquive (entre 0 et 1) pour un utilisateur donné."""
-    import time
-    from data import esquive_status
-    from passifs import appliquer_passif
-
-    base_chance = 0.10  # 10% de base
+    """Calcule la chance d'esquive pour un utilisateur, avec bonus de statut et passifs."""
+    base_chance = 0.10  # 10 % de base
     bonus = 0.0
+    now = time.time()
 
-    # ✅ Bonus temporaire d'esquive (statut esquive_status)
+    # 🔷 Statut temporaire d'esquive (ex: 👟)
     data = esquive_status.get(guild_id, {}).get(user_id)
-    if data:
-        now = time.time()
-        if now - data["start"] < data["duration"]:
-            bonus += data.get("valeur", 0.2)
+    if data and now - data["start"] < data["duration"]:
+        bonus += data.get("valeur", 0.2)
 
-    # 🌀 Bonus passif Liora Venhal
-    result = appliquer_passif(user_id, "calcul_esquive", {"guild_id": guild_id, "defenseur": user_id})
+    # 🌀 Passifs (Nova Rell, Elira Veska, etc.)
+    result = appliquer_passif(user_id, "calcul_esquive", {
+        "guild_id": guild_id,
+        "defenseur": user_id
+    })
     if result:
-        bonus += result.get("bonus_esquive", 0.0) / 100  # Convertir en ratio
+        bonus += result.get("bonus_esquive", 0.0) / 100  # En pourcentage
 
     return base_chance + bonus
