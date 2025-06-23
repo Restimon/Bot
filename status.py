@@ -1,11 +1,11 @@
-import discord
 import time
+import discord
 from discord import app_commands
 from data import (
     virus_status, poison_status, infection_status,
     immunite_status, regeneration_status
 )
-from embeds import build_embed_from_item
+from passifs import appliquer_passif
 
 def register_status_command(bot):
     @bot.tree.command(name="status", description="Voir si un membre est affecté par un virus ou un poison GotValis")
@@ -21,7 +21,6 @@ def register_status_command(bot):
             color=discord.Color.orange()
         )
 
-        # 🧩 Fonction utilitaire pour formater les durées
         def format_time(seconds):
             minutes = int(seconds // 60)
             secs = int(seconds % 60)
@@ -90,8 +89,17 @@ def register_status_command(bot):
         else:
             embed.add_field(name="🧪 Empoisonnement", value="✅ Aucun poison détecté", inline=False)
 
-        # 🧟 Infection GotValis
-        if (infect := infection_status.get(guild_id, {}).get(user_id)):
+        # 🧟 Infection GotValis — gérer immunité (Anna Lereux, etc.)
+        infect = infection_status.get(guild_id, {}).get(user_id)
+        is_immune = False
+        result = appliquer_passif(user_id, "tick_infection", {
+            "guild_id": guild_id,
+            "cible_id": user_id
+        })
+        if result and result.get("annuler_degats"):
+            is_immune = True
+
+        if infect and not is_immune:
             elapsed = now - infect["start"]
             remaining = max(0, infect["duration"] - elapsed)
             tick = 1800 - (elapsed % 1800)
