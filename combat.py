@@ -439,6 +439,19 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     if src_credit and src_credit != target_id:
         add_gotcoins(guild_id, src_credit, bonus_dmg, category="degats")
 
+    # 🧛 Passif Kael Dris — soin en fonction des dégâts infligés
+    res_kael = appliquer_passif(user_id, "degats_infliges", {
+        "guild_id": guild_id,
+        "attaquant": user_id,
+        "cible_id": target_id,
+        "degats": real_dmg
+    })
+    if res_kael and "soin" in res_kael:
+        effets.append(discord.Embed(
+            description=f"🩸 {user_mention} récupère **{res_kael['soin']} PV** grâce à son pouvoir vampirique.",
+            color=discord.Color.red()
+        ))
+
     # KO ?
     ko_embed = None
     reset_txt = ""
