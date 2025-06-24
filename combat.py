@@ -378,68 +378,89 @@ async def appliquer_soin(ctx, user_id, target_id, action):
 async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, action_type, crit_chance, item):
     user_mention = get_mention(ctx.guild, user_id)
     target_mention = get_mention(ctx.guild, target_id)
-
     start_hp = hp[guild_id].get(target_id, 100)
     before_pb = shields.get(guild_id, {}).get(target_id, 0)
 
-    # Appliquer les bonus/malus de statuts
     bonus_dmg, bonus_info, src_credit, effets = get_statut_bonus(
         guild_id, user_id, target_id, ctx.channel.id, action_type
     )
-
-    # Critique
     base_dmg_after_crit, crit_txt = apply_crit(base_dmg, crit_chance)
 
-    # 🎯 Vérifie les passifs pouvant ignorer la réduction du casque (Liane Rekk, Nehra Vask…)
-    res_ignore_casque = appliquer_passif(user_id, "attaque", {
+    # 🎯 Passifs offensifs
+    contexte = "attaque"
+    donnees_passif = {
         "guild_id": guild_id,
         "attaquant_id": user_id,
         "cible_id": target_id,
         "ctx": ctx,
         "degats": base_dmg_after_crit + bonus_dmg,
-        "objet": item
-    })
-    ignore_helmet = res_ignore_casque.get("ignorer_reduction_casque", False) if res_ignore_casque else False
+        "objet": item,
+        "pv_actuel": hp[guild_id].get(user_id, 100)
+    }
+    result_passif_attaquant = appliquer_passif(user_id, contexte, donnees_passif)
+    ignore_helmet = result_passif_attaquant.get("ignorer_reduction_casque", False) if result_passif_attaquant else False
+    ignore_pb = result_passif_attaquant.get("ignorer_pb", False) if result_passif_attaquant else False
+    ignore_reduction = result_passif_attaquant.get("ignorer_reduction", False) if result_passif_attaquant else False
 
-    # Casque
-    total_dmg, casque_active, reduction_val = apply_casque_reduction(
-        guild_id, target_id, base_dmg_after_crit + bonus_dmg, ignore=ignore_helmet
-    )
-
-    # 🎯 Passifs de défense (réductions multiplicatives ou pourcentage)
+    # 🧿 Passifs défensifs immédiats
     donnees_defense_calc = {
         "guild_id": guild_id,
         "defenseur": target_id,
-        "attaquant": user_id
+        "attaquant": user_id,
+        "degats_initiaux": base_dmg_after_crit + bonus_dmg,
+        "pv_actuel": start_hp
     }
-    res_def = appliquer_passif(target_id, "calcul_defense", donnees_defense_calc)
-    if res_def:
-        if "reduction_multiplicateur" in res_def:
-            total_dmg = math.ceil(total_dmg * res_def["reduction_multiplicateur"])
-        if "reduction_degats" in res_def:
-            total_dmg = math.ceil(total_dmg * (1 - res_def["reduction_degats"]))
+    res_maitre = appliquer_passif(target_id, "defense", donnees_defense_calc)
 
-    # 🛡 Passif de Veylor Cassian — réduction fixe
-    res_veylor = appliquer_passif(target_id, "defense", donnees_defense_calc)
-    if res_veylor and "reduction_fixe" in res_veylor:
-        total_dmg = max(0, total_dmg - res_veylor["reduction_fixe"])
+    if res_maitre and res_maitre.get("annuler_degats"):
+        total_dmg = 0
+        casque_active, reduction_val = False, 0
+        effets.append(discord.Embed(description=res_maitre.get("annonce"), color=discord.Color.orange()))
+    else:
+        total_dmg, casque_active, reduction_val = apply_casque_reduction(
+            guild_id, target_id, base_dmg_after_crit + bonus_dmg, ignore=ignore_helmet
+        )
 
-    # Bouclier
-    dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
-    pb_after = shields.get(guild_id, {}).get(target_id, 0)
+        if res_maitre and "reduction_fixe" in res_maitre:
+            total_dmg = max(0, total_dmg - res_maitre["reduction_fixe"])
+            effets.append(discord.Embed(description=res_maitre.get("annonce"), color=discord.Color.orange()))
 
-    # Appliquer les PV
+        if res_maitre and "contre_attaque" in res_maitre:
+            data = res_maitre["contre_attaque"]
+            await calculer_degats_complets(ctx, guild_id, data["source"], data["cible"], data["degats"], action_type, 0.0, None)
+
+    if not ignore_reduction:
+        res_def = appliquer_passif(target_id, "calcul_defense", donnees_defense_calc)
+        if res_def:
+            if "reduction_multiplicateur" in res_def:
+                total_dmg = math.ceil(total_dmg * res_def["reduction_multiplicateur"])
+            if "reduction_degats" in res_def:
+                total_dmg = math.ceil(total_dmg * (1 - res_def["reduction_degats"]))
+        res_veylor = appliquer_passif(target_id, "defense", donnees_defense_calc)
+        if res_veylor and "reduction_fixe" in res_veylor:
+            total_dmg = max(0, total_dmg - res_veylor["reduction_fixe"])
+
+    # 🛡 Bouclier
+    if ignore_pb:
+        dmg_final = total_dmg
+        lost_pb = 0
+        shield_broken = False
+        pb_after = before_pb
+    else:
+        dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
+        pb_after = shields.get(guild_id, {}).get(target_id, 0)
+
+    # 🔻 Appliquer dégâts
     end_hp = max(0, start_hp - dmg_final)
     hp[guild_id][target_id] = end_hp
     real_dmg = start_hp - end_hp
 
-    # MAJ leaderboard
     if real_dmg > 0:
         add_gotcoins(guild_id, user_id, real_dmg, category="degats")
     if src_credit and src_credit != target_id:
         add_gotcoins(guild_id, src_credit, bonus_dmg, category="degats")
 
-    # 🧛 Passif Kael Dris — soin en fonction des dégâts infligés
+    # 🧛 Passif Kael Dris (soin vampirique)
     res_kael = appliquer_passif(user_id, "degats_infliges", {
         "guild_id": guild_id,
         "attaquant": user_id,
@@ -452,7 +473,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
             color=discord.Color.red()
         ))
 
-    # KO ?
+    # 💀 KO
     ko_embed = None
     reset_txt = ""
     if end_hp == 0:
@@ -463,26 +484,28 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
             description=f"**GotValis** détecte une défaillance vitale chez {target_mention}.",
             color=discord.Color.red()
         )
+        result_kill = appliquer_passif(user_id, "kill", {
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "cible_id": target_id
+        })
+        if result_kill:
+            if "pv_gagnes" in result_kill:
+                hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + result_kill["pv_gagnes"], 100)
+            if "gif_special" in result_kill:
+                effets.append(discord.Embed(
+                    title="🎬 Exécution Royale",
+                    description=f"{user_mention} a achevé {target_mention} avec panache !",
+                ).set_image(url=result_kill["gif_special"]))
 
-    # 🎯 Appliquer les passifs offensifs et défensifs généraux
-    contexte = "attaque"
-    donnees_passif = {
-        "guild_id": guild_id,
-        "attaquant_id": user_id,
-        "cible_id": target_id,
-        "ctx": ctx,
-        "degats": real_dmg,
-        "objet": item
-    }
-    result_passif_attaquant = appliquer_passif(user_id, contexte, donnees_passif)
+    # Autres passifs défensifs
     result_passif_cible = appliquer_passif(target_id, "défense", donnees_passif)
-
     if result_passif_attaquant:
         effets.extend(result_passif_attaquant.get("embeds", []))
     if result_passif_cible:
         effets.extend(result_passif_cible.get("embeds", []))
 
-    # --- Affichage correct des dégâts bruts avant défenses ---
+    # Affichage
     pv_taken_base = max(0, base_dmg_after_crit - lost_pb)
     pb_taken_base = min(base_dmg_after_crit, lost_pb) if lost_pb > 0 else 0
 
@@ -510,6 +533,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "pv_avant_bonus": pv_taken_base,
         "pb_avant_bonus": pb_taken_base,
     }
+
     
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
     """Applique les statuts appropriés après une attaque."""
