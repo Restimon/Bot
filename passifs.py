@@ -858,4 +858,3 @@ def passif_zeyra_kael(contexte, données):
         return effet
 
     return None
-    return None
