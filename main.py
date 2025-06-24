@@ -45,6 +45,8 @@ from economy import add_gotcoins, gotcoins_balance, get_balance, compute_message
 from stats import register_stats_command
 from bank import register_bank_command
 from passifs import appliquer_passif
+from shop import register_shop_commands
+from tirage import register_tirage_command
 
 os.makedirs("/persistent", exist_ok=True)
 
@@ -129,7 +131,9 @@ def register_all_commands(bot):
     register_love_command(bot)
     register_stats_command(bot)
     register_bank_command(bot)
-    
+    register_shop_commands(bot)
+    register_tirage_command(bot)
+
 # ===================== Events ======================
 
 @bot.event
