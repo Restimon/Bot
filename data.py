@@ -61,7 +61,7 @@ def sauvegarder():
                 "inventaire": inventaire,
                 "hp": hp,
                 "leaderboard": leaderboard,
-                "gotcoins_balance": economy.gotcoins_balance,  # on sauvegarde l'original
+                "gotcoins_balance": economy.gotcoins_balance,
                 "gotcoins_stats": gotcoins_stats,
                 "cooldowns": cooldowns,
                 "virus_status": virus_status,
@@ -83,7 +83,7 @@ def sauvegarder():
                 "zeyra_last_survive_time": zeyra_last_survive_time,
                 "valen_seuils": valen_seuils,
                 "burn_status": burn_status,
-                "weekly_message_log": weekly_message_log,  # ✅ virgule ajoutée ici
+                "weekly_message_log": weekly_message_log,
                 "resistance_bonus": resistance_bonus
             }, f, indent=4, ensure_ascii=False)
 
