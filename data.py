@@ -3,7 +3,6 @@ import os
 import time
 import shutil
 from datetime import datetime
-from economy import gotcoins_stats
 from storage import inventaire, hp, leaderboard
 
 # ✅ Utilisation du disque persistant
