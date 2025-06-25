@@ -56,7 +56,7 @@ def sauvegarder():
             backup_name = f"data_backup_{timestamp}.json"
             shutil.copy2(DATA_FILE, os.path.join(BACKUP_DIR, backup_name))
 
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
+                with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({
                 "inventaire": inventaire,
                 "hp": hp,
@@ -83,7 +83,7 @@ def sauvegarder():
                 "zeyra_last_survive_time": zeyra_last_survive_time,
                 "valen_seuils": valen_seuils,
                 "burn_status": burn_status,
-                "weekly_message_log": weekly_message_log  # Ajouté ici
+                "weekly_message_log": weekly_message_log,  # ✅ virgule ajoutée ici
                 "resistance_bonus": resistance_bonus
             }, f, indent=4, ensure_ascii=False)
 
