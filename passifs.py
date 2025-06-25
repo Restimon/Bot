@@ -1,4 +1,5 @@
 import time
+import data
 import random
 import math
 from data import (
@@ -12,6 +13,7 @@ from economy import add_gotcoins
 from storage import get_user_data
 from utils import remove_random_item, give_random_item, get_random_enemy
 
+data.esquive_bonus
 zeyra_last_survive_time = {}
 valen_seuils = {}
 # 🔓 Fonction principale à importer
