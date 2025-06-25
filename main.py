@@ -1,18 +1,20 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 import asyncio
 import os
-import atexit
-import signal
-import sys
-import datetime
 import time
-import logging
 import random
 
 from dotenv import load_dotenv
 from config import load_config, get_config, get_guild_config, save_config
-from data import charger, sauvegarder, virus_status, poison_status, infection_status, regeneration_status, shields, supply_data, backup_auto_independante, weekly_message_count, weekly_message_log, malus_degat, zeyra_last_survive_time, valen_seuils, burn_status
+from data import (
+    charger, sauvegarder,
+    virus_status, poison_status, infection_status,
+    regeneration_status, shields, supply_data,
+    backup_auto_independante, weekly_message_count,
+    weekly_message_log, malus_degat,
+    zeyra_last_survive_time, valen_seuils, burn_status
+)
 from utils import get_random_item, OBJETS, handle_death  
 from storage import get_user_data, inventaire, hp, leaderboard
 from combat import apply_item_with_cooldown, apply_shield
@@ -49,8 +51,8 @@ from shop import register_shop_commands
 from tirage import register_tirage_command
 from perso import setup as setup_perso
 
+# Préparation
 os.makedirs("/persistent", exist_ok=True)
-
 load_dotenv()
 charger()
 
@@ -61,36 +63,9 @@ intents.reactions = True
 intents.guilds = True
 intents.members = True
 
-
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
-message_counter = 0
-random_threshold = 5
-last_drop_time = 0 
-MAX_SUPPLIES_PER_DAY = 5
 
-gotcoins_cooldowns = {}
-voice_state_start_times = {}  # {guild_id: {user_id: start_time}}
-voice_tracking = {}
-
-
-async def main():
-    await setup_perso(bot)  # ✅ fonction async correctement appelée
-    await bot.start("TON_TOKEN_ICI")
-
-if __name__ == "__main__":
-    asyncio.run(main())  # ✅ lancement de la fonction async
-
-# ===================== Slash Commands ======================
-@bot.command()
-async def check_persistent(ctx):
-    files = os.listdir("/persistent")
-    await ctx.send(f"Contenu de `/persistent` :\n" + "\n".join(files) if files else "📂 Aucun fichier trouvé.")
-
-@bot.command()
-async def sync(ctx):
-    await bot.tree.sync(guild=ctx.guild)
-    await ctx.send("✅ Commandes slash resynchronisées avec succès.")
-
+# 🎮 Commandes Slash Globales
 @bot.tree.command(name="inv", description="Voir l'inventaire d'un membre")
 async def inv_slash(interaction: discord.Interaction, user: discord.Member = None):
     try:
@@ -101,7 +76,6 @@ async def inv_slash(interaction: discord.Interaction, user: discord.Member = Non
     member = user or interaction.user
     guild_id = str(interaction.guild.id)
     user_id = str(member.id)
-
     embed = build_inventory_embed(user_id, bot, guild_id)
 
     await interaction.followup.send(
@@ -112,11 +86,21 @@ async def inv_slash(interaction: discord.Interaction, user: discord.Member = Non
 @bot.tree.command(name="leaderboard", description="Voir le classement GotValis")
 async def leaderboard_slash(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)
-    embed = await build_leaderboard_embed(bot, interaction.guild)  # ← passe la guild ici
+    embed = await build_leaderboard_embed(bot, interaction.guild)
     await interaction.followup.send(embed=embed)
 
-# ===================== Command Registration ======================
+# 🔧 Commandes texte
+@bot.command()
+async def check_persistent(ctx):
+    files = os.listdir("/persistent")
+    await ctx.send(f"Contenu de `/persistent` :\n" + "\n".join(files) if files else "📂 Aucun fichier trouvé.")
 
+@bot.command()
+async def sync(ctx):
+    await bot.tree.sync(guild=ctx.guild)
+    await ctx.send("✅ Commandes slash resynchronisées avec succès.")
+
+# 🧠 Enregistrement des commandes
 def register_all_commands(bot):
     register_help_commands(bot)
     register_daily_command(bot)
@@ -142,8 +126,15 @@ def register_all_commands(bot):
     register_bank_command(bot)
     register_shop_commands(bot)
     register_tirage_command(bot)
-    await setup_perso(bot)
 
+# 🚀 Lancement du bot
+async def main():
+    register_all_commands(bot)
+    await setup_perso(bot)
+    await bot.start(os.getenv("DISCORD_TOKEN"))
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 # ===================== Events ======================
 
