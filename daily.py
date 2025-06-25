@@ -33,9 +33,15 @@ def register_daily_command(bot):
                 ephemeral=True
             )
 
-        # 🎁 Récompenses de base
-        reward1 = get_random_item()
-        reward2 = get_random_item()
+        # 🎁 Tirage des récompenses (sans 💰)
+        def get_valid_item():
+            item = get_random_item()
+            while item == "💰":
+                item = get_random_item()
+            return item
+
+        reward1 = get_valid_item()
+        reward2 = get_valid_item()
         gotcoins_gain = 25
 
         # 🧠 Passif de Lior Danen (double récompense)
@@ -45,13 +51,13 @@ def register_daily_command(bot):
         })
 
         if passif_result and passif_result.get("double_daily"):
-            reward1 = get_random_item()
-            reward2 = get_random_item()
+            reward1 = get_valid_item()
+            reward2 = get_valid_item()
             gotcoins_gain *= 2
 
             bonus_embed = discord.Embed(
                 title="✨ Pouvoir de Lior Danen !",
-                description="🌀 Grâce à son passif, vous recevez **le double des récompenses** aujourd'hui !",
+                description="🌀 Grâce à son passif, vous recevez **le double des récompenses** aujourd’hui !",
                 color=discord.Color.blurple()
             )
             await interaction.followup.send(embed=bonus_embed, ephemeral=True)
@@ -60,7 +66,7 @@ def register_daily_command(bot):
         user_inv, _, _ = get_user_data(guild_id, user_id)
         user_inv.extend([reward1, reward2])
 
-        # 💰 GotCoins
+        # 💰 Ajout de GotCoins
         add_gotcoins(guild_id, user_id, gotcoins_gain, category="autre")
 
         # 🕒 Mise à jour du dernier claim
@@ -69,7 +75,7 @@ def register_daily_command(bot):
         # 💾 Sauvegarde
         sauvegarder()
 
-        # 📦 Texte final
+        # 📦 Description propre des items
         desc1 = OBJETS.get(reward1, {}).get("description", "*Pas de description*")
         desc2 = OBJETS.get(reward2, {}).get("description", "*Pas de description*")
 
@@ -77,9 +83,9 @@ def register_daily_command(bot):
             title="🎁 Récompense quotidienne de GotValis",
             description=(
                 f"{interaction.user.mention}, voici ta récompense :\n\n"
-                f"📦 {reward1} — {desc1}\n"
-                f"📦 {reward2} — {desc2}\n"
-                f"\n💰 +{gotcoins_gain} GotCoins\n"
+                f"{reward1}  {desc1}\n"
+                f"{reward2}  {desc2}\n\n"
+                f"💰 +{gotcoins_gain} GotCoins\n"
                 f"\n⏳ Disponible à nouveau dans {int(cooldown_duration // 3600)}h."
             ),
             color=discord.Color.green()
