@@ -25,6 +25,7 @@ regeneration_status = {}
 immunite_status = {}
 shields = {}
 esquive_status = {}
+esquive_bonus = {}
 casque_status = {}
 last_daily_claim = {}
 supply_data = {}
