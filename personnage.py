@@ -127,7 +127,7 @@ PERSONNAGES_LIST = [
             "effet": "Vend les objets 25 % plus cher."
         },
         "image": "assets/personnage/Sel Varnik.png"
-    }
+    },
 
     # GotValis
     {
@@ -230,7 +230,7 @@ PERSONNAGES_LIST = [
             "effet": "Réduit les dégâts reçus de 1 PV, avec 50 % de chance de réduire de 2 PV supplémentaires."
         },
         "image": "assets/personnage/Veylor Cassian.png"
-    }
+    },
 
     # La Fracture
     {
@@ -287,7 +287,7 @@ PERSONNAGES_LIST = [
             "effet": "5 % de chance, après une attaque, de gagner +1 GotCoin."
         },
         "image": "assets/personnage/Sive Arden.png"
-    }
+    },
     
     # Rara
     # GotValis
@@ -334,7 +334,7 @@ PERSONNAGES_LIST = [
             "effet": "À chaque soin reçu (effet direct ou sur la durée), l’unité gagne autant de Points de Bouclier (PB) que de PV soignés, deux fois par jour."
         },
         "image": "assets/personnage/Seren Iskar.png"
-    }
+    },
 
     # Gouvernement
     {
@@ -347,7 +347,7 @@ PERSONNAGES_LIST = [
             "effet": "À chaque gain de pièces via système normal du bot (combat, box, loot...), le joueur gagne +1 pièce supplémentaire."
         },
         "image": "assets/personnage/Silien Dorr.png"
-    }
+    },
 
     # Hotel Dormant
     {
@@ -371,7 +371,7 @@ PERSONNAGES_LIST = [
             "effet": "25 % de chance à chaque attaque de déclencher un effet parmi : 🎯 +10 dégâts infligés | 🕵️ Vol d’un objet à la cible | ❤️ Soigne la cible à hauteur des dégâts infligés |💰 +25 GotCoins | 🛡 Ajoute un bouclier à l’attaquant égal aux dégâts infligés | 🧨 Perd un objet aléatoire de son inventaire | ♻️ Ne consomme pas l’objet utilisé. (Effet tiré aléatoirement, bénéfique ou non — le joueur ne peut pas le choisir.)"
         },
         "image": "assets/personnage/Rouven Mance.png"
-    }
+    },
 
     # Infection
     {
@@ -384,7 +384,7 @@ PERSONNAGES_LIST = [
             "effet": "Quand le porteur infecte quelqu’un, les dégâts du statut Infection augmentent de 1. Ce personnage est infecté de base, mais ne subit pas les dégâts d’infection."
         },
         "image": "assets/personnage/Anna Lereux - Hôte Brisé.png"
-    }
+    },
 
     # La Fracture
     {
@@ -419,7 +419,7 @@ PERSONNAGES_LIST = [
             "effet": "À chaque attaque, 10 % de chance d’infliger un effet de brûlure. La brûlure inflige 1 dégât toutes les 1h pendant 3h."
         },
         "image": "assets/personnage/Yann Tann.png"
-    }
+    },
 
     # Epique
     # GotValis
@@ -444,7 +444,7 @@ PERSONNAGES_LIST = [
             "effet": "Le porteur récupère +2 PV par heure (fonctionne passivement même hors combat). Toutes les 30 min, a une chance de guérir des statuts néfastes."
         },
         "image": "assets/personnage/Dr Selina Vorne.png"
-    }
+    },
 
     # Gouvernement
     {
@@ -468,7 +468,7 @@ PERSONNAGES_LIST = [
             "effet": "10 % de chance de réduire de moitié les dégâts reçus. Si déclenché, l’attaquant subit un malus de -10 % de dégâts pendant 1 heure. Bonus constant : +5 % de résistance aux statuts."
         },
         "image": "assets/personnage/Nathaniel Raskov.png"
-    }
+    },
 
     # Hotel Dormant
     {
@@ -481,7 +481,7 @@ PERSONNAGES_LIST = [
             "effet": "+10 % d’esquive. Si une attaque est esquivée : elle est redirigée vers un autre adversaire aléatoire (hors porteur), et le porteur regagne +5 PB."
         },
         "image": "assets/personnage/Elira Veska.png"
-    }
+    },
 
     # Infection 
     {
@@ -494,7 +494,7 @@ PERSONNAGES_LIST = [
             "effet": "Chaque attaque infligée → +5 % de chance d’appliquer l’Infection à la cible. Si la cible est déjà infectée → +30 % dégâts supplémentaires. À chaque kill → régénère +3 PV. Est un infecté qui ne subit pas les dégâts."
         },
         "image": "assets/personnage/Abomination Rampante.png"
-    }
+    },
 
     # La Fracture 
     {
@@ -518,7 +518,7 @@ PERSONNAGES_LIST = [
             "effet": "Pour chaque tranche de 10 PV perdue, Elya gagne +2 % de chance de coup critique. Exemple : à 80 PV → +4 % crit | à 30 PV → +14 % crit. Se cumule avec tous les autres effets critiques."
         },
         "image": "assets/personnage/Elya Varnis.png"
-    }
+    },
 
     # Légendaire
     # Monarchie
@@ -532,7 +532,7 @@ PERSONNAGES_LIST = [
             "effet": "Quand l’ennemi a 10 PV, n’importe quelle attaque le met KO avec un Gif Particulier. Si le coup achève l’adversaire → le porteur récupère +10 PV. Ne subit aucun malus si la cible a 10 PV (l’attaque ignore les PB, les réductions ou les malus)."
         },
         "image": "assets/personnage/Le Roi.png"
-    }
+    },
 
     # GotValis
     {
@@ -545,7 +545,7 @@ PERSONNAGES_LIST = [
             "effet": "Chaque attaque subie → 15 % de chance de réduire les dégâts de 75 %, l’adversaire 'rate' partiellement son action. Quand il passe sous 50 % PV, il gagne +5 PB et +10 % de réduction des dégâts pour chaque tranche de 10 PV perdue (40, 30, 20, 10) — cumulatif. Est immunisé contre tous les statuts."
         },
         "image": "assets/personnage/Valen Drexar.png"
-    }
+    },
 
     # Hotel Dormant
     {
@@ -558,7 +558,7 @@ PERSONNAGES_LIST = [
             "effet": "30 % de chance d’annuler toute attaque reçue. 20 % de chance de contre-attaquer pour ¼ des dégâts reçus (arrondi à l’unité supérieure). +10 % de résistance passive aux dégâts (réduction de -1 tous les 10 dégâts reçus) et en cas d'esquive, renvoit l'attaque sur une cible aléatoire en récuperant les stats de dégats."
         },
         "image": "assets/personnage/Maitre d’Hotel.png"
-    }
+    },
 
     # La Fracture
     {
