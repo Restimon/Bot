@@ -59,7 +59,7 @@ PERSONNAGES_LIST = [
             "effet": "+1 % de chance d’être purgé d’un effet toutes les heures."
         },
         "image": "assets/personnage/Maelis Dorné.png"
-    }
+    },
 
     # Citoyens
     {
