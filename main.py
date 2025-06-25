@@ -72,6 +72,14 @@ gotcoins_cooldowns = {}
 voice_state_start_times = {}  # {guild_id: {user_id: start_time}}
 voice_tracking = {}
 
+
+async def main():
+    await setup_perso(bot)  # ✅ fonction async correctement appelée
+    await bot.start("TON_TOKEN_ICI")
+
+if __name__ == "__main__":
+    asyncio.run(main())  # ✅ lancement de la fonction async
+
 # ===================== Slash Commands ======================
 @bot.command()
 async def check_persistent(ctx):
