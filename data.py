@@ -56,7 +56,7 @@ def sauvegarder():
             backup_name = f"data_backup_{timestamp}.json"
             shutil.copy2(DATA_FILE, os.path.join(BACKUP_DIR, backup_name))
 
-                with open(DATA_FILE, "w", encoding="utf-8") as f:
+            with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({
                 "inventaire": inventaire,
                 "hp": hp,
