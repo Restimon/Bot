@@ -42,6 +42,7 @@ zeyra_last_survive_time = {}  # 💥 Zeyra Kael
 valen_seuils = {}  # 🧠 Valen Drexar
 burn_status = {}
 resistance_bonus = {}
+
 def sauvegarder():
     try:
         # Import ici → pour éviter circular import
@@ -56,7 +57,8 @@ def sauvegarder():
             backup_name = f"data_backup_{timestamp}.json"
             shutil.copy2(DATA_FILE, os.path.join(BACKUP_DIR, backup_name))
 
-            with open(DATA_FILE, "w", encoding="utf-8") as f:
+        # 💾 Sauvegarde des données actuelles
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({
                 "inventaire": inventaire,
                 "hp": hp,
@@ -90,6 +92,7 @@ def sauvegarder():
         print("💾 Données sauvegardées avec backup horodatée.")
     except Exception as e:
         print(f"❌ Erreur lors de la sauvegarde : {e}")
+
 
 # ============================
 # ✅ Charger les données (data.json)
