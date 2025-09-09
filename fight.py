@@ -6,42 +6,43 @@ from utils import OBJETS
 from storage import get_user_data
 from data import sauvegarder
 from combat import apply_item_with_cooldown, apply_attack_chain
-from embeds import build_embed_from_item
 
 def register_fight_command(bot):
     @bot.tree.command(name="fight", description="Attaque un autre membre avec un objet spécifique")
     @app_commands.describe(target="La personne à attaquer", item="Objet d’attaque à utiliser (emoji)")
     async def fight_slash(interaction: discord.Interaction, target: discord.Member, item: str):
-        await interaction.response.defer(thinking=True)
-
         guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
         tid = str(target.id)
         action = OBJETS.get(item, {})
 
+        # 🚫 Cas d’erreurs → réponse immédiate
         if target.bot:
-            return await interaction.followup.send(
+            return await interaction.response.send_message(
                 "🤖 Tu ne peux pas attaquer un bot, même s’il a l’air louche.", ephemeral=True
             )
 
         if interaction.user.id == target.id:
-            return await interaction.followup.send(
+            return await interaction.response.send_message(
                 "❌ Tu ne peux pas t'attaquer toi-même.", ephemeral=True
             )
 
         user_inv, _, _ = get_user_data(guild_id, uid)
 
         if item not in user_inv:
-            return await interaction.followup.send(
+            return await interaction.response.send_message(
                 "❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True
             )
 
         attack_types = ["attaque", "attaque_chaine", "virus", "poison", "infection"]
 
         if item not in OBJETS or OBJETS[item]["type"] not in attack_types:
-            return await interaction.followup.send(
+            return await interaction.response.send_message(
                 "⚠️ Cet objet n’est pas une arme valide !", ephemeral=True
             )
+
+        # ✅ Ici on defer car la suite peut être longue
+        await interaction.response.defer(thinking=True)
 
         # ☠️ Attaque en chaîne
         if item == "☠️":
@@ -50,7 +51,6 @@ def register_fight_command(bot):
             # Retire l'objet après attaque en chaîne
             user_inv.remove(item)
             sauvegarder()
-
             return
 
         # Attaque normale
