@@ -50,13 +50,13 @@ from utilitaire import register_utilitaire_command
 from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
-from economy import add_gotcoins, gotcoins_balance, get_balance  # ⬅️ compute_message_gains retiré
+from economy import add_gotcoins, gotcoins_balance, get_balance  # compute_message_gains est local
 from stats import register_stats_command
 from bank import register_bank_command
 from passifs import appliquer_passif
 from shop import register_shop_commands
 from perso import setup as setup_perso
-from tirage import setup as setup_tirage  # ⬅️ on utilise setup(bot) fourni par tirage.py
+from tirage import setup as setup_tirage  # setup(bot) défini dans tirage.py
 
 # --------------------------------------------------------------------
 # Variables globales utilisées dans les boucles / on_message
@@ -67,13 +67,15 @@ random_threshold = random.randint(4, 8)
 last_drop_time = 0.0
 voice_tracking = {}          # {guild_id: {user_id: {"start": ts, "last_reward": ts}}}
 
+# Garde-fou pour éviter le double enregistrement des commandes
+_commands_registered = False
+
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
 def compute_message_gains(content: str) -> int:
     """
     Calcul simple du gain GotCoins pour un message texte.
-    Ajuste librement les paliers si tu veux.
     """
     length = len(content.strip())
     if length < 20:
@@ -163,14 +165,22 @@ def register_all_commands(bot):
     register_stats_command(bot)
     register_bank_command(bot)
     register_shop_commands(bot)
-    # ⬇️ tirage: on ajoute le COG via setup_tirage dans main() (asynchrone)
+    # tirage via setup_tirage dans main()
+
+def register_all_commands_once(bot):
+    global _commands_registered
+    if _commands_registered:
+        print("↩️ Commands déjà enregistrées, on saute.")
+        return
+    register_all_commands(bot)
+    _commands_registered = True
 
 # ===================== Entrée principale ===========================
 
 async def main():
-    register_all_commands(bot)
+    register_all_commands_once(bot)
     await setup_perso(bot)
-    await setup_tirage(bot)  # ⬅️ enregistre le Cog Tirage
+    await setup_tirage(bot)  # enregistre le Cog Tirage
     await bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
@@ -180,12 +190,17 @@ if __name__ == "__main__":
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync(guild=discord.Object(id=1269384239254605856))
+    # Sync ciblée (facultatif si tu gardes la globale)
+    try:
+        await bot.tree.sync(guild=discord.Object(id=1269384239254605856))
+    except Exception as e:
+        print(f"⚠️ Sync ciblée échouée : {e}")
+
     print("🤖 Bot prêt. Synchronisation des commandes...")
     await reset_supply_flags(bot)
 
-    # Enregistrement des commandes (sécurité)
-    register_all_commands(bot)
+    # Évite le double enregistrement si on_ready est rappelé
+    register_all_commands_once(bot)
 
     # Synchronisation globale
     try:
@@ -198,11 +213,34 @@ async def on_ready():
     charger()
     load_config()
 
-    # Boucles de statut & ravitaillement
+    # Boucle de ravitaillement (fonction asynchrone, pas tasks.loop)
     asyncio.create_task(special_supply_loop(bot))
-    virus_damage_loop.start()
-    poison_damage_loop.start()
-    infection_damage_loop.start()
+
+    # Démarrer les loops SI PAS déjà en cours (évite doublons lors de reconnexion)
+    if not virus_damage_loop.is_running():
+        virus_damage_loop.start()
+    if not poison_damage_loop.is_running():
+        poison_damage_loop.start()
+    if not infection_damage_loop.is_running():
+        infection_damage_loop.start()
+    if not update_leaderboard_loop.is_running():
+        update_leaderboard_loop.start()
+    if not yearly_reset_loop.is_running():
+        yearly_reset_loop.start()
+    if not autosave_data_loop.is_running():
+        autosave_data_loop.start()
+    if not daily_restart_loop.is_running():
+        daily_restart_loop.start()
+    if not auto_backup_loop.is_running():
+        auto_backup_loop.start()
+    if not regeneration_loop.is_running():
+        regeneration_loop.start()
+    if not voice_tracking_loop.is_running():
+        voice_tracking_loop.start()
+    if not cleanup_weekly_logs.is_running():
+        cleanup_weekly_logs.start()
+    if not burn_damage_loop.is_running():
+        burn_damage_loop.start()
 
     # Présence du bot
     activity = discord.Activity(type=discord.ActivityType.watching, name="en /help | https://discord.gg/jkbfFRqzZP")
@@ -212,17 +250,6 @@ async def on_ready():
     print("🔧 Commandes slash enregistrées :")
     for command in bot.tree.get_commands():
         print(f" - /{command.name}")
-
-    # Boucles principales
-    update_leaderboard_loop.start()
-    yearly_reset_loop.start()
-    autosave_data_loop.start()
-    daily_restart_loop.start()
-    auto_backup_loop.start()
-    regeneration_loop.start()
-    voice_tracking_loop.start()
-    cleanup_weekly_logs.start()
-    burn_damage_loop.start()
 
 @bot.event
 async def on_message(message):
@@ -262,8 +289,8 @@ async def on_message(message):
             gain = compute_message_gains(message.content)
             if gain > 0:
                 add_gotcoins(guild_id, user_id, gain, category="autre")
-                gotcoins_cooldowns[user_id] = now  # Cooldown mis à jour uniquement si gain
-                # Ne pas déclencher de drop si gain actif
+                gotcoins_cooldowns[user_id] = now
+                # Pas de drop si gain actif
                 await bot.process_commands(message)
                 return
 
@@ -343,8 +370,6 @@ async def on_message(message):
 @tasks.loop(seconds=60)
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
-    print("⏳ [LOOP] Mise à jour des leaderboards spéciaux (GotCoins)...")
-
     for guild in bot.guilds:
         guild_id = str(guild.id)
         guild_config = get_guild_config(guild_id)
@@ -414,7 +439,6 @@ async def yearly_reset_loop():
     now = datetime.datetime.utcnow()
     if now.month == 12 and now.day == 31 and now.hour == 23 and now.minute == 59:
         from data import sauvegarder as data_save
-        # reset
         for gid in list(inventaire.keys()):
             inventaire[gid] = {}
         for gid in list(hp.keys()):
@@ -423,7 +447,6 @@ async def yearly_reset_loop():
             leaderboard[gid] = {}
         data_save()
         print("🎉 Réinitialisation annuelle effectuée pour tous les serveurs.")
-        # annonce
         config = get_config()
         announcement_msg = "🎊 Les statistiques ont été remises à zéro pour la nouvelle année ! Merci pour votre participation à GotValis."
         for server_id, server_conf in config.items():
@@ -475,7 +498,6 @@ async def virus_damage_loop():
                     del virus_status[gid][uid]
                 continue
 
-            # purge éventuelle
             purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del virus_status[gid][uid]
@@ -691,7 +713,7 @@ async def infection_damage_loop():
 async def regeneration_loop():
     await bot.wait_until_ready()
     now = time.time()
-    for guild_id, users in list(regeneration_status.items()):
+    for guild_id, users in list(regeneration_status.items()()):
         for user_id, stat in list(users.items()):
             if now - stat["start"] > stat["duration"]:
                 del regeneration_status[guild_id][user_id]
@@ -735,7 +757,6 @@ async def voice_tracking_loop():
     for guild in bot.guilds:
         gid = str(guild.id)
         voice_tracking.setdefault(gid, {})
-        # Récupération des membres en vocal
         active_user_ids = set()
         for vc in guild.voice_channels:
             if guild.afk_channel and vc.id == guild.afk_channel.id:
@@ -753,7 +774,6 @@ async def voice_tracking_loop():
                     tracking["last_reward"] = time.time()
                     weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
                     weekly_voice_time[gid][uid] += 1800
-        # Nettoyage
         tracked_user_ids = set(voice_tracking[gid].keys())
         for uid in tracked_user_ids - active_user_ids:
             tracking = voice_tracking[gid][uid]
@@ -859,4 +879,4 @@ def handle_signal(sig, frame):
 
 signal.signal(signal.SIGINT, handle_signal)
 signal.signal(signal.SIGTERM, handle_signal)
-# ===================== Run (déplacé dans main()) ====================
+# ===================== Run (dans main()) ====================
