@@ -1,6 +1,5 @@
 # economy.py
 import random
-from passifs import appliquer_passif  # ✅ Gestion des passifs
 
 # {guild_id: {user_id: {"autre": X, "achats": X, ...}}}
 gotcoins_stats = {}
@@ -11,8 +10,7 @@ gotcoins_balance = {}
 DEFAULT_STATS = {
     "autre": 0,    # gains génériques
     "achats": 0,   # dépenses (on additionne les montants dépensés)
-    # Tu peux librement ajouter d'autres catégories de gain :
-    # "combat": 0, "box": 0, "loot": 0, "ventes": 0, etc.
+    # ajoute d'autres catégories si tu veux : "combat", "box", "loot", ...
 }
 
 # ---------------------------------------------------------------------------
@@ -28,8 +26,8 @@ def _stats(guild_id: str, user_id: str) -> dict:
     init_gotcoins_stats(guild_id, user_id)
     return gotcoins_stats[str(guild_id)][str(user_id)]
 
-def _balance_ref(guild_id: str, user_id: str) -> dict:
-    init_gotcoins_stats(guild_id, user_id)
+def _balance_ref(guild_id: str) -> dict:
+    gotcoins_balance.setdefault(str(guild_id), {})
     return gotcoins_balance[str(guild_id)]
 
 # ---------------------------------------------------------------------------
@@ -37,7 +35,7 @@ def _balance_ref(guild_id: str, user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def get_gotcoins(guild_id: str, user_id: str) -> int:
-    """Alias utilité (utilisé par /shop)."""
+    """Alias utilitaire (utilisé par /shop)."""
     return get_balance(guild_id, user_id)
 
 def get_balance(guild_id: str, user_id: str) -> int:
@@ -71,8 +69,8 @@ def add_gotcoins(guild_id: str, user_id: str, amount: int, category: str = "autr
     st = _stats(gid, uid)
     st[category] = st.get(category, 0) + int(amount)
 
-    # ✅ Sauvegarde
-    from data import sauvegarder  # import local pour éviter les imports circulaires
+    # ✅ Sauvegarde (import local pour éviter les imports circulaires)
+    from data import sauvegarder
     sauvegarder()
 
 def ajouter_gotcoins(guild_id: str, user_id: str, amount: int, category: str = "autre"):
@@ -81,7 +79,8 @@ def ajouter_gotcoins(guild_id: str, user_id: str, amount: int, category: str = "
 
 def add_gotcoins_with_passif(guild_id: str, user_id: str, amount: int, category: str = "autre"):
     """
-    Ajoute un gain puis applique un éventuel bonus de passif (ex : Alphonse, Silien...).
+    Ajoute un gain puis applique un éventuel bonus de passif.
+    ⚠️ Import paresseux de passifs ici pour éviter l’import circulaire.
     """
     if amount <= 0:
         return
@@ -89,19 +88,22 @@ def add_gotcoins_with_passif(guild_id: str, user_id: str, amount: int, category:
     # Gain normal
     add_gotcoins(guild_id, user_id, amount, category)
 
-    # Vérifie les passifs de gain
-    res = appliquer_passif({
-        "nom": None  # le dispatcher interne n'utilise pas ce champ ici
-    }, "gain_gotcoins", {
-        "guild_id": str(guild_id),
-        "user_id": str(user_id),
-        "category": category,
-        "montant": amount
-    })
-    if res and "gotcoins_bonus" in res:
-        bonus = int(res["gotcoins_bonus"])
-        add_gotcoins(guild_id, user_id, bonus, category)
-        print(f"💠 Bonus passif appliqué : +{bonus} GotCoins pour {user_id}")
+    # 🔁 Import paresseux et appel via l’API publique des passifs
+    try:
+        from passifs import appliquer_passif_utilisateur
+        res = appliquer_passif_utilisateur(
+            str(guild_id), str(user_id),
+            "gain_gotcoins",
+            {"guild_id": str(guild_id), "user_id": str(user_id), "category": category, "montant": amount}
+        )
+        if res and "gotcoins_bonus" in res:
+            bonus = int(res["gotcoins_bonus"])
+            add_gotcoins(guild_id, user_id, bonus, category)
+            print(f"💠 Bonus passif appliqué : +{bonus} GotCoins pour {user_id}")
+    except Exception as e:
+        # On ignore silencieusement si les passifs ne sont pas disponibles à ce moment
+        # (ex. au démarrage, pendant import).
+        pass
 
 def remove_gotcoins(guild_id: str, user_id: str, amount: int, log_as_purchase: bool = True):
     """
