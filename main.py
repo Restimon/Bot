@@ -5,9 +5,9 @@ import time
 import random
 import atexit
 import signal
-import logging
 import datetime
 import asyncio
+import re
 
 import discord
 from discord.ext import commands, tasks
@@ -35,7 +35,6 @@ from admin import register_admin_commands
 from profile import register_profile_command
 from status import register_status_command
 from box import register_box_command
-from embeds import build_embed_from_item
 from cooldowns import is_on_cooldown
 from item_list import register_item_command
 from special_supply import update_last_active_channel, special_supply_loop, reset_supply_flags
@@ -57,10 +56,10 @@ from passifs import appliquer_passif
 from shop import register_shop_commands
 from perso import setup as setup_perso
 from tirage import setup as setup_tirage  # setup(bot) défini dans tirage.py
-from chat_ai import register_chat_ai_command
+from chat_ai import register_chat_ai_command, generate_oracle_reply  # ⬅️ IA mention/réponse
 
 # --------------------------------------------------------------------
-# Variables globales utilisées dans les boucles / on_message
+# Variables globales
 # --------------------------------------------------------------------
 gotcoins_cooldowns = {}      # {user_id: last_gain_ts}
 message_counter = 0
@@ -71,13 +70,15 @@ voice_tracking = {}          # {guild_id: {user_id: {"start": ts, "last_reward":
 # Garde-fou pour éviter le double enregistrement des commandes
 _commands_registered = False
 
+# Cooldown anti-spam pour les réponses IA
+ai_reply_cooldowns = {}      # {user_id: last_ai_ts}
+AI_COOLDOWN_SECONDS = 15
+
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
 def compute_message_gains(content: str) -> int:
-    """
-    Calcul simple du gain GotCoins pour un message texte.
-    """
+    """Calcul simple du gain GotCoins pour un message texte."""
     length = len(content.strip())
     if length < 20:
         return 0
@@ -88,6 +89,38 @@ def compute_message_gains(content: str) -> int:
     if length < 240:
         return 3
     return 4
+
+# --- Détection troll simple (heuristique locale) ----------
+INSULTES_FR = {
+    "fdp","enculé","pute","tg","ta gueule","connard","conne","boloss","bouffon","batard","merdeux",
+    "merde","cassos","abruti","sale","clochard","débile","tarlouze","pd"
+}
+
+def detect_troll(text: str) -> tuple[str, str | None]:
+    """
+    Retourne ("threat","raison") si troll probable, sinon ("normal", None).
+    Heuristique: insultes, excès de MAJ, spam, provoc courte.
+    """
+    t = text.strip()
+    t_lower = t.lower()
+
+    for w in INSULTES_FR:
+        if w in t_lower:
+            return "threat", f"insulte détectée: '{w}'"
+
+    letters = re.findall(r"[A-Za-z]", t)
+    if letters:
+        cap_ratio = sum(1 for c in letters if c.isupper()) / max(1, len(letters))
+        if cap_ratio >= 0.7 and len(letters) >= 8:
+            return "threat", f"taux de MAJ élevé ({int(cap_ratio*100)}%)"
+
+    if re.search(r"([!?*]{4,}|([A-Za-z]{2,})\2{2,})", t):
+        return "threat", "répétitions/spam"
+
+    if len(t) <= 10 and re.search(r"\b(tg|mdr|nul|ta.*gueule|1v1|ffa)\b", t_lower):
+        return "threat", "provocation courte"
+
+    return "normal", None
 
 # --------------------------------------------------------------------
 # Préparation & bot
@@ -166,7 +199,7 @@ def register_all_commands(bot):
     register_stats_command(bot)
     register_bank_command(bot)
     register_shop_commands(bot)
-    register_chat_ai_command(bot)
+    register_chat_ai_command(bot)   # /ask
     # tirage via setup_tirage dans main()
 
 def register_all_commands_once(bot):
@@ -265,8 +298,61 @@ async def on_message(message):
     weekly_message_log.setdefault(guild_id, {}).setdefault(user_id, [])
     weekly_message_log[guild_id][user_id].append(time.time())
 
+    # --- IA GotValis: mention du bot ou réponse à un message du bot ---
+    try:
+        triggered = False
+
+        # 1) Mention directe du bot
+        if bot.user in message.mentions:
+            triggered = True
+
+        # 2) Réponse à un message du bot
+        if not triggered and message.reference and message.reference.resolved:
+            try:
+                ref_msg = message.reference.resolved
+                if ref_msg.author and ref_msg.author.id == bot.user.id:
+                    triggered = True
+            except Exception:
+                pass
+
+        if triggered:
+            # Anti-spam par utilisateur
+            last = ai_reply_cooldowns.get(user_id, 0)
+            now_ts = time.time()
+            if now_ts - last >= AI_COOLDOWN_SECONDS:
+                ai_reply_cooldowns[user_id] = now_ts
+
+                # Nettoie la mention dans le prompt
+                prompt = (message.content
+                          .replace(f"<@{bot.user.id}>", "")
+                          .replace(f"<@!{bot.user.id}>", "")
+                          ).strip()
+                if not prompt:
+                    prompt = "Énonce un bref communiqué RP GotValis™ sur l’optimisation du bonheur collectif."
+
+                tone, reason = detect_troll(prompt)
+
+                async with message.channel.typing():
+                    try:
+                        reply = await generate_oracle_reply(
+                            message.guild.name,
+                            prompt,
+                            tone=("threat" if tone == "threat" else "normal"),
+                            reason=reason
+                        )
+                    except Exception as e:
+                        reply = f"⚠️ Module Oracle indisponible. Code: `{e}`"
+
+                header = "📡 **COMMUNIQUÉ GOTVALIS™** 📡" if tone == "normal" else "⚠️ **AVIS DE CONFORMITÉ GOTVALIS™** ⚠️"
+                await message.reply(f"{header}\n{reply}")
+            # Ne pas retourner ici : on laisse vivre les drops/gains si besoin
+    except Exception as e:
+        print(f"[AI mention handler] Erreur: {e}")
+
+    # Puis process les commandes si besoin
     await bot.process_commands(message)
 
+    # --- Traçage d'activité de salon ---
     try:
         update_last_active_channel(message)
     except Exception as e:
@@ -715,7 +801,7 @@ async def infection_damage_loop():
 async def regeneration_loop():
     await bot.wait_until_ready()
     now = time.time()
-    for guild_id, users in list(regeneration_status.items()()):
+    for guild_id, users in list(regeneration_status.items()):
         for user_id, stat in list(users.items()):
             if now - stat["start"] > stat["duration"]:
                 del regeneration_status[guild_id][user_id]
