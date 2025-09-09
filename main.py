@@ -166,6 +166,7 @@ def register_all_commands(bot):
     register_stats_command(bot)
     register_bank_command(bot)
     register_shop_commands(bot)
+    register_chat_ai_command(bot)
     # tirage via setup_tirage dans main()
 
 def register_all_commands_once(bot):
