@@ -720,4 +720,143 @@ async def regeneration_loop():
                     member = await bot.fetch_user(int(user_id))
                     embed = discord.Embed(
                         description=(f"💕 {member.mention} récupère **{healed} PV** *(Régénération)*.\n"
-                                     f"❤️ {before} PV + {
+                                     f"❤️ {before} PV + {healed} PV = {after} PV\n"
+                                     f"⏳ Temps restant : **{remaining_mn} min**"),
+                        color=discord.Color.green()
+                    )
+                    await channel.send(embed=embed)
+            except Exception as e:
+                print(f"[regeneration_loop] Erreur: {e}")
+
+@tasks.loop(seconds=30)
+async def voice_tracking_loop():
+    await bot.wait_until_ready()
+    from data import weekly_voice_time
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        voice_tracking.setdefault(gid, {})
+        # Récupération des membres en vocal
+        active_user_ids = set()
+        for vc in guild.voice_channels:
+            if guild.afk_channel and vc.id == guild.afk_channel.id:
+                continue
+            for member in vc.members:
+                if member.bot:
+                    continue
+                uid = str(member.id)
+                active_user_ids.add(uid)
+                voice_tracking[gid].setdefault(uid, {"start": time.time(), "last_reward": time.time()})
+                tracking = voice_tracking[gid][uid]
+                elapsed = time.time() - tracking["last_reward"]
+                if elapsed >= 1800:
+                    add_gotcoins(gid, uid, 3, category="autre")
+                    tracking["last_reward"] = time.time()
+                    weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
+                    weekly_voice_time[gid][uid] += 1800
+        # Nettoyage
+        tracked_user_ids = set(voice_tracking[gid].keys())
+        for uid in tracked_user_ids - active_user_ids:
+            tracking = voice_tracking[gid][uid]
+            elapsed = time.time() - tracking["last_reward"]
+            if elapsed > 0:
+                weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
+                weekly_voice_time[gid][uid] += int(elapsed)
+                sauvegarder()
+            del voice_tracking[gid][uid]
+
+@tasks.loop(seconds=30)
+async def burn_damage_loop():
+    await bot.wait_until_ready()
+    now = time.time()
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        if gid not in burn_status:
+            continue
+        for uid, status in list(burn_status[gid].items()):
+            if not status.get("actif") or now < status.get("next_tick", 0):
+                continue
+            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": status["start"]})
+            if purge_result and purge_result.get("purger_statut"):
+                del burn_status[gid][uid]
+                continue
+            status["ticks_restants"] -= 1
+            status["next_tick"] = now + 3600
+            if status["ticks_restants"] <= 0:
+                del burn_status[gid][uid]
+                continue
+
+            dmg = 5
+            hp.setdefault(gid, {})
+            shields.setdefault(gid, {})
+            hp_before = hp[gid].get(uid, 100)
+            pb_before = shields[gid].get(uid, 0)
+            dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
+            pb_after = shields[gid].get(uid, 0)
+            hp_after = max(hp_before - dmg_final, 0)
+            hp[gid][uid] = hp_after
+            real_dmg = hp_before - hp_after
+            source_id = status.get("source")
+
+            if uid != source_id and source_id:
+                leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[gid][source_id]["degats"] += real_dmg
+
+            try:
+                channel = bot.get_channel(status["channel_id"])
+                if not channel:
+                    continue
+                member = await bot.fetch_user(int(uid))
+                desc = (
+                    f"🔥 {member.mention} subit **{real_dmg + lost_pb} dégâts** *(Brûlure)*.\n"
+                    f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB\n"
+                    f"⏳ Brûlure restante : **{status['ticks_restants']}h**"
+                )
+                embed = discord.Embed(description=desc, color=discord.Color.orange())
+                await channel.send(embed=embed)
+                if shield_broken:
+                    await channel.send(embed=discord.Embed(
+                        title="🛡 Bouclier détruit",
+                        description=f"Le bouclier de {member.mention} a été **détruit** par la brûlure.",
+                        color=discord.Color.dark_blue()
+                    ))
+                if hp_after == 0:
+                    handle_death(gid, uid, source_id)
+                    await channel.send(embed=discord.Embed(
+                        title="💀 KO par brûlure",
+                        description=(f"{member.mention} a succombé à une **brûlure sévère**.\n"
+                                     "🔄 Stabilisé à **100 PV**."),
+                        color=0xFF5500
+                    ))
+            except Exception as e:
+                print(f"[burn_damage_loop] Erreur : {e}")
+
+@tasks.loop(hours=1)
+async def cleanup_weekly_logs():
+    print("🧹 Nettoyage des logs hebdomadaires...")
+    now = time.time()
+    seven_days_seconds = 7 * 24 * 3600
+    for gid, users in weekly_message_log.items():
+        for uid, timestamps in users.items():
+            users[uid] = [t for t in timestamps if now - t <= seven_days_seconds]
+
+@tasks.loop(hours=1)
+async def auto_backup_loop():
+    await bot.wait_until_ready()
+    print("🔄 Boucle de backup auto indépendante démarrée")
+    backup_auto_independante()
+
+# ===================== Shutdown hooks ======================
+
+def on_shutdown():
+    print("💾 Sauvegarde finale avant extinction du bot...")
+    sauvegarder()
+
+atexit.register(on_shutdown)
+
+def handle_signal(sig, frame):
+    on_shutdown()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, handle_signal)
+signal.signal(signal.SIGTERM, handle_signal)
+# ===================== Run (déplacé dans main()) ====================
