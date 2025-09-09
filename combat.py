@@ -1,44 +1,69 @@
 # combat.py
-
 import random
 import time
-import discord
 import math
+import discord
 
+# ⚙️ Données partagées
 from data import (
-    hp, leaderboard, virus_status, poison_status, infection_status,
-    immunite_status, shields, casque_status, sauvegarder, resistance_bonus
+    virus_status,
+    poison_status,
+    infection_status,
+    immunite_status,
+    shields,
+    casque_status,
+    sauvegarder,
+    resistance_bonus,
 )
+from storage import hp, leaderboard, get_user_data
 from utils import get_mention, get_evade_chance, handle_death
-from statuts import appliquer_poison, appliquer_infection, appliquer_virus, appliquer_regen, supprimer_tous_statuts
+from statuts import (
+    appliquer_poison,
+    appliquer_infection,
+    appliquer_virus,
+    appliquer_regen,
+    supprimer_tous_statuts,
+)
 from embeds import build_embed_from_item, build_embed_transmission_virale
 from cooldowns import is_on_cooldown, set_cooldown
-from economy import gotcoins_stats, gotcoins_balance, add_gotcoins, init_gotcoins_stats
+from economy import add_gotcoins
 from passifs import appliquer_passif
-from storage import get_user_data   # ✅ manquant
 
-### 🔧 UTILITAIRES GÉNÉRAUX
 
+# ------------------------------ Helpers sûrs ------------------------------
+def _as_dict(x):
+    return x if isinstance(x, dict) else {}
+
+def _as_list(x):
+    return x if isinstance(x, list) else []
+
+
+# ------------------------------ API d’attaque principale ------------------------------
 async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     guild_id = str(ctx.guild.id)
 
     # 🩹 SOIN
-    if action["type"] == "soin":
+    if action.get("type") == "soin":
+        action = dict(action)  # on évite les mutations surprises
         action["item"] = item
         embed = await appliquer_soin(ctx, user_id, target_id, action)
         return embed, True
 
     # 🔍 VOL
-    if action["type"] == "vol":
-        # inventaires
-        target_inv, _, _ = get_user_data(guild_id, target_id)
+    if action.get("type") == "vol":
+        # Inventaires
         user_inv, _, _ = get_user_data(guild_id, user_id)
+        inv_cible, _, _ = get_user_data(guild_id, target_id)
 
-        # ❌ Immunité au vol (passif)
-        immunite = appliquer_passif("protection_vol", {
-            "guild_id": guild_id, "user_id": target_id, "item": item, "attacker_id": user_id
-        })
-        if immunite and immunite.get("immunise_contre_vol"):
+        # ❌ Immunité au vol
+        immunite = _as_dict(appliquer_passif("protection_vol", {
+            "guild_id": guild_id,
+            "user_id": target_id,
+            "item": item,
+            "attacker_id": user_id
+        }))
+        if immunite.get("immunise_contre_vol"):
+            # Perte de l’objet utilisé
             if item in user_inv:
                 user_inv.remove(item)
                 sauvegarder()
@@ -46,42 +71,47 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
             await ctx.followup.send(embed=embed)
             return None, True
 
-        # Aucun objet chez la cible
-        if not target_inv:
-            res = appliquer_passif("utilitaire_vol", {
-                "guild_id": guild_id, "user_id": user_id, "item": item, "target_id": target_id
-            })
-            conserve = res.get("conserver_objet_vol") if res else False
-            if not conserve and item in user_inv:
+        # Aucun objet à voler
+        if not inv_cible:
+            res = _as_dict(appliquer_passif("utilitaire_vol", {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "item": item,
+                "target_id": target_id
+            }))
+            if not res.get("conserver_objet_vol") and item in user_inv:
                 user_inv.remove(item)
-            sauvegarder()
-            embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, target_id)} n'a **aucun objet** à voler.")
+                sauvegarder()
+
+            embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, target_id)} n'a aucun objet à voler.")
             await ctx.followup.send(embed=embed)
             return None, True
 
-        # 🎯 Vol réussi
-        stolen_items = [random.choice(target_inv)]
-        target_inv.remove(stolen_items[0])
+        # 🎯 Vol au moins 1 objet
+        stolen_items = [random.choice(inv_cible)]
+        inv_cible.remove(stolen_items[0])
 
-        res = appliquer_passif("utilitaire_vol", {
-            "guild_id": guild_id, "user_id": user_id, "item": item, "target_id": target_id
-        })
+        # Passifs: double vol / conserver l'objet
+        res = _as_dict(appliquer_passif("utilitaire_vol", {
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "item": item,
+            "target_id": target_id
+        }))
 
-        if res and res.get("double_vol") and target_inv:
-            second = random.choice(target_inv)
-            target_inv.remove(second)
-            stolen_items.append(second)
+        if res.get("double_vol") and inv_cible:
+            second_item = random.choice(inv_cible)
+            inv_cible.remove(second_item)
+            stolen_items.append(second_item)
 
-        conserve = res.get("conserver_objet_vol") if res else False
-        if not conserve and item in user_inv:
+        if not res.get("conserver_objet_vol", False) and item in user_inv:
             user_inv.remove(item)
 
-        # Ajout à l’attaquant
-        attacker_inv, _, _ = get_user_data(guild_id, user_id)
-        attacker_inv.extend(stolen_items)
+        # Ajoute au voleur
+        user_inv.extend(stolen_items)
         sauvegarder()
 
-        obj_text = " et ".join([f"**{o}**" for o in stolen_items])
+        obj_text = "** et **".join([f"**{obj}**" for obj in stolen_items])
         embed = build_embed_from_item(item, f"🔍 {get_mention(ctx.guild, user_id)} a volé {obj_text} à {get_mention(ctx.guild, target_id)} !")
         await ctx.followup.send(embed=embed)
         return None, True
@@ -103,99 +133,116 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     # 🎯 Calcul des dégâts
     result = await calculer_degats_complets(
         ctx, guild_id, user_id, target_id,
-        action.get("degats", 0), action["type"],
+        action.get("degats", 0), action.get("type"),
         action.get("crit", 0), item
     )
 
-    type_cible_affichage = action["type"] if action["type"] in ["virus", "poison", "infection"] else "attaque"
+    # Type pour l’affichage
+    type_cible_affichage = action.get("type")
+    if type_cible_affichage not in {"virus", "poison", "infection"}:
+        type_cible_affichage = "attaque"
+
     description = afficher_degats(ctx, user_id, target_id, item, result, type_cible=type_cible_affichage)
-    embed = build_embed_from_item(item, description, is_heal_other=False, is_crit=("💥" in result["crit_txt"]))
+    embed = build_embed_from_item(
+        item,
+        description,
+        is_heal_other=False,
+        is_crit=("💥" in result["crit_txt"])
+    )
     await ctx.followup.send(embed=embed)
 
-    # 🎁 Mira Oskra bonus si la cible survit
+    # 🎁 Passif « survie » sur la cible (bonus d’objet)
     if hp[guild_id].get(target_id, 0) > 0:
-        res_survie = appliquer_passif("defense_survie", {
-            "guild_id": guild_id, "user_id": target_id, "attaquant": user_id, "item_utilise": item
-        })
-        if res_survie and res_survie.get("objet_bonus"):
-            bonus = res_survie["objet_bonus"]
+        result_passif = _as_dict(appliquer_passif("defense_survie", {
+            "guild_id": guild_id,
+            "user_id": target_id,
+            "attaquant": user_id,
+            "item_utilise": item
+        }))
+        if result_passif.get("objet_bonus"):
+            objet_bonus = result_passif["objet_bonus"]
             inv_cible, _, _ = get_user_data(guild_id, target_id)
-            inv_cible.append(bonus)
-            await ctx.followup.send(embed=discord.Embed(
-                description=f"🎁 {get_mention(ctx.guild, target_id)} reçoit **{bonus}** grâce à son sang-froid.",
+            inv_cible.append(objet_bonus)
+            embed_bonus = discord.Embed(
+                description=f"🎁 {get_mention(ctx.guild, target_id)} a reçu un objet bonus grâce à son sang-froid : **{objet_bonus}** !",
                 color=discord.Color.teal()
-            ))
+            )
+            await ctx.followup.send(embed=embed_bonus)
 
+    # 🔄 Effets secondaires
     for effet_embed in result["effets_embeds"]:
         await ctx.followup.send(embed=effet_embed)
 
+    # 🛡 Bouclier détruit
     if result["shield_broken"]:
         shield_embed = build_embed_from_item("🛡", f"Le bouclier de {get_mention(ctx.guild, target_id)} a été **détruit**.", is_heal_other=False, is_crit=False)
         shield_embed.set_image(url=None)
         await ctx.followup.send(embed=shield_embed)
 
-    await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action["type"], index=0)
+    # 🧪 Statut post-attaque
+    await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action.get("type", ""), index=0)
 
-    if action["type"] not in ["attaque", "poison", "virus", "infection", "vol", "soin"]:
-        await ctx.followup.send(f"⚠️ Type d’objet inconnu : `{action['type']}` pour l’objet {item}.")
+    # Types autorisés
+    if action.get("type") not in {"attaque", "poison", "virus", "infection", "vol", "soin"}:
+        await ctx.followup.send(f"⚠️ Type d’objet inconnu : `{action.get('type')}` pour l’objet {item}.")
         return None, False
 
     sauvegarder()
     return None, True
 
 
+# ------------------------------ Petites briques ------------------------------
 def is_immune(guild_id, user_id):
     return user_id in immunite_status.get(guild_id, {})
 
-
 def apply_crit(base_dmg, crit_chance):
-    if random.random() < crit_chance:
+    if random.random() < float(crit_chance or 0.0):
         return base_dmg * 2, " 💥 **Coup critique !**"
     return base_dmg, ""
-
 
 def apply_casque_reduction(guild_id, user_id, dmg, ignore=False):
     if ignore or user_id not in casque_status.get(guild_id, {}):
         return dmg, False, 0
-    reduced = math.ceil(dmg * 0.5)
-    reduction_val = dmg - reduced
-    return reduced, True, reduction_val
-
+    reduced_dmg = math.ceil(dmg * 0.5)
+    reduction_val = dmg - reduced_dmg
+    return reduced_dmg, True, reduction_val
 
 def apply_shield(guild_id, user_id, dmg):
-    current = shields.get(guild_id, {}).get(user_id, 0)
-    if current <= 0:
+    current_shield = shields.get(guild_id, {}).get(user_id, 0)
+    if current_shield <= 0:
         return dmg, 0, False
-    lost_pb = min(dmg, current)
-    remaining = dmg - lost_pb
-    shields.setdefault(guild_id, {})[user_id] = max(0, current - lost_pb)
-    return remaining, lost_pb, current - lost_pb <= 0
+    lost_pb = min(dmg, current_shield)
+    remaining_dmg = dmg - lost_pb
+    shields.setdefault(guild_id, {})[user_id] = max(0, current_shield - lost_pb)
+    return remaining_dmg, lost_pb, shields[guild_id][user_id] <= 0
 
-### 🧪🦠🧟 STATUTS SECONDAIRES
 
+# ------------------------------ Bonus/Statuts annexes ------------------------------
 def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
     bonus_dmg = 0
     bonus_info = []
     source_to_credit = None
     effets_embed = []
 
-    # 🧪 Poison : -1 dmg infligé
+    # 🧪 Poison → -1 dmg infligé par l’attaquant
     if user_id in poison_status.get(guild_id, {}):
         bonus_dmg -= 1
         bonus_info.append("-1 🧪")
 
-    # 🧟 Infection
+    # 🧟 Infection (chez l’attaquant)
     infection_data = infection_status.get(guild_id, {}).get(user_id)
     if infection_data:
         source = infection_data.get("source")
         target_already_infected = target_id in infection_status.get(guild_id, {})
 
+        # Bonus +2 tant que la cible n'est pas déjà infectée
         if source != target_id and not target_already_infected:
             bonus_dmg += 2
             bonus_info.append("+2 🧟")
             if source != user_id:
                 source_to_credit = source
 
+        # Propagation (25 %)
         if not target_already_infected and random.random() < 0.25:
             infection_status.setdefault(guild_id, {})[target_id] = {
                 "start": time.time(),
@@ -205,32 +252,40 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 "channel_id": channel_id,
             }
 
-            # Dégâts immédiats (réduction casque prise en compte)
-            dmg_after, _, _ = apply_casque_reduction(guild_id, target_id, 5)
+            # Dégâts immédiats (après casques/boucliers comme ailleurs)
             start_hp = hp[guild_id].get(target_id, 100)
-            end_hp = max(0, start_hp - dmg_after)
+            dmg_after_helmet, _, _ = apply_casque_reduction(guild_id, target_id, 5)
+            dmg_after_shield, lost_pb, _ = apply_shield(guild_id, target_id, dmg_after_helmet)
+
+            end_hp = max(0, start_hp - dmg_after_shield)
             hp[guild_id][target_id] = end_hp
+            pertes = start_hp - end_hp
 
             effets_embed.append(build_embed_from_item(
                 "🧟",
-                f"**GotValis** signale une propagation.\n<@{target_id}> a été infecté et perd {start_hp - end_hp} PV.",
+                f"**GotValis** signale une propagation.\n<@{target_id}> a été infecté et perd {pertes} PV.",
                 disable_gif=True,
                 custom_title="🧟 Propagation d'infection"
             ))
 
             if end_hp == 0:
                 handle_death(guild_id, target_id, source)
-                effets_embed.append(build_embed_from_item("🧟", f"<@{target_id}> a succombé à une infection.", disable_gif=True))
+                effets_embed.append(build_embed_from_item(
+                    "🧟",
+                    f"<@{target_id}> a succombé à une infection.",
+                    disable_gif=True
+                ))
 
             if source and source != target_id:
-                add_gotcoins(guild_id, source, start_hp - end_hp, category="degats")
+                add_gotcoins(guild_id, source, max(0, pertes), category="degats")
 
-    # 🦠 Virus → transmission si action d'attaque
+    # 🦠 Virus → transfert lors d’une attaque
     if action_type == "attaque" and user_id in virus_status.get(guild_id, {}):
         virus_data = virus_status[guild_id][user_id]
         source = virus_data.get("source")
 
         if not is_immune(guild_id, target_id):
+            # Transmission
             virus_status.setdefault(guild_id, {})[target_id] = {
                 "start": time.time(),
                 "duration": 3 * 3600,
@@ -239,59 +294,64 @@ def get_statut_bonus(guild_id, user_id, target_id, channel_id, action_type):
                 "channel_id": channel_id,
             }
 
-            # Auto-dégâts au porteur
+            # Auto-dégâts de transfert : 2 PV (après casques/boucliers)
             start_hp = hp[guild_id].get(user_id, 100)
-            end_hp = max(0, start_hp - 2)
+            dmg_after_helmet, _, _ = apply_casque_reduction(guild_id, user_id, 2)
+            dmg_after_shield, lost_pb, _ = apply_shield(guild_id, user_id, dmg_after_helmet)
+
+            end_hp = max(0, start_hp - dmg_after_shield)
             hp[guild_id][user_id] = end_hp
             pertes = start_hp - end_hp
 
             if source and source != user_id:
-                add_gotcoins(guild_id, source, pertes, category="degats")
+                add_gotcoins(guild_id, source, max(0, pertes), category="degats")
 
-            # on retire le virus du porteur
-            del virus_status[guild_id][user_id]
+            # On retire le virus de l’attaquant
+            virus_status[guild_id].pop(user_id, None)
 
             effets_embed.append(build_embed_transmission_virale(
-                from_user_mention=f"<@{user_id}>",
-                to_user_mention=f"<@{target_id}>",
+                from_user_mention=get_mention(ctx.guild, user_id) if hasattr(ctx, "guild") else f"<@{user_id}>",
+                to_user_mention=get_mention(ctx.guild, target_id) if hasattr(ctx, "guild") else f"<@{target_id}>",
                 pv_avant=start_hp,
                 pv_apres=end_hp
             ))
 
             if end_hp == 0:
                 handle_death(guild_id, user_id, source)
-                effets_embed.append(build_embed_from_item("🦠", f"**GotValis** confirme la fin de cycle infectieux de <@{user_id}>."))
+                effets_embed.append(build_embed_from_item(
+                    "🦠",
+                    f"**GotValis** confirme la fin de cycle infectieux de <@{user_id}>."
+                ))
 
     return bonus_dmg, bonus_info, source_to_credit, effets_embed
 
-### 🎯 SOINS
 
+# ------------------------------ SOINS ------------------------------
 async def appliquer_soin(ctx, user_id, target_id, action):
     guild_id = str(ctx.guild.id)
-    heal_amount = action.get("soin", 0)
-    crit = action.get("crit", 0)
+    heal_amount = int(action.get("soin", 0))
+    crit = float(action.get("crit", 0.0) or 0.0)
 
-    # 🎯 Bonus de soin appliqué par le soigneur (ex : Tessa Korrin)
-    bonus_result = appliquer_passif(user_id, "bonus_soin", {
+    # Bonus du soigneur
+    bonus_result = _as_dict(appliquer_passif(user_id, "bonus_soin", {
         "guild_id": guild_id,
         "soigneur": user_id,
         "cible": target_id,
         "base_soin": heal_amount
-    })
-    bonus_soin = bonus_result.get("bonus_pv_soin", 0) if bonus_result else 0
-    heal_amount += bonus_soin
+    }))
+    heal_amount += int(bonus_result.get("bonus_pv_soin", 0))
 
-    # 🎯 Multiplicateur de soin reçu appliqué sur la cible (ex : Aelran Vex)
-    multiplicateur_result = appliquer_passif(target_id, "soin_reçu", {
+    # Multiplicateur sur la cible
+    multiplicateur_result = _as_dict(appliquer_passif(target_id, "soin_reçu", {
         "guild_id": guild_id,
         "soigneur": user_id,
         "cible": target_id,
         "base_soin": heal_amount
-    })
-    multiplicateur = multiplicateur_result.get("multiplicateur_soin_recu", 1.0) if multiplicateur_result else 1.0
+    }))
+    multiplicateur = float(multiplicateur_result.get("multiplicateur_soin_recu", 1.0))
     heal_amount = math.ceil(heal_amount * multiplicateur)
 
-    # 🎲 Critique après bonus
+    # Critique
     final_heal, crit_txt = apply_crit(heal_amount, crit)
 
     start_hp = hp[guild_id].get(target_id, 100)
@@ -308,41 +368,28 @@ async def appliquer_soin(ctx, user_id, target_id, action):
             description = f"🩹 GotValis : {mention_soigneur} tente de se soigner avec {item}...\n❤️ Mais ses PV sont déjà au maximum."
         else:
             description = f"🩹 GotValis : {mention_soigneur} tente de soigner {mention_cible} avec {item}...\n❤️ Mais {mention_cible} a déjà tous ses PV."
-        return build_embed_from_item(
-            item=item,
-            description=description,
-            is_heal_other=(user_id != target_id),
-            is_crit=False
-        )
+        return build_embed_from_item(item=item, description=description, is_heal_other=(user_id != target_id), is_crit=False)
 
-    # 💰 Gain de GotCoins lié au soin réel
     add_gotcoins(guild_id, user_id, real_heal, category="soin")
 
-    # 📝 Affichage du soin
     if user_id == target_id:
         ligne_1 = f"{mention_soigneur} se soigne de **{real_heal} PV** avec {item}"
     else:
         ligne_1 = f"{mention_soigneur} soigne de **{real_heal} PV** {mention_cible} avec {item}"
-    ligne_2 = f"❤️ {start_hp} PV + {real_heal} PV = ❤️ {new_hp} PV"
-    if crit_txt:
-        ligne_2 += f" {crit_txt}"
+    ligne_2 = f"❤️ {start_hp} PV + {real_heal} PV = ❤️ {new_hp} PV{crit_txt}"
 
-    # 🎯 Appel d’autres passifs post-soin (ex : Lysha Varn)
-    appliquer_passif(user_id, "soin", {
+    # Post-soin
+    _ = appliquer_passif(user_id, "soin", {
         "guild_id": guild_id,
         "soigneur": user_id,
         "cible": target_id,
         "soin_reel": real_heal
     })
 
-    return build_embed_from_item(
-        item=item,
-        description=f"{ligne_1}\n{ligne_2}",
-        is_heal_other=(user_id != target_id),
-        is_crit=False
-    )
+    return build_embed_from_item(item=item, description=f"{ligne_1}\n{ligne_2}", is_heal_other=(user_id != target_id), is_crit=False)
 
-### 🎯 CALCUL DES DÉGÂTS
+
+# ------------------------------ DÉGÂTS ------------------------------
 async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, action_type, crit_chance, item):
     user_mention = get_mention(ctx.guild, user_id)
     target_mention = get_mention(ctx.guild, target_id)
@@ -350,12 +397,11 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     before_pb = shields.get(guild_id, {}).get(target_id, 0)
 
     bonus_dmg, bonus_info, src_credit, effets = get_statut_bonus(
-        guild_id, user_id, target_id, ctx.channel.id, action_type
+        guild_id, user_id, target_id, ctx.channel.id if hasattr(ctx, "channel") else None, action_type
     )
-    base_dmg_after_crit, crit_txt = apply_crit(base_dmg, crit_chance)
+    base_dmg_after_crit, crit_txt = apply_crit(int(base_dmg or 0), float(crit_chance or 0.0))
 
-    # 🎯 Passifs offensifs
-    contexte = "attaque"
+    # Passifs offensifs
     donnees_passif = {
         "guild_id": guild_id,
         "attaquant_id": user_id,
@@ -363,52 +409,54 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "ctx": ctx,
         "degats": base_dmg_after_crit + bonus_dmg,
         "objet": item,
-        "pv_actuel": hp[guild_id].get(user_id, 100)
+        "pv_actuel": hp[guild_id].get(user_id, 100),
     }
-    result_passif_attaquant = appliquer_passif(user_id, contexte, donnees_passif)
-    ignore_helmet = result_passif_attaquant.get("ignorer_reduction_casque", False) if result_passif_attaquant else False
-    ignore_pb = result_passif_attaquant.get("ignorer_pb", False) if result_passif_attaquant else False
-    ignore_reduction = result_passif_attaquant.get("ignorer_reduction", False) if result_passif_attaquant else False
+    result_passif_attaquant = _as_dict(appliquer_passif(user_id, "attaque", donnees_passif))
+    ignore_helmet = result_passif_attaquant.get("ignorer_reduction_casque", False)
+    ignore_pb = result_passif_attaquant.get("ignorer_pb", False)
+    ignore_reduction = result_passif_attaquant.get("ignorer_reduction", False)
 
-    # 🧿 Passifs défensifs immédiats
+    # Défense immédiate
     donnees_defense_calc = {
         "guild_id": guild_id,
         "defenseur": target_id,
         "attaquant": user_id,
         "degats_initiaux": base_dmg_after_crit + bonus_dmg,
-        "pv_actuel": start_hp
+        "pv_actuel": start_hp,
     }
-    res_maitre = appliquer_passif(target_id, "defense", donnees_defense_calc)
+    res_maitre = _as_dict(appliquer_passif(target_id, "defense", donnees_defense_calc))
 
-    if res_maitre and res_maitre.get("annuler_degats"):
+    if res_maitre.get("annuler_degats"):
         total_dmg = 0
         casque_active, reduction_val = False, 0
-        effets.append(discord.Embed(description=res_maitre.get("annonce"), color=discord.Color.orange()))
+        if res_maitre.get("annonce"):
+            effets.append(discord.Embed(description=res_maitre["annonce"], color=discord.Color.orange()))
     else:
         total_dmg, casque_active, reduction_val = apply_casque_reduction(
             guild_id, target_id, base_dmg_after_crit + bonus_dmg, ignore=ignore_helmet
         )
+        if "reduction_fixe" in res_maitre:
+            total_dmg = max(0, total_dmg - int(res_maitre["reduction_fixe"]))
+            if res_maitre.get("annonce"):
+                effets.append(discord.Embed(description=res_maitre["annonce"], color=discord.Color.orange()))
 
-        if res_maitre and "reduction_fixe" in res_maitre:
-            total_dmg = max(0, total_dmg - res_maitre["reduction_fixe"])
-            effets.append(discord.Embed(description=res_maitre.get("annonce"), color=discord.Color.orange()))
-
-        if res_maitre and "contre_attaque" in res_maitre:
+        if "contre_attaque" in res_maitre:
             data = res_maitre["contre_attaque"]
             await calculer_degats_complets(ctx, guild_id, data["source"], data["cible"], data["degats"], action_type, 0.0, None)
 
+    # Réductions supplémentaires
     if not ignore_reduction:
-        res_def = appliquer_passif(target_id, "calcul_defense", donnees_defense_calc)
-        if res_def:
-            if "reduction_multiplicateur" in res_def:
-                total_dmg = math.ceil(total_dmg * res_def["reduction_multiplicateur"])
-            if "reduction_degats" in res_def:
-                total_dmg = math.ceil(total_dmg * (1 - res_def["reduction_degats"]))
-        res_veylor = appliquer_passif(target_id, "defense", donnees_defense_calc)
-        if res_veylor and "reduction_fixe" in res_veylor:
-            total_dmg = max(0, total_dmg - res_veylor["reduction_fixe"])
+        res_def = _as_dict(appliquer_passif(target_id, "calcul_defense", donnees_defense_calc))
+        if "reduction_multiplicateur" in res_def:
+            total_dmg = math.ceil(total_dmg * float(res_def["reduction_multiplicateur"]))
+        if "reduction_degats" in res_def:
+            total_dmg = math.ceil(total_dmg * (1 - float(res_def["reduction_degats"])))
 
-    # 🛡 Bouclier
+        res_veylor = _as_dict(appliquer_passif(target_id, "defense", donnees_defense_calc))
+        if "reduction_fixe" in res_veylor:
+            total_dmg = max(0, total_dmg - int(res_veylor["reduction_fixe"]))
+
+    # Bouclier
     if ignore_pb:
         dmg_final = total_dmg
         lost_pb = 0
@@ -418,7 +466,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         dmg_final, lost_pb, shield_broken = apply_shield(guild_id, target_id, total_dmg)
         pb_after = shields.get(guild_id, {}).get(target_id, 0)
 
-    # 🔻 Appliquer dégâts
+    # Application PV
     end_hp = max(0, start_hp - dmg_final)
     hp[guild_id][target_id] = end_hp
     real_dmg = start_hp - end_hp
@@ -426,22 +474,22 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     if real_dmg > 0:
         add_gotcoins(guild_id, user_id, real_dmg, category="degats")
     if src_credit and src_credit != target_id:
-        add_gotcoins(guild_id, src_credit, bonus_dmg, category="degats")
+        add_gotcoins(guild_id, src_credit, max(0, bonus_dmg), category="degats")
 
-    # 🧛 Passif Kael Dris (soin vampirique)
-    res_kael = appliquer_passif(user_id, "degats_infliges", {
+    # Vampirisme / autres effets post-dégâts
+    res_kael = _as_dict(appliquer_passif(user_id, "degats_infliges", {
         "guild_id": guild_id,
         "attaquant": user_id,
         "cible_id": target_id,
         "degats": real_dmg
-    })
-    if res_kael and "soin" in res_kael:
+    }))
+    if "soin" in res_kael:
         effets.append(discord.Embed(
             description=f"🩸 {user_mention} récupère **{res_kael['soin']} PV** grâce à son pouvoir vampirique.",
             color=discord.Color.red()
         ))
 
-    # 💀 KO
+    # KO
     ko_embed = None
     reset_txt = ""
     if end_hp == 0:
@@ -452,28 +500,26 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
             description=f"**GotValis** détecte une défaillance vitale chez {target_mention}.",
             color=discord.Color.red()
         )
-        result_kill = appliquer_passif(user_id, "kill", {
+        result_kill = _as_dict(appliquer_passif(user_id, "kill", {
             "guild_id": guild_id,
             "user_id": user_id,
             "cible_id": target_id
-        })
-        if result_kill:
-            if "pv_gagnes" in result_kill:
-                hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + result_kill["pv_gagnes"], 100)
-            if "gif_special" in result_kill:
-                effets.append(discord.Embed(
-                    title="🎬 Exécution Royale",
-                    description=f"{user_mention} a achevé {target_mention} avec panache !",
-                ).set_image(url=result_kill["gif_special"]))
+        }))
+        if "pv_gagnes" in result_kill:
+            hp[guild_id][user_id] = min(hp[guild_id].get(user_id, 0) + int(result_kill["pv_gagnes"]), 100)
+        if "gif_special" in result_kill:
+            effets.append(discord.Embed(
+                title="🎬 Exécution Royale",
+                description=f"{user_mention} a achevé {target_mention} avec panache !",
+            ).set_image(url=result_kill["gif_special"]))
 
-    # Autres passifs défensifs
-    result_passif_cible = appliquer_passif(target_id, "défense", donnees_passif)
-    if result_passif_attaquant:
-        effets.extend(result_passif_attaquant.get("embeds", []))
-    if result_passif_cible:
-        effets.extend(result_passif_cible.get("embeds", []))
+    # Embeds additionnels éventuels
+    for e in _as_list(result_passif_attaquant.get("embeds")):
+        effets.append(e)
+    result_passif_cible = _as_dict(appliquer_passif(target_id, "défense", donnees_passif))
+    for e in _as_list(result_passif_cible.get("embeds")):
+        effets.append(e)
 
-    # Affichage
     pv_taken_base = max(0, base_dmg_after_crit - lost_pb)
     pb_taken_base = min(base_dmg_after_crit, lost_pb) if lost_pb > 0 else 0
 
@@ -490,92 +536,65 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "crit_txt": crit_txt,
         "effets_embeds": effets + ([ko_embed] if ko_embed else []),
         "reset_txt": reset_txt,
-        "dmg_total_affiche": base_dmg_after_crit + bonus_dmg,
-        "total_affiche_pour_ligne1": real_dmg + lost_pb,
-        "dmg_total_apres_bonus_et_crit": base_dmg_after_crit + bonus_dmg,
+        "dmg_total_apres_reduc": total_dmg,
         "base_dmg_after_crit": base_dmg_after_crit,
         "casque_active": casque_active,
-        "total_ressenti": real_dmg + lost_pb,
-        "total_dmg_apres_reduc": total_dmg,
-        "reduction_val": reduction_val,
         "pv_avant_bonus": pv_taken_base,
         "pb_avant_bonus": pb_taken_base,
     }
 
-    
+
 async def appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0):
-    """Applique les statuts appropriés après une attaque."""
-    # Récupération sécurisée du channel_id
     channel_id = None
     if hasattr(ctx, "channel") and ctx.channel:
         channel_id = ctx.channel.id
-    elif hasattr(ctx, "channel_id"):
-        channel_id = ctx.channel_id
 
-    # POISON
     if action_type == "poison":
         appliquer_poison(guild_id, target_id, channel_id, user_id)
-
         embed = build_embed_from_item(
             "🧪",
-            f"Le poison infligera **3 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ Les attaques de la cible infligeront **1 dégât de moins**.",
+            "Le poison infligera **3 PV** toutes les 30 minutes pendant 3 heures.\n"
+            "⚠️ Les attaques de la cible infligeront **1 dégât de moins**.",
             disable_gif=True,
             custom_title="🧪 Contamination toxique"
         )
         await ctx.followup.send(embed=embed)
 
-    # INFECTION
     elif action_type == "infection":
         appliquer_infection(guild_id, target_id, channel_id, user_id)
-        
         embed = build_embed_from_item(
             "🧟",
-            f"L’infection infligera **2 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ Chaque attaque inflige **+2 dégâts** et peut propager l'infection.",
+            "L’infection infligera **2 PV** toutes les 30 minutes pendant 3 heures.\n"
+            "⚠️ Chaque attaque inflige **+2 dégâts** et peut propager l'infection.",
             disable_gif=True,
             custom_title="🧟 Infection déclenchée"
         )
         await ctx.followup.send(embed=embed)
 
-    # VIRUS
     elif action_type == "virus" and index == 0:
         appliquer_virus(guild_id, target_id, channel_id, user_id)
-
         embed = build_embed_from_item(
             "🦠",
-            f"Le virus infligera **5 PV** toutes les 30 minutes pendant 3 heures.\n"
-            f"⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus après l’attaque.",
+            "Le virus infligera **5 PV** toutes les 30 minutes pendant 3 heures.\n"
+            "⚠️ L’attaquant perd immédiatement **2 PV** en transférant le virus après l’attaque.",
             disable_gif=True,
             custom_title="🦠 Contamination virale"
         )
         await ctx.followup.send(embed=embed)
-
-        # Supprimer le virus de l’attaquant après transmission
         virus_status[guild_id].pop(user_id, None)
 
-### 🎯 FORMATTEUR DE MESSAGE
 
+# ------------------------------ Affichage ------------------------------
 def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque"):
     user_mention = get_mention(ctx.guild, user_id)
     target_mention = get_mention(ctx.guild, target_id)
 
-    # Format du bonus propre
     bonus_str = ""
-    if result['bonus_info']:
-        bonus_str = " " + " ".join(
-            f"{b[0]} {b[1:].strip()}" for b in result['bonus_info']
-        )
-    else:
-        bonus_str = ""
+    if result["bonus_info"]:
+        bonus_str = " " + " ".join(f"{b[0]} {b[1:].strip()}" for b in result["bonus_info"])
 
-    # Texte de réduction (casque)
-    if result.get("casque_active", False):
-        reduction_txt = str(result.get("reduction_val", 0))
-    else:
-        reduction_txt = ""
+    reduction_txt = str(result.get("reduction_val", 0)) if result.get("casque_active") else ""
 
-    # Emoji selon type_cible
     emoji_effet = ""
     if type_cible == "virus":
         emoji_effet = "🦠 "
@@ -584,7 +603,6 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     elif type_cible == "infection":
         emoji_effet = "🧟 "
 
-    # Ligne 1 adaptée selon type_cible
     if type_cible == "virus":
         ligne1 = f"{user_mention} a contaminé {target_mention} avec {item}."
     elif type_cible == "poison":
@@ -592,29 +610,19 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
     elif type_cible == "infection":
         ligne1 = f"{user_mention} a infecté {target_mention} avec {item}."
     else:
-        # ATTENTION : ici on affiche bien les dégâts "envoyés", pas les dégâts réellement subis
-        ligne1 = f"{user_mention} inflige {result['total_dmg_apres_reduc']} dégâts à {target_mention} avec {item} !"
+        ligne1 = f"{user_mention} inflige {result['dmg_total_apres_reduc']} dégâts à {target_mention} avec {item} !"
 
-    # Ligne 2 + Ligne 3 selon cas
     if result["lost_pb"] and result["real_dmg"] == 0:
-        # Bouclier uniquement
         if result.get("casque_active", False):
             ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB - {reduction_txt} 🪖{bonus_str})"
-            ligne3 = (
-                f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB - {reduction_txt} 🪖{bonus_str}) = "
-                f"🛡️ {result['after_pb']} PB"
-            )
+            ligne3 = f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB - {reduction_txt} 🪖{bonus_str}) = 🛡️ {result['after_pb']} PB"
         else:
             ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PB{bonus_str})"
             ligne3 = f"🛡️ {result['before_pb']} PB - ({result['base_dmg_after_crit']} PB{bonus_str}) = 🛡️ {result['after_pb']} PB"
 
     elif result["lost_pb"] and result["real_dmg"] > 0:
-        # Bouclier + PV
         if result.get("casque_active", False):
-            ligne2 = (
-                f"{target_mention} perd ({result['pv_avant_bonus']} PV - {reduction_txt} 🪖{bonus_str}) "
-                f"et {result['pb_avant_bonus']} PB"
-            )
+            ligne2 = f"{target_mention} perd ({result['pv_avant_bonus']} PV - {reduction_txt} 🪖{bonus_str}) et {result['pb_avant_bonus']} PB"
             ligne3 = (
                 f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV - {reduction_txt} 🪖{bonus_str}) / "
                 f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
@@ -627,9 +635,7 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
                 f"🛡️ {result['before_pb']} PB - {result['pb_avant_bonus']} PB = "
                 f"❤️ {result['end_hp']} PV / 🛡️ {result['after_pb']} PB"
             )
-
     else:
-        # PV uniquement
         if result.get("casque_active", False):
             ligne2 = f"{target_mention} perd ({result['base_dmg_after_crit']} PV - {reduction_txt} 🪖{bonus_str})"
             ligne3 = f"❤️ {result['start_hp']} PV - ({result['base_dmg_after_crit']} PV - {reduction_txt} 🪖{bonus_str}) = ❤️ {result['end_hp']} PV"
@@ -637,83 +643,67 @@ def afficher_degats(ctx, user_id, target_id, item, result, type_cible="attaque")
             ligne2 = f"{target_mention} perd ({emoji_effet}{result['pv_avant_bonus']} PV{bonus_str})"
             ligne3 = f"❤️ {result['start_hp']} PV - ({result['pv_avant_bonus']} PV{bonus_str}) = ❤️ {result['end_hp']} PV"
 
-    # Retour complet
     return f"{ligne1}\n{ligne2}\n{ligne3}{result['crit_txt']}{result['reset_txt']}"
 
-### ☠️ ATTAQUE EN CHAÎNE
 
+# ------------------------------ Attaque en chaîne ------------------------------
 async def apply_attack_chain(ctx, user_id, target_id, item, action):
     guild_id = str(ctx.guild.id)
     user_mention = get_mention(ctx.guild, user_id)
 
-    # 🎯 Sélection des cibles secondaires
-    all_members = [m for m in ctx.guild.members if not m.bot and m.id != target_id and m.id != user_id]
+    # cibles secondaires
+    all_members = [m for m in ctx.guild.members if not m.bot and m.id != int(target_id) and m.id != int(user_id)]
     random.shuffle(all_members)
     secondary_targets = all_members[:2]
 
-    # 📦 Cibles complètes
-    cibles = [(target_id, "principale")] + [(m.id, "secondaire") for m in secondary_targets]
+    cibles = [(target_id, "principale")] + [(str(m.id), "secondaire") for m in secondary_targets]
 
     for i, (victim_id, type_cible) in enumerate(cibles):
         victim_mention = get_mention(ctx.guild, victim_id)
 
-        # ⭐ Immunité
         if is_immune(guild_id, victim_id):
             description = f"⭐ {victim_mention} est protégé par une immunité. Aucun effet."
             embed = build_embed_from_item(item, description)
             await ctx.followup.send(embed=embed)
             continue
 
-        # 💨 Esquive
         if random.random() < get_evade_chance(guild_id, victim_id):
             description = f"💨 {victim_mention} esquive l’attaque de {user_mention} !"
             embed = build_embed_from_item("💨", description)
             await ctx.followup.send(embed=embed)
             continue
 
-        # 🎯 Dégâts
         dmg = 24 if i == 0 else 12
         result = await calculer_degats_complets(
             ctx, guild_id, user_id, victim_id,
-            dmg, "attaque",  # toujours "attaque" pour l'effet
+            dmg, "attaque",
             action.get("crit", 0), item
         )
 
-        # 📝 Message personnalisé
         ligne_type = "Attaque principale" if i == 0 else "Attaque secondaire"
-        desc = afficher_degats(ctx, user_id, victim_id, item, result, type_cible=ligne_type.lower())
+        desc = afficher_degats(ctx, user_id, victim_id, item, result, type_cible="attaque")
 
-        # Construction de l'embed
         embed = build_embed_from_item(
             item,
             f"**{ligne_type}** : {desc}",
             is_crit=("💥" in result["crit_txt"])
         )
 
-        # Si attaque secondaire : désactive le GIF et change la couleur
         if i > 0:
             embed.set_image(url=None)
             embed.color = discord.Color.orange()
-
-            # Change aussi le titre
             embed.title = "⚔️ Attaque secondaire"
 
-        # Envoi de l'embed
         await ctx.followup.send(embed=embed)
 
-        # 📤 Effets secondaires
         for effet_embed in result["effets_embeds"]:
             await ctx.followup.send(embed=effet_embed)
 
-        # 🛡 Bouclier détruit
         if result["shield_broken"]:
             shield_embed = build_embed_from_item("🛡", f"Le bouclier de {victim_mention} a été **détruit**.")
-            shield_embed.set_image(url=None)  # désactive le GIF
+            shield_embed.set_image(url=None)
             await ctx.followup.send(embed=shield_embed)
 
-        # 🧪 Statuts à appliquer (uniquement sur première cible pour certains)
         await appliquer_statut_si_necessaire(ctx, guild_id, user_id, victim_id, "attaque", index=i)
 
     return None, True
-
-
