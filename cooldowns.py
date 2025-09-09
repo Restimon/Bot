@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, timezone
 
 cooldowns = {
     "attack": {},  # cooldowns["attack"][guild_id][user_id]
@@ -7,6 +8,8 @@ cooldowns = {
 
 ATTACK_COOLDOWN = 120
 HEAL_COOLDOWN = 180
+
+# === Cooldowns classiques (attaque / soin) ===
 
 def is_on_cooldown(guild_id, key, action):
     now = time.time()
@@ -33,3 +36,35 @@ def set_cooldown(guild_id, key, action, duration=None):
 
     cd_dict = cooldowns[action].setdefault(guild_id, {})
     cd_dict[tuple(key) if isinstance(key, tuple) else key] = cd_time
+
+# === Limites quotidiennes (passifs / tirages spéciaux, etc.) ===
+
+_daily_counters = {}  # { "guild:user:key": (count, jour) }
+
+def daily_limit(guild_id, user_id, key: str, limit: int = 1) -> bool:
+    """
+    Incrémente et vérifie un quota quotidien.
+    Retourne True si l'action est AUTORISÉE (compteur < limit) et incrémente le compteur.
+    Retourne False si la limite quotidienne est déjà atteinte.
+    Le reset se fait chaque jour UTC.
+    """
+    gid = str(guild_id)
+    uid = str(user_id)
+    k = f"{gid}:{uid}:{key}"
+
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    count, day = _daily_counters.get(k, (0, today))
+    if day != today:
+        # nouveau jour → reset
+        count = 0
+        day = today
+
+    if count < limit:
+        count += 1
+        _daily_counters[k] = (count, day)
+        return True
+
+    # Limite atteinte
+    _daily_counters[k] = (count, day)
+    return False
