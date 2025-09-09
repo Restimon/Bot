@@ -1,9 +1,10 @@
+# shop.py
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from economy import retirer_gotcoins, ajouter_gotcoins, get_gotcoins
-from storage import inventaire
+from storage import get_user_data  # ← on utilise la vraie API (inventaire = liste)
 from data import sauvegarder
 from personnage import PERSONNAGES
 
@@ -67,20 +68,34 @@ class Shop(commands.Cog):
             await interaction.response.send_message("❌ Cet objet n'existe pas dans la boutique.", ephemeral=True)
             return
 
+        if quantite <= 0:
+            await interaction.response.send_message("❌ Quantité invalide.", ephemeral=True)
+            return
+
         prix_total = ITEMS_CATALOGUE[item]["achat"] * quantite
         solde = get_gotcoins(guild_id, user_id)
 
         if solde < prix_total:
-            await interaction.response.send_message(f"❌ Tu n'as pas assez de GotCoins. Il te faut {prix_total} GC.", ephemeral=True)
+            await interaction.response.send_message(
+                f"❌ Tu n'as pas assez de GotCoins. Il te faut {prix_total} GC.",
+                ephemeral=True
+            )
             return
 
+        # Paiement
         retirer_gotcoins(guild_id, user_id, prix_total)
+        # Créditer la "banque" (si tu tiens ce flux)
         ajouter_gotcoins(guild_id, "gotvalis", prix_total)
-        inventaire.setdefault(guild_id, {}).setdefault(user_id, {}).setdefault(item, 0)
-        inventaire[guild_id][user_id][item] += quantite
+
+        # Ajout dans l'inventaire (liste)
+        inv, _, _ = get_user_data(guild_id, user_id)
+        inv.extend([item] * quantite)
         sauvegarder()
 
-        await interaction.response.send_message(f"✅ Tu as acheté {quantite}x {item} pour {prix_total} GC.", ephemeral=True)
+        await interaction.response.send_message(
+            f"✅ Tu as acheté {quantite}x {item} pour {prix_total} GC.",
+            ephemeral=True
+        )
 
     @app_commands.command(name="vendre", description="Vend un objet ou un personnage.")
     @app_commands.describe(objet="Emoji de l'objet à vendre ou nom du personnage", quantite="Quantité à vendre (objets seulement)")
@@ -88,38 +103,88 @@ class Shop(commands.Cog):
         user = interaction.user
         guild_id = str(interaction.guild_id)
         user_id = str(user.id)
-        inventaire_user = inventaire.get(guild_id, {}).get(user_id, {})
+        inv, _, _ = get_user_data(guild_id, user_id)
 
+        # --- Vente d'OBJET (emoji) ---
         if objet in ITEMS_CATALOGUE:
-            if quantite <= 0 or inventaire_user.get(objet, 0) < quantite:
-                await interaction.response.send_message("❌ Tu n'as pas assez de cet objet à vendre.", ephemeral=True)
+            if quantite <= 0:
+                await interaction.response.send_message("❌ Quantité invalide.", ephemeral=True)
+                return
+
+            # Compter combien l'utilisateur en a dans SA LISTE
+            possedes = sum(1 for i in inv if i == objet)
+            if possedes < quantite:
+                await interaction.response.send_message(
+                    "❌ Tu n'as pas assez de cet objet à vendre.",
+                    ephemeral=True
+                )
                 return
 
             montant = ITEMS_CATALOGUE[objet]["vente"] * quantite
-            inventaire_user[objet] -= quantite
-            if inventaire_user[objet] <= 0:
-                del inventaire_user[objet]
+
+            # Retirer 'quantite' occurrences de l'emoji dans la liste
+            a_retirer = quantite
+            new_inv = []
+            for i in inv:
+                if i == objet and a_retirer > 0:
+                    a_retirer -= 1
+                else:
+                    new_inv.append(i)
+            # Remplacer le contenu de la liste en place
+            inv.clear()
+            inv.extend(new_inv)
+
+            # Créditer
             ajouter_gotcoins(guild_id, user_id, montant)
             sauvegarder()
-            await interaction.response.send_message(f"✅ Tu as vendu {quantite}x {objet} pour {montant} GC.", ephemeral=True)
 
-        else:
-            nom_normalise = objet.lower()
-            for perso in PERSONNAGES.values():
-                if perso["nom"].lower() == nom_normalise:
-                    rarete = perso["rarete"].lower()
-                    montant = RARETE_PRIX_VENTE.get(rarete, 0)
-                    perso_list = inventaire_user.get("personnages", [])
-                    if perso["nom"] not in perso_list:
-                        await interaction.response.send_message("❌ Tu ne possèdes pas ce personnage.", ephemeral=True)
-                        return
-                    perso_list.remove(perso["nom"])
-                    ajouter_gotcoins(guild_id, user_id, montant)
-                    sauvegarder()
-                    await interaction.response.send_message(f"✅ Tu as vendu {perso['nom']} ({rarete.title()}) pour {montant} GC.", ephemeral=True)
-                    return
+            await interaction.response.send_message(
+                f"✅ Tu as vendu {quantite}x {objet} pour {montant} GC.",
+                ephemeral=True
+            )
+            return
 
+        # --- Vente de PERSONNAGE (par nom) ---
+        nom_normalise = objet.strip().lower()
+        perso = next((p for p in PERSONNAGES.values() if p["nom"].lower() == nom_normalise), None)
+
+        if not perso:
             await interaction.response.send_message("❌ Cet objet ou personnage est inconnu.", ephemeral=True)
+            return
+
+        # Trouver un item {"personnage": "Nom"} dans la liste d'inventaire
+        index = next((idx for idx, it in enumerate(inv)
+                      if isinstance(it, dict) and it.get("personnage") == perso["nom"]), None)
+
+        if index is None:
+            await interaction.response.send_message("❌ Tu ne possèdes pas ce personnage.", ephemeral=True)
+            return
+
+        rarete = perso["rarete"].lower()
+        montant = RARETE_PRIX_VENTE.get(rarete, 0)
+
+        # Retirer 1 exemplaire du personnage
+        inv.pop(index)
+        ajouter_gotcoins(guild_id, user_id, montant)
+        sauvegarder()
+
+        await interaction.response.send_message(
+            f"✅ Tu as vendu {perso['nom']} ({rarete.title()}) pour {montant} GC.",
+            ephemeral=True
+        )
 
 async def setup(bot):
     await bot.add_cog(Shop(bot))
+
+# --- compat : certains main.py appellent encore register_shop_commands(bot)
+def register_shop_commands(bot):
+    """
+    Compatibilité avec les anciens main.py qui appellent register_shop_commands(bot).
+    Enregistre le Cog Shop, ce qui enregistre aussi ses slash commands.
+    """
+    try:
+        bot.add_cog(Shop(bot))  # discord.py ≥2.x : add_cog est synchrone
+    except TypeError:
+        # Si l’environnement attend une coroutine, on bascule en tâche asynchrone
+        import asyncio
+        asyncio.create_task(bot.add_cog(Shop(bot)))
