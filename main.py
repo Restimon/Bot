@@ -57,6 +57,7 @@ from passifs import appliquer_passif
 from shop import register_shop_commands
 from perso import setup as setup_perso
 from tirage import setup as setup_tirage  # setup(bot) défini dans tirage.py
+from chat_ai import register_chat_ai_command
 
 # --------------------------------------------------------------------
 # Variables globales utilisées dans les boucles / on_message
