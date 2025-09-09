@@ -176,15 +176,20 @@ class Shop(commands.Cog):
 async def setup(bot):
     await bot.add_cog(Shop(bot))
 
-# --- compat : certains main.py appellent encore register_shop_commands(bot)
+# --- à AJOUTER / REMPLACER en bas de shop.py ---
+
 def register_shop_commands(bot):
     """
-    Compatibilité avec les anciens main.py qui appellent register_shop_commands(bot).
-    Enregistre le Cog Shop, ce qui enregistre aussi ses slash commands.
+    Compat avec les main.py qui appellent register_shop_commands(bot).
+    Enregistre le Cog Shop, que add_cog soit sync OU async selon ta version de discord.py.
     """
+    import asyncio
+    cog = Shop(bot)
     try:
-        bot.add_cog(Shop(bot))  # discord.py ≥2.x : add_cog est synchrone
+        result = bot.add_cog(cog)  # selon la version, renvoie None (sync) ou un coroutine (async)
+        if asyncio.iscoroutine(result):
+            asyncio.create_task(result)  # on programme l'attente sans bloquer
     except TypeError:
-        # Si l’environnement attend une coroutine, on bascule en tâche asynchrone
-        import asyncio
-        asyncio.create_task(bot.add_cog(Shop(bot)))
+        # Vieux environnements : add_cog peut exiger un await explicite
+        asyncio.create_task(bot.add_cog(cog))
+
