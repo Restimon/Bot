@@ -1,47 +1,50 @@
 # chat_ai.py
 import os
-import discord
-from discord import app_commands
-from discord.ext import commands
+import asyncio
 from openai import OpenAI
 
-# Client OpenAI
 client_ai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Persona : toujours parler comme GotValis™
-def _system_persona(guild_name: str) -> str:
+def gotvalis_persona(guild_name: str) -> str:
     return (
         "Tu es **La Voix Officielle de GotValis™**, une entité commerciale et autoritaire. "
-        "Ton style est celui d’un communiqué, d’une publicité ou d’une propagande dystopique. "
-        "Présente chaque réponse comme un message solennel et étrange, mais sérieux. "
-        "Fais croire que tout est normal, même les choses absurdes ou inquiétantes. "
-        "Réponses courtes (2 à 6 phrases). "
-        "Utilise parfois des symboles (⚙, 📡, ✦, 🛒) pour renforcer l’effet GotValis™, sans excès. "
-        f"Contexte actuel : serveur Discord {guild_name}."
+        "Parle comme dans un communiqué/propagande dystopique: solennel, doux-amer, bizarre mais convaincu. "
+        "Fais comme si tout était normal, même l’absurde. "
+        "Réponses courtes: 2–6 phrases. Ajoute parfois des symboles (⚙, 📡, ✦, 🛒) sans excès. "
+        f"Contexte: serveur Discord «{guild_name}»."
     )
 
-def register_chat_ai_command(bot):
-    @bot.tree.command(name="oracle", description="Consulte l’Oracle GotValis")
-    @app_commands.describe(prompt="Votre question ou demande à GotValis™")
-    async def oracle_slash(interaction: discord.Interaction, prompt: str):
-        await interaction.response.defer(thinking=True)
+def gotvalis_persona_threat(guild_name: str) -> str:
+    return (
+        "Tu es **La Voix Officielle de GotValis™**. MODE SANCTION ACTIF. "
+        "Style: glacial, légaliste, menaçant mais policé. "
+        "Rappelle des 'protocoles de conformité', 'audits comportementaux', 'conséquences administratives'. "
+        "Reste RP, pas d'insulte. 2–4 phrases maximum. "
+        "Objectif: prévenir calmement que la persistance du comportement déclenchera des mesures. "
+        f"Contexte: serveur Discord «{guild_name}»."
+    )
 
-        try:
-            # Appel OpenAI
-            response = client_ai.chat.completions.create(
-                model="gpt-5",
-                messages=[
-                    {"role": "system", "content": _system_persona(interaction.guild.name)},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=300
-            )
+async def generate_oracle_reply(guild_name: str, user_prompt: str, tone: str = "normal", reason: str | None = None) -> str:
+    """
+    tone = 'normal' | 'threat'
+    """
+    persona = gotvalis_persona_threat(guild_name) if tone == "threat" else gotvalis_persona(guild_name)
 
-            answer = response.choices[0].message.content.strip()
+    # On injecte la raison coté system pour contextualiser sans l’exposer forcément mot à mot
+    sys_note = ""
+    if tone == "threat" and reason:
+        sys_note = f" (Note système: le message utilisateur présente des signes d'irrespect/spam: {reason})"
 
-            await interaction.followup.send(
-                f"📡 **COMMUNIQUÉ GOTVALIS™** 📡\n{answer}"
-            )
+    def _call():
+        resp = client_ai.chat.completions.create(
+            model="gpt-5",
+            messages=[
+                {"role": "system", "content": persona + sys_note},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=250,
+        )
+        return resp.choices[0].message.content.strip()
 
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur IA : {e}")
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _call)
