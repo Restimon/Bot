@@ -11,6 +11,58 @@ from embeds import build_embed_from_item
 
 TIMEOUT_INTERNAL = 8  # filet de sécurité : jamais de "thinking..." infini
 
+# ──────────────────────────────────────────────────────────────
+# Adaptateurs robustes : testent les deux ordres d'arguments
+# ──────────────────────────────────────────────────────────────
+async def _safe_apply_item_with_cooldown(interaction, uid, tid, item, action):
+    """
+    Essaie (item, action), puis (action, item) si nécessaire.
+    Retour attendu : (embed, success)
+    """
+    try:
+        return await asyncio.wait_for(
+            apply_item_with_cooldown(interaction, uid, tid, item, action),
+            timeout=TIMEOUT_INTERNAL
+        )
+    except TypeError:
+        # Signature différente
+        return await asyncio.wait_for(
+            apply_item_with_cooldown(interaction, uid, tid, action, item),
+            timeout=TIMEOUT_INTERNAL
+        )
+    except AttributeError as e:
+        # Classique si un str est passé à la place d'un dict (item.get → boom)
+        if "get" in str(e):
+            return await asyncio.wait_for(
+                apply_item_with_cooldown(interaction, uid, tid, action, item),
+                timeout=TIMEOUT_INTERNAL
+            )
+        raise
+
+async def _safe_apply_attack_chain(interaction, uid, tid, item, action):
+    """
+    Même principe pour l’attaque en chaîne.
+    Retour : libre selon ton implé (souvent None / str / Embed).
+    """
+    try:
+        return await asyncio.wait_for(
+            apply_attack_chain(interaction, uid, tid, item, action),
+            timeout=TIMEOUT_INTERNAL
+        )
+    except TypeError:
+        return await asyncio.wait_for(
+            apply_attack_chain(interaction, uid, tid, action, item),
+            timeout=TIMEOUT_INTERNAL
+        )
+    except AttributeError as e:
+        if "get" in str(e):
+            return await asyncio.wait_for(
+                apply_attack_chain(interaction, uid, tid, action, item),
+                timeout=TIMEOUT_INTERNAL
+            )
+        raise
+
+
 def register_fight_command(bot):
     @bot.tree.command(name="fight", description="Attaque un autre membre avec un objet spécifique")
     @app_commands.describe(target="La personne à attaquer", item="Objet d’attaque à utiliser (emoji)")
@@ -23,7 +75,7 @@ def register_fight_command(bot):
             uid = str(interaction.user.id)
             tid = str(target.id)
 
-            # Basique : garde-fous
+            # Garde-fous
             if target.bot:
                 await interaction.followup.send(
                     "🤖 Tu ne peux pas attaquer un bot, même s’il a l’air louche.",
@@ -69,12 +121,8 @@ def register_fight_command(bot):
 
             # ☠️ Attaque en chaîne
             if item == "☠️":
-                # On impose un timeout pour ne jamais bloquer l'interaction
                 try:
-                    result = await asyncio.wait_for(
-                        apply_attack_chain(interaction, uid, tid, item, action),
-                        timeout=TIMEOUT_INTERNAL
-                    )
+                    result = await _safe_apply_attack_chain(interaction, uid, tid, item, action)
                 except asyncio.TimeoutError:
                     await interaction.followup.send(
                         "⏳ L’attaque en chaîne a pris trop de temps. Réessaie dans un instant.",
@@ -88,8 +136,7 @@ def register_fight_command(bot):
                     )
                     return
 
-                # `apply_attack_chain` peut soit avoir déjà envoyé des messages, soit retourner un embed/texte.
-                # On essaie d’envoyer quelque chose si on a un résultat exploitable.
+                # Selon ton implémentation, result peut être None / str / Embed
                 if isinstance(result, discord.Embed):
                     await interaction.followup.send(embed=result)
                 elif isinstance(result, str) and result.strip():
@@ -106,11 +153,7 @@ def register_fight_command(bot):
 
             # 🔹 Attaques normales (attaque / virus / poison / infection)
             try:
-                # On attend un (embed, success)
-                embed, success = await asyncio.wait_for(
-                    apply_item_with_cooldown(interaction, uid, tid, item, action),
-                    timeout=TIMEOUT_INTERNAL
-                )
+                embed, success = await _safe_apply_item_with_cooldown(interaction, uid, tid, item, action)
             except asyncio.TimeoutError:
                 await interaction.followup.send(
                     "⏳ L’attaque a pris trop de temps à se résoudre. Réessaie.",
@@ -124,9 +167,8 @@ def register_fight_command(bot):
                 )
                 return
 
-            # Parfois la fonction ne renvoie rien → on garantit une réponse
+            # Filet : si aucune réponse utile n'est produite
             if not embed:
-                # Message générique pour éviter l’attente infinie
                 embed = build_embed_from_item(
                     item,
                     f"{interaction.user.mention} attaque {target.mention}… opération enregistrée."
@@ -150,7 +192,6 @@ def register_fight_command(bot):
                     ephemeral=True
                 )
             except Exception:
-                # Si followup impossible (rare), on tente une réponse simple
                 if not interaction.response.is_done():
                     await interaction.response.send_message(
                         f"❌ Erreur inattendue : {e}",
