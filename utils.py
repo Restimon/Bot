@@ -1,11 +1,11 @@
+# utils.py
 import random
 import time
 
-from storage import hp, leaderboard
+from storage import hp, leaderboard, get_user_data
 from cooldowns import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN
 from effects import remove_status_effects
 from data import esquive_status
-from passifs import appliquer_passif
 
 # Objets disponibles
 OBJETS = {
@@ -30,7 +30,7 @@ OBJETS = {
     "🛡": {"type": "bouclier", "valeur": 20, "rarete": 18},
     "👟": {"type": "esquive+", "valeur": 0.2, "duree": 3 * 3600, "rarete": 14},
     "🪖": {"type": "reduction", "valeur": 0.5, "duree": 4 * 3600, "rarete": 16},
-    "⭐️": {"type": "immunite", "duree": 2 * 3600, "rarete": 22} 
+    "⭐️": {"type": "immunite", "duree": 2 * 3600, "rarete": 22}
 }
 
 REWARD_EMOJIS = ["💰"]
@@ -57,7 +57,6 @@ def get_random_item(debug=False):
 
 def handle_death(guild_id, target_id, source_id=None):
     hp[guild_id][target_id] = 100  # Réinitialise les PV
-
     try:
         remove_status_effects(guild_id, target_id)
     except Exception as e:
@@ -71,6 +70,35 @@ def get_mention(guild, user_id):
     member = guild.get_member(int(user_id))
     return member.mention if member else f"<@{user_id}>"
 
+# ---------- ✅ NOUVEAUX utilitaires demandés par passifs.py ----------
+
+def remove_random_item(guild_id: str, user_id: str):
+    """Retire un objet (emoji str) aléatoire de l'inventaire d'un joueur. Ignore les entrées 'personnage' (dict)."""
+    inv, _, _ = get_user_data(str(guild_id), str(user_id))
+    indices = [i for i, it in enumerate(inv) if isinstance(it, str)]
+    if not indices:
+        return None
+    idx = random.choice(indices)
+    return inv.pop(idx)
+
+def give_random_item(guild_id: str, user_id: str, item: str):
+    """Ajoute un objet (emoji str) à l'inventaire d'un joueur."""
+    inv, _, _ = get_user_data(str(guild_id), str(user_id))
+    inv.append(item)
+    return True
+
+def get_random_enemy(guild_id: str, exclude=None):
+    """
+    Renvoie l'ID (str) d’un joueur aléatoire différent du porteur.
+    On parcourt les joueurs connus via hp[guild_id].
+    """
+    exclude = set(map(str, exclude or []))
+    gid = str(guild_id)
+    candidates = [uid for uid in hp.get(gid, {}).keys() if str(uid) not in exclude]
+    return random.choice(candidates) if candidates else None
+
+# ---------- Fin des utilitaires pour passifs.py ----------
+
 def get_evade_chance(guild_id, user_id):
     """Calcule la chance d'esquive pour un utilisateur, avec bonus de statut et passifs."""
     base_chance = 0.10  # 10 % de base
@@ -83,11 +111,16 @@ def get_evade_chance(guild_id, user_id):
         bonus += data.get("valeur", 0.2)
 
     # 🌀 Passifs (Nova Rell, Elira Veska, etc.)
-    result = appliquer_passif(user_id, "calcul_esquive", {
-        "guild_id": guild_id,
-        "defenseur": user_id
-    })
-    if result:
-        bonus += result.get("bonus_esquive", 0.0) / 100  # En pourcentage
+    # ⬇️ Import paresseux pour éviter l’import circulaire avec passifs.py
+    try:
+        from passifs import appliquer_passif
+        result = appliquer_passif({"nom": ""}, "calcul_esquive", {
+            "guild_id": guild_id,
+            "defenseur": user_id
+        })
+        if result:
+            bonus += result.get("bonus_esquive", 0.0) / 100  # en pourcentage
+    except Exception:
+        pass
 
     return base_chance + bonus
