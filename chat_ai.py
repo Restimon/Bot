@@ -1,50 +1,121 @@
 # chat_ai.py
 import os
 import asyncio
-from openai import OpenAI
+import discord
+from discord import app_commands
+from discord.ext import commands
 
-client_ai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# On essaie d'importer la lib. Si absente, on degradera proprement.
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
-def gotvalis_persona(guild_name: str) -> str:
-    return (
-        "Tu es **La Voix Officielle de GotValis™**, une entité commerciale et autoritaire. "
-        "Parle comme dans un communiqué/propagande dystopique: solennel, doux-amer, bizarre mais convaincu. "
-        "Fais comme si tout était normal, même l’absurde. "
-        "Réponses courtes: 2–6 phrases. Ajoute parfois des symboles (⚙, 📡, ✦, 🛒) sans excès. "
-        f"Contexte: serveur Discord «{guild_name}»."
-    )
+_CLIENT = None
 
-def gotvalis_persona_threat(guild_name: str) -> str:
-    return (
-        "Tu es **La Voix Officielle de GotValis™**. MODE SANCTION ACTIF. "
-        "Style: glacial, légaliste, menaçant mais policé. "
-        "Rappelle des 'protocoles de conformité', 'audits comportementaux', 'conséquences administratives'. "
-        "Reste RP, pas d'insulte. 2–4 phrases maximum. "
-        "Objectif: prévenir calmement que la persistance du comportement déclenchera des mesures. "
-        f"Contexte: serveur Discord «{guild_name}»."
-    )
+def _ensure_client():
+    """Crée/renvoie le client OpenAI, ou lève une erreur claire s'il manque."""
+    global _CLIENT
+    if _CLIENT is not None:
+        return _CLIENT
 
-async def generate_oracle_reply(guild_name: str, user_prompt: str, tone: str = "normal", reason: str | None = None) -> str:
-    """
-    tone = 'normal' | 'threat'
-    """
-    persona = gotvalis_persona_threat(guild_name) if tone == "threat" else gotvalis_persona(guild_name)
-
-    # On injecte la raison coté system pour contextualiser sans l’exposer forcément mot à mot
-    sys_note = ""
-    if tone == "threat" and reason:
-        sys_note = f" (Note système: le message utilisateur présente des signes d'irrespect/spam: {reason})"
-
-    def _call():
-        resp = client_ai.chat.completions.create(
-            model="gpt-5",
-            messages=[
-                {"role": "system", "content": persona + sys_note},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=250,
+    if OpenAI is None:
+        raise RuntimeError(
+            "Le module 'openai' n'est pas installé. "
+            "Ajoute `openai>=1.51.0` dans requirements.txt et redeploie."
         )
-        return resp.choices[0].message.content.strip()
 
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _call)
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "La variable d'environnement OPENAI_API_KEY est manquante. "
+            "Ajoute-la dans Render (Dashboard → Environment)."
+        )
+
+    _CLIENT = OpenAI(api_key=api_key)
+    return _CLIENT
+
+async def generate_oracle_reply(guild_name: str, prompt: str, tone: str = "normal", reason: str | None = None) -> str:
+    """
+    Génère une réponse RP "GotValis".
+    tone: "normal" ou "threat"
+    """
+    # Message système + style
+    persona_base = (
+        "Tu es GOTVALIS™, entité mystérieuse corporatiste. "
+        "Style: solennel, légèrement menaçant, techno-mystique, RP. "
+        "Parle en français. Réponses concises (2-5 phrases)."
+    )
+
+    if tone == "threat":
+        persona_base += (
+            " Si l'utilisateur provoque ou trolle, tu émets un avertissement ferme, "
+            "suggérant des 'conséquences de conformité', sans violence réelle ni menace illégale."
+        )
+
+    if reason:
+        persona_base += f" Contexte modération: {reason}."
+
+    # Prompt final
+    full_prompt = (
+        f"{persona_base}\n"
+        f"Contexte serveur: {guild_name}\n"
+        f"Question/texte utilisateur: {prompt}\n"
+        "Réponds dans l’univers de GotValis™ avec une mise en garde subtile si nécessaire."
+    )
+
+    # Si la lib/clé manque, on renvoie un message RP fallback
+    try:
+        client = _ensure_client()
+    except Exception as e:
+        # Fallback RP local si OpenAI non dispo
+        if tone == "threat":
+            return ("« Votre signal cognitif a franchi le seuil d’alarme. "
+                    "Poursuivre sur cette trajectoire déclenchera des audits de conformité. "
+                    "Recalibrez votre langage et reprenez une respiration contrôlée. »")
+        return ("« Les circuits oraculaires sont momentanément isolés. "
+                "GotValis™ entend toutefois votre requête… patientez le temps d’un battement quantique. »")
+
+    # Appel Responses API (modèle à ta convenance)
+    try:
+        resp = client.responses.create(
+            model="gpt-5",  # ou "gpt-4.1-mini" si indisponible
+            input=full_prompt,
+        )
+        # Accès texte robuste (structure Responses API)
+        # La plupart du temps: resp.output[0].content[0].text
+        # On tente proprement:
+        txt = None
+        try:
+            txt = resp.output[0].content[0].text
+        except Exception:
+            # Fallback plus large: on cherche un champ texte plausible
+            if hasattr(resp, "output") and resp.output:
+                for block in resp.output:
+                    if hasattr(block, "content") and block.content:
+                        for c in block.content:
+                            if hasattr(c, "text") and c.text:
+                                txt = c.text
+                                break
+                    if txt:
+                        break
+        if not txt:
+            txt = "« Les augures se brouillent. Le Verbe reprendra quand la trame sera stable. »"
+        return txt.strip()
+    except Exception:
+        # Fallback RP en cas d'erreur API
+        if tone == "threat":
+            return ("« Vos impulsions cognitives sont notées. "
+                    "Poursuivre l’irrespect compromettra votre accès au confort collectif. »")
+        return ("« Les oracles sont saturés. GotValis™ conserve votre requête en mémoire élastique. »")
+
+def register_chat_ai_command(bot: commands.Bot):
+    @bot.tree.command(name="ask", description="Pose une question à l'IA GotValis")
+    @app_commands.describe(prompt="Ce que tu veux demander à l'IA")
+    async def ask_slash(interaction: discord.Interaction, prompt: str):
+        await interaction.response.defer(thinking=True, ephemeral=False)
+        try:
+            reply = await generate_oracle_reply(interaction.guild.name, prompt, tone="normal")
+            await interaction.followup.send(f"📡 **COMMUNIQUÉ GOTVALIS™** 📡\n{reply}")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erreur IA : {e}", ephemeral=True)
