@@ -1,11 +1,18 @@
-import discord
-from discord.ext import commands
-import asyncio
+# main.py
 import os
+import sys
 import time
 import random
+import atexit
+import signal
+import logging
+import datetime
+import asyncio
 
+import discord
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
+
 from config import load_config, get_config, get_guild_config, save_config
 from data import (
     charger, sauvegarder,
@@ -15,7 +22,7 @@ from data import (
     weekly_message_log, malus_degat,
     zeyra_last_survive_time, valen_seuils, burn_status
 )
-from utils import get_random_item, OBJETS, handle_death  
+from utils import get_random_item, OBJETS, handle_death
 from storage import get_user_data, inventaire, hp, leaderboard
 from combat import apply_item_with_cooldown, apply_shield
 from inventory import build_inventory_embed
@@ -43,15 +50,45 @@ from utilitaire import register_utilitaire_command
 from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
-from economy import add_gotcoins, gotcoins_balance, get_balance, compute_message_gains
+from economy import add_gotcoins, gotcoins_balance, get_balance  # ⬅️ compute_message_gains retiré
 from stats import register_stats_command
 from bank import register_bank_command
 from passifs import appliquer_passif
 from shop import register_shop_commands
-from tirage import register_tirage_command
 from perso import setup as setup_perso
+from tirage import setup as setup_tirage  # ⬅️ on utilise setup(bot) fourni par tirage.py
 
-# Préparation
+# --------------------------------------------------------------------
+# Variables globales utilisées dans les boucles / on_message
+# --------------------------------------------------------------------
+gotcoins_cooldowns = {}      # {user_id: last_gain_ts}
+message_counter = 0
+random_threshold = random.randint(4, 8)
+last_drop_time = 0.0
+voice_tracking = {}          # {guild_id: {user_id: {"start": ts, "last_reward": ts}}}
+
+# --------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------
+def compute_message_gains(content: str) -> int:
+    """
+    Calcul simple du gain GotCoins pour un message texte.
+    Ajuste librement les paliers si tu veux.
+    """
+    length = len(content.strip())
+    if length < 20:
+        return 0
+    if length < 60:
+        return 1
+    if length < 120:
+        return 2
+    if length < 240:
+        return 3
+    return 4
+
+# --------------------------------------------------------------------
+# Préparation & bot
+# --------------------------------------------------------------------
 os.makedirs("/persistent", exist_ok=True)
 load_dotenv()
 charger()
@@ -65,19 +102,18 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-# 🎮 Commandes Slash Globales
+# ===================== Slash Commands rapides ======================
+
 @bot.tree.command(name="inv", description="Voir l'inventaire d'un membre")
 async def inv_slash(interaction: discord.Interaction, user: discord.Member = None):
     try:
         await interaction.response.defer(thinking=False)
     except discord.NotFound:
-        return  
-
+        return
     member = user or interaction.user
     guild_id = str(interaction.guild.id)
     user_id = str(member.id)
     embed = build_inventory_embed(user_id, bot, guild_id)
-
     await interaction.followup.send(
         embed=embed,
         ephemeral=(user is not None and user != interaction.user)
@@ -89,7 +125,8 @@ async def leaderboard_slash(interaction: discord.Interaction):
     embed = await build_leaderboard_embed(bot, interaction.guild)
     await interaction.followup.send(embed=embed)
 
-# 🔧 Commandes texte
+# ===================== Commands texte utilitaires ===================
+
 @bot.command()
 async def check_persistent(ctx):
     files = os.listdir("/persistent")
@@ -100,7 +137,8 @@ async def sync(ctx):
     await bot.tree.sync(guild=ctx.guild)
     await ctx.send("✅ Commandes slash resynchronisées avec succès.")
 
-# 🧠 Enregistrement des commandes
+# ===================== Enregistrement central ======================
+
 def register_all_commands(bot):
     register_help_commands(bot)
     register_daily_command(bot)
@@ -109,7 +147,7 @@ def register_all_commands(bot):
     register_admin_commands(bot)
     register_profile_command(bot)
     register_status_command(bot)
-    register_box_command(bot)                     
+    register_box_command(bot)
     register_item_command(bot)
     register_kiss_command(bot)
     register_hug_command(bot)
@@ -118,19 +156,21 @@ def register_all_commands(bot):
     register_slap_command(bot)
     register_ahelp_command(bot)
     register_sync_command(bot)
-    register_utilitaire_command(bot) 
+    register_utilitaire_command(bot)
     register_lick_command(bot)
     register_bite_command(bot)
     register_love_command(bot)
     register_stats_command(bot)
     register_bank_command(bot)
     register_shop_commands(bot)
-    register_tirage_command(bot)
+    # ⬇️ tirage: on ajoute le COG via setup_tirage dans main() (asynchrone)
 
-# 🚀 Lancement du bot
+# ===================== Entrée principale ===========================
+
 async def main():
     register_all_commands(bot)
     await setup_perso(bot)
+    await setup_tirage(bot)  # ⬅️ enregistre le Cog Tirage
     await bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
@@ -144,10 +184,10 @@ async def on_ready():
     print("🤖 Bot prêt. Synchronisation des commandes...")
     await reset_supply_flags(bot)
 
-    # Enregistrement des commandes (une seule fois)
+    # Enregistrement des commandes (sécurité)
     register_all_commands(bot)
-    
-    # Synchronisation globale (sans GUILD_ID)
+
+    # Synchronisation globale
     try:
         await bot.tree.sync()
         print("✅ Commandes slash synchronisées globalement.")
@@ -155,21 +195,18 @@ async def on_ready():
         print(f"❌ Erreur de synchronisation globale : {e}")
 
     # Chargement des données
-    now = time.time()
     charger()
     load_config()
 
     # Boucles de statut & ravitaillement
     asyncio.create_task(special_supply_loop(bot))
-    asyncio.create_task(virus_damage_loop())
-    asyncio.create_task(poison_damage_loop())
-    asyncio.create_task(infection_damage_loop())
-    
+    virus_damage_loop.start()
+    poison_damage_loop.start()
+    infection_damage_loop.start()
+
     # Présence du bot
     activity = discord.Activity(type=discord.ActivityType.watching, name="en /help | https://discord.gg/jkbfFRqzZP")
     await bot.change_presence(status=discord.Status.online, activity=activity)
-
-    # Gestion du ravitaillement en cours (si redémarrage pendant un ravitaillement actif)
 
     print(f"✅ GotValis Bot prêt. Connecté en tant que {bot.user}")
     print("🔧 Commandes slash enregistrées :")
@@ -177,11 +214,11 @@ async def on_ready():
         print(f" - /{command.name}")
 
     # Boucles principales
-    bot.loop.create_task(update_leaderboard_loop())
-    bot.loop.create_task(yearly_reset_loop())
-    bot.loop.create_task(autosave_data_loop())
-    bot.loop.create_task(daily_restart_loop())
-    asyncio.create_task(auto_backup_loop())
+    update_leaderboard_loop.start()
+    yearly_reset_loop.start()
+    autosave_data_loop.start()
+    daily_restart_loop.start()
+    auto_backup_loop.start()
     regeneration_loop.start()
     voice_tracking_loop.start()
     cleanup_weekly_logs.start()
@@ -195,14 +232,12 @@ async def on_message(message):
     guild_id = str(message.guild.id)
     user_id = str(message.author.id)
     channel_id = message.channel.id
-    
+
     weekly_message_log.setdefault(guild_id, {}).setdefault(user_id, [])
     weekly_message_log[guild_id][user_id].append(time.time())
 
-    # Puis process les commandes si besoin
     await bot.process_commands(message)
 
-    from special_supply import update_last_active_channel
     try:
         update_last_active_channel(message)
     except Exception as e:
@@ -227,37 +262,33 @@ async def on_message(message):
             gain = compute_message_gains(message.content)
             if gain > 0:
                 add_gotcoins(guild_id, user_id, gain, category="autre")
-
                 gotcoins_cooldowns[user_id] = now  # Cooldown mis à jour uniquement si gain
-                print(f"💰 Gain {gain} GotCoins pour {message.author.display_name} (via message)")
-
-                # Si gain actif → on ne déclenche pas de ravitaillement aléatoire
+                # Ne pas déclencher de drop si gain actif
                 await bot.process_commands(message)
                 return
-    # Sinon, pas de gain ou pas de cooldown prêt → continue vers ravitaillement
 
     # 📦 Ravitaillement classique aléatoire
     global message_counter, random_threshold, last_drop_time
-    
+
     message_counter += 1
     if message_counter < random_threshold:
         await bot.process_commands(message)
         return
-    
+
     current_time = asyncio.get_event_loop().time()
     if current_time - last_drop_time < 30:
         await bot.process_commands(message)
         return
-    
+
     last_drop_time = current_time
     message_counter = 0
     random_threshold = random.randint(4, 8)
-    
+
     # --- Choisir l'item ---
     item = get_random_item()
     await message.add_reaction(item)
     collected_users = []
-    
+
     def check(reaction, user):
         return (
             reaction.message.id == message.id
@@ -265,10 +296,10 @@ async def on_message(message):
             and not user.bot
             and user.id not in [u.id for u in collected_users]
         )
-    
+
     end_time = current_time + 15
-    user_rewards = {}  # pour savoir ce que chaque user a eu
-    
+    user_rewards = {}
+
     while len(collected_users) < 3 and asyncio.get_event_loop().time() < end_time:
         try:
             reaction, user = await asyncio.wait_for(
@@ -277,28 +308,21 @@ async def on_message(message):
             )
             uid = str(user.id)
             collected_users.append(user)
-    
-            # Si c'est 💰 → on donne des GotCoins, pas d'item
+
             if item == "💰":
                 gain = random.randint(3, 12)
                 add_gotcoins(guild_id, uid, gain, category="autre")
                 user_rewards[user] = f"💰 +{gain} GotCoins"
             else:
-                # Objet classique → inventaire
                 user_inv, _, _ = get_user_data(guild_id, uid)
                 user_inv.append(item)
                 user_rewards[user] = f"{item}"
-    
+
         except asyncio.TimeoutError:
             break
-    
-    # --- Embed final
+
     if collected_users:
-        lines = []
-        for user in collected_users:
-            reward_text = user_rewards.get(user, "❓")
-            lines.append(f"✅ {user.mention} a récupéré : {reward_text}")
-    
+        lines = [f"✅ {u.mention} a récupéré : {user_rewards.get(u, '❓')}" for u in collected_users]
         embed = discord.Embed(
             title="📦 Ravitaillement récupéré",
             description="\n".join(lines),
@@ -310,779 +334,390 @@ async def on_message(message):
             description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
             color=0xFF0000
         )
-    
+
     await message.channel.send(embed=embed)
-    
-    # Terminer avec process_commands
     await bot.process_commands(message)
 
-# ===================== Auto-Update Leaderboard ======================
+# ===================== Loops ======================
 
+@tasks.loop(seconds=60)
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
-    
-    while not bot.is_closed():
-        print("⏳ [LOOP] Mise à jour des leaderboards spéciaux (GotCoins)...")
+    print("⏳ [LOOP] Mise à jour des leaderboards spéciaux (GotCoins)...")
 
-        for guild in bot.guilds:
-            guild_id = str(guild.id)
-            guild_config = get_guild_config(guild_id)
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        guild_config = get_guild_config(guild_id)
 
-            channel_id = guild_config.get("special_leaderboard_channel_id")
-            message_id = guild_config.get("special_leaderboard_message_id")
+        channel_id = guild_config.get("special_leaderboard_channel_id")
+        message_id = guild_config.get("special_leaderboard_message_id")
 
-            print(f"🔍 [{guild.name}] Config : {guild_config}")
-            print(f" → Channel ID : {channel_id} | Message ID : {message_id}")
+        if not channel_id:
+            continue
 
-            if not channel_id:
-                print(f"⚠️ Aucun salon configuré pour {guild.name}")
-                continue
+        channel = bot.get_channel(channel_id)
+        if not channel:
+            continue
 
-            channel = bot.get_channel(channel_id)
-            if not channel:
-                print(f"❌ Salon introuvable : {channel_id}")
-                continue
+        medals = ["🥇", "🥈", "🥉"]
+        server_balance = gotcoins_balance.get(guild_id, {})
+        server_hp = hp.get(guild_id, {})
+        server_shields = shields.get(guild_id, {})
 
-            medals = ["🥇", "🥈", "🥉"]
-            server_balance = gotcoins_balance.get(guild_id, {})
-            server_hp = hp.get(guild_id, {})
-            server_shields = shields.get(guild_id, {})
+        sorted_lb = sorted(server_balance.items(), key=lambda x: x[1], reverse=True)
 
-            # Trié par argent pur
-            sorted_lb = sorted(
-                server_balance.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )
-
-            lines = []
-            rank = 0
-
-            for uid, balance in sorted_lb:
-                try:
-                    int_uid = int(uid)
-                    member = guild.get_member(int_uid)
-                    if not member:
-                        continue  # Si le membre n'est plus dans le serveur, on l'ignore
-                except (ValueError, TypeError):
-                    print(f"⚠️ UID non valide ignoré : {uid}")
-                    continue
-
-                if rank >= 10:
-                    break
-
-                pv = server_hp.get(uid, 100)
-                pb = server_shields.get(uid, 0)
-
-                prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
-
-                # ✅ ligne simplifiée : toujours 💰 + ❤️, et on ajoute 🛡️ seulement si > 0
-                line = (
-                    f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | "
-                    f"❤️ {pv} PV"
-                )
-
-                if pb > 0:
-                    line += f" / 🛡️ {pb} PB"
-
-                lines.append(line)
-                rank += 1
-
-            embed = discord.Embed(
-                title="🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆",
-                description="\n".join(lines) if lines else "*Aucune donnée disponible.*",
-                color=discord.Color.gold()
-            )
-
-            embed.set_footer(text="💰 Les GotCoins représentent votre richesse accumulée.")
-
+        lines, rank = [], 0
+        for uid, balance in sorted_lb:
             try:
-                if message_id:
-                    print(f"✏️ Modification du message {message_id} dans {channel.name}")
-                    msg = await channel.fetch_message(message_id)
-                    await msg.edit(content=None, embed=embed)
-                else:
-                    raise discord.NotFound(response=None, message="No message ID")
-            except (discord.NotFound, discord.HTTPException) as e:
-                print(f"📤 Envoi d’un nouveau message dans {channel.name} ({e})")
-                try:
-                    msg = await channel.send(embed=embed)
-                    guild_config["special_leaderboard_message_id"] = msg.id
-                    save_config()
-                except Exception as e:
-                    print(f"❌ Échec de l’envoi du message dans {channel.name} : {e}")
+                member = guild.get_member(int(uid))
+                if not member:
+                    continue
+            except Exception:
+                continue
 
-        await asyncio.sleep(60)
-        
+            if rank >= 10:
+                break
+
+            pv = server_hp.get(uid, 100)
+            pb = server_shields.get(uid, 0)
+            prefix = medals[rank] if rank < len(medals) else f"{rank + 1}."
+            line = f"{prefix} **{member.display_name}** → 💰 **{balance} GotCoins** | ❤️ {pv} PV"
+            if pb > 0:
+                line += f" / 🛡️ {pb} PB"
+            lines.append(line)
+            rank += 1
+
+        embed = discord.Embed(
+            title="🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆",
+            description="\n".join(lines) if lines else "*Aucune donnée disponible.*",
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text="💰 Les GotCoins représentent votre richesse accumulée.")
+
+        try:
+            if message_id:
+                msg = await channel.fetch_message(message_id)
+                await msg.edit(content=None, embed=embed)
+            else:
+                raise discord.NotFound(response=None, message="No message ID")
+        except (discord.NotFound, discord.HTTPException):
+            try:
+                msg = await channel.send(embed=embed)
+                guild_config["special_leaderboard_message_id"] = msg.id
+                save_config()
+            except Exception as e:
+                print(f"❌ Échec de l’envoi du message dans {channel.name} : {e}")
+
+@tasks.loop(seconds=30)
 async def yearly_reset_loop():
     await bot.wait_until_ready()
-    while not bot.is_closed():
-        now = datetime.datetime.utcnow()
-        if now.month == 12 and now.day == 31 and now.hour == 23 and now.minute == 59:
-            from storage import inventaire, hp, leaderboard
-            from data import sauvegarder
+    now = datetime.datetime.utcnow()
+    if now.month == 12 and now.day == 31 and now.hour == 23 and now.minute == 59:
+        from data import sauvegarder as data_save
+        # reset
+        for gid in list(inventaire.keys()):
+            inventaire[gid] = {}
+        for gid in list(hp.keys()):
+            hp[gid] = {}
+        for gid in list(leaderboard.keys()):
+            leaderboard[gid] = {}
+        data_save()
+        print("🎉 Réinitialisation annuelle effectuée pour tous les serveurs.")
+        # annonce
+        config = get_config()
+        announcement_msg = "🎊 Les statistiques ont été remises à zéro pour la nouvelle année ! Merci pour votre participation à GotValis."
+        for server_id, server_conf in config.items():
+            ch_id = server_conf.get("leaderboard_channel_id")
+            if not ch_id:
+                continue
+            channel = bot.get_channel(ch_id)
+            if channel:
+                await channel.send(announcement_msg)
 
-            for gid in list(inventaire.keys()):
-                inventaire[gid] = {}
-            for gid in list(hp.keys()):
-                hp[gid] = {}
-            for gid in list(leaderboard.keys()):
-                leaderboard[gid] = {}
-
-            sauvegarder()
-            print("🎉 Réinitialisation annuelle effectuée pour tous les serveurs.")
-            announcement_msg = "🎊 Les statistiques ont été remises à zéro pour la nouvelle année ! Merci pour votre participation à GotValis."
-
-            for server_id, server_conf in config.items():
-                channel_id = server_conf.get("leaderboard_channel_id")
-                if not channel_id:
-                    continue
-                try:
-                    channel = bot.get_channel(channel_id)
-                    if channel:
-                        await channel.send(announcement_msg)
-                except Exception as e:
-                    logging.error(f"❌ Impossible d'envoyer l'annonce dans le salon {channel_id} (serveur {server_id}) : {e}")
-
-            await asyncio.sleep(60)
-        else:
-            await asyncio.sleep(30)
-
+@tasks.loop(seconds=300)
 async def autosave_data_loop():
-    from data import sauvegarder
     await bot.wait_until_ready()
-    while not bot.is_closed():
-        sauvegarder()
-        await asyncio.sleep(300)
+    sauvegarder()
 
+@tasks.loop(seconds=30)
 async def daily_restart_loop():
     await bot.wait_until_ready()
-    while not bot.is_closed():
-        now = datetime.datetime.now()
-        tomorrow = now + datetime.timedelta(days=1)
-        restart_time = datetime.datetime.combine(tomorrow.date(), datetime.time(23, 59, 59))
+    now = datetime.datetime.now()
+    tomorrow = now + datetime.timedelta(days=1)
+    restart_time = datetime.datetime.combine(tomorrow.date(), datetime.time(23, 59, 59))
+    wait_seconds = (restart_time - now).total_seconds()
+    print(f"⏳ Prochain redémarrage automatique prévu dans {int(wait_seconds)} secondes.")
+    await asyncio.sleep(wait_seconds)
+    print("🔁 Redémarrage automatique quotidien en cours (Render)...")
+    sauvegarder()
+    sys.exit(0)
 
-        wait_seconds = (restart_time - now).total_seconds()
-        print(f"⏳ Prochain redémarrage automatique prévu dans {int(wait_seconds)} secondes.")
-        await asyncio.sleep(wait_seconds)
-
-        print("🔁 Redémarrage automatique quotidien en cours (Render)...")
-        sauvegarder()
-        sys.exit(0)  
-        
 @tasks.loop(seconds=30)
 async def virus_damage_loop():
     await bot.wait_until_ready()
-    print("🦠 Boucle de dégâts viraux démarrée.")
-
-    while not bot.is_closed():
-        now = time.time()
-
-        for guild in bot.guilds:
-            gid = str(guild.id)
+    now = time.time()
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        await asyncio.sleep(0)
+        if gid not in virus_status:
+            continue
+        for uid, status in list(virus_status[gid].items()):
             await asyncio.sleep(0)
+            start = status.get("start")
+            duration = status.get("duration")
+            next_tick = status.get("next_tick", 0)
+            source_id = status.get("source")
+            channel_id = status.get("channel_id")
 
-            if gid not in virus_status:
-                continue
-
-            for uid, status in list(virus_status[gid].items()):
-                await asyncio.sleep(0)
-
-                start = status.get("start")
-                duration = status.get("duration")
-                next_tick = status.get("next_tick", 0)
-                source_id = status.get("source")
-                channel_id = status.get("channel_id")
-
-                elapsed = now - start
+            elapsed = now - start
+            if elapsed >= duration or now < next_tick:
                 if elapsed >= duration:
                     del virus_status[gid][uid]
-                    continue
+                continue
 
-                if now < next_tick:
-                    continue
+            # purge éventuelle
+            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            if purge_result and purge_result.get("purger_statut"):
+                del virus_status[gid][uid]
+                continue
 
-                # ✅ Passif Maelis Dorne : purge possible
-                purge_result = appliquer_passif("purge_auto", {
-                    "guild_id": gid,
-                    "user_id": uid,
-                    "last_timestamp": start
-                })
-                if purge_result and purge_result.get("purger_statut"):
-                    del virus_status[gid][uid]
-                    continue
+            virus_status[gid][uid]["next_tick"] = now + 3600
+            dmg = 5
+            hp.setdefault(gid, {})
+            shields.setdefault(gid, {})
+            hp_before = hp[gid].get(uid, 100)
+            pb_before = shields[gid].get(uid, 0)
+            dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
+            pb_after = shields[gid].get(uid, 0)
+            hp_after = max(hp_before - dmg_final, 0)
+            hp[gid][uid] = hp_after
+            real_dmg = hp_before - hp_after
+            if uid != source_id:
+                leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[gid][source_id]["degats"] += real_dmg
 
-                virus_status[gid][uid]["next_tick"] = now + 3600  # prochain tick dans 1h
-
-                dmg = 5
-                hp.setdefault(gid, {})
-                shields.setdefault(gid, {})
-
-                hp_before = hp[gid].get(uid, 100)
-                pb_before = shields[gid].get(uid, 0)
-
-                dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
-                pb_after = shields[gid].get(uid, 0)
-                hp_after = max(hp_before - dmg_final, 0)
-                hp[gid][uid] = hp_after
-
-                real_dmg = hp_before - hp_after
-
-                if uid != source_id:
-                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                    leaderboard[gid][source_id]["degats"] += real_dmg
-
-                remaining = max(0, duration - elapsed)
-                remaining_min = int(remaining // 60)
-
-                try:
-                    channel = bot.get_channel(channel_id)
-                    if channel:
-                        member = await bot.fetch_user(int(uid))
-                        await asyncio.sleep(0.05)
-
-                        if lost_pb and real_dmg == 0:
-                            desc = (
-                                f"🦠 {member.mention} subit **{lost_pb} dégâts** *(Virus)*.\n"
-                                f"🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
-                            )
-                        elif lost_pb and real_dmg > 0:
-                            desc = (
-                                f"🦠 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Virus)*.\n"
-                                f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
-                            )
-                        else:
-                            desc = (
-                                f"🦠 {member.mention} subit **{real_dmg} dégâts** *(Virus)*.\n"
-                                f"❤️ {hp_before} - {real_dmg} PV = {hp_after} PV"
-                            )
-
-                        desc += f"\n⏳ Temps restant : **{remaining_min} min**"
-
-                        embed = discord.Embed(description=desc, color=discord.Color.dark_purple())
-                        await channel.send(embed=embed)
-                        await asyncio.sleep(0.05)
-
-                        if shield_broken:
-                            await channel.send(embed=discord.Embed(
-                                title="🛡 Bouclier détruit",
-                                description=f"Le bouclier de {member.mention} a été **détruit** par le virus.",
-                                color=discord.Color.dark_blue()
-                            ))
-
-                        if hp_after == 0:
-                            handle_death(gid, uid, source_id)
-                            embed_ko = discord.Embed(
-                                title="💀 KO viral détecté",
-                                description=(
-                                    f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
-                                    f"🦠 Effondrement dû à une **charge virale critique**.\n"
-                                    f"🔄 {member.mention} est **stabilisé à 100 PV**."
-                                ),
-                                color=0x8800FF
-                            )
-                            await channel.send(embed=embed_ko)
-
-                except Exception as e:
-                    print(f"[virus_damage_loop] Erreur d’envoi embed : {e}")
-
-        await asyncio.sleep(30)
+            remaining = max(0, duration - elapsed)
+            remaining_min = int(remaining // 60)
+            try:
+                channel = bot.get_channel(channel_id)
+                if channel:
+                    member = await bot.fetch_user(int(uid))
+                    if lost_pb and real_dmg == 0:
+                        desc = f"🦠 {member.mention} subit **{lost_pb} dégâts** *(Virus)*.\n🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
+                    elif lost_pb and real_dmg > 0:
+                        desc = f"🦠 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Virus)*.\n❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
+                    else:
+                        desc = f"🦠 {member.mention} subit **{real_dmg} dégâts** *(Virus)*.\n❤️ {hp_before} - {real_dmg} PV = {hp_after} PV"
+                    desc += f"\n⏳ Temps restant : **{remaining_min} min**"
+                    embed = discord.Embed(description=desc, color=discord.Color.dark_purple())
+                    await channel.send(embed=embed)
+                    if shield_broken:
+                        await channel.send(embed=discord.Embed(
+                            title="🛡 Bouclier détruit",
+                            description=f"Le bouclier de {member.mention} a été **détruit** par le virus.",
+                            color=discord.Color.dark_blue()
+                        ))
+                    if hp_after == 0:
+                        handle_death(gid, uid, source_id)
+                        await channel.send(embed=discord.Embed(
+                            title="💀 KO viral détecté",
+                            description=(f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
+                                         f"🦠 Effondrement dû à une **charge virale critique**.\n"
+                                         f"🔄 {member.mention} est **stabilisé à 100 PV**."),
+                            color=0x8800FF
+                        ))
+            except Exception as e:
+                print(f"[virus_damage_loop] Erreur d’envoi embed : {e}")
 
 @tasks.loop(seconds=30)
 async def poison_damage_loop():
     await bot.wait_until_ready()
-    print("🧪 Boucle de dégâts de poison démarrée.")
-
-    while not bot.is_closed():
-        now = time.time()
-
-        for guild in bot.guilds:
-            gid = str(guild.id)
+    now = time.time()
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        await asyncio.sleep(0)
+        if gid not in poison_status:
+            continue
+        for uid, status in list(poison_status[gid].items()):
             await asyncio.sleep(0)
-
-            if gid not in poison_status:
-                continue
-
-            for uid, status in list(poison_status[gid].items()):
-                await asyncio.sleep(0)
-
-                start = status.get("start")
-                duration = status.get("duration")
-                next_tick = status.get("next_tick", 0)
-                source_id = status.get("source")
-                channel_id = status.get("channel_id")
-
-                elapsed = now - start
+            start = status.get("start")
+            duration = status.get("duration")
+            next_tick = status.get("next_tick", 0)
+            source_id = status.get("source")
+            channel_id = status.get("channel_id")
+            elapsed = now - start
+            if elapsed >= duration or now < next_tick:
                 if elapsed >= duration:
                     del poison_status[gid][uid]
-                    continue
+                continue
 
-                if now < next_tick:
-                    continue
+            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            if purge_result and purge_result.get("purger_statut"):
+                del poison_status[gid][uid]
+                continue
 
-                # ✅ Tentative de purge via passif Maelis Dorne
-                purge_result = appliquer_passif("purge_auto", {
-                    "guild_id": gid,
-                    "user_id": uid,
-                    "last_timestamp": start
-                })
-                if purge_result and purge_result.get("purger_statut"):
-                    del poison_status[gid][uid]
-                    continue
+            poison_status[gid][uid]["next_tick"] = now + 1800
+            dmg = 3
+            hp.setdefault(gid, {})
+            shields.setdefault(gid, {})
+            before = hp[gid].get(uid, 100)
+            pb_before = shields[gid].get(uid, 0)
+            dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
+            pb_after = shields[gid].get(uid, 0)
+            after = max(before - dmg_final, 0)
+            hp[gid][uid] = after
+            real_dmg = before - after
+            if uid != source_id:
+                leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[gid][source_id]["degats"] += real_dmg
 
-                poison_status[gid][uid]["next_tick"] = now + 1800  # Prochain tick dans 30 min
+            remaining = max(0, duration - elapsed)
+            remaining_min = int(remaining // 60)
+            try:
+                channel = bot.get_channel(channel_id)
+                if channel:
+                    member = await bot.fetch_user(int(uid))
+                    if lost_pb and real_dmg == 0:
+                        desc = f"🧪 {member.mention} subit **{lost_pb} dégâts** *(Poison)*.\n🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
+                    elif lost_pb and real_dmg > 0:
+                        desc = f"🧪 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Poison)*.\n❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
+                    else:
+                        desc = f"🧪 {member.mention} subit **{real_dmg} dégâts** *(Poison)*.\n❤️ {before} - {real_dmg} PV = {after} PV"
+                    desc += f"\n⏳ Temps restant : **{remaining_min} min**"
+                    embed = discord.Embed(description=desc, color=discord.Color.dark_green())
+                    await channel.send(embed=embed)
+                    if shield_broken:
+                        await channel.send(embed=discord.Embed(
+                            title="🛡 Bouclier détruit",
+                            description=f"Le bouclier de {member.mention} a été **détruit** sous l'effet du poison.",
+                            color=discord.Color.dark_blue()
+                        ))
+                    if after == 0:
+                        handle_death(gid, uid, source_id)
+                        await channel.send(embed=discord.Embed(
+                            title="💀 KO toxique détecté",
+                            description=(f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
+                                         f"🧪 Effondrement dû à une **intoxication sévère**.\n"
+                                         f"🔄 {member.mention} est **stabilisé à 100 PV**."),
+                            color=0x006600
+                        ))
+            except Exception as e:
+                print(f"[poison_damage_loop] Erreur d’envoi embed : {e}")
 
-                # Appliquer dégâts
-                dmg = 3
-                hp.setdefault(gid, {})
-                shields.setdefault(gid, {})
-
-                before = hp[gid].get(uid, 100)
-                pb_before = shields[gid].get(uid, 0)
-
-                dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
-                pb_after = shields[gid].get(uid, 0)
-                after = max(before - dmg_final, 0)
-                hp[gid][uid] = after
-
-                real_dmg = before - after
-
-                # Leaderboard
-                if uid != source_id:
-                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                    leaderboard[gid][source_id]["degats"] += real_dmg
-
-                remaining = max(0, duration - elapsed)
-                remaining_min = int(remaining // 60)
-
-                try:
-                    channel = bot.get_channel(channel_id)
-                    if channel:
-                        member = await bot.fetch_user(int(uid))
-                        await asyncio.sleep(0.05)
-
-                        if lost_pb and real_dmg == 0:
-                            desc = (
-                                f"🧪 {member.mention} subit **{lost_pb} dégâts** *(Poison)*.\n"
-                                f"🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
-                            )
-                        elif lost_pb and real_dmg > 0:
-                            desc = (
-                                f"🧪 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Poison)*.\n"
-                                f"❤️ {before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {after} PV / 🛡️ {pb_after} PB"
-                            )
-                        else:
-                            desc = (
-                                f"🧪 {member.mention} subit **{real_dmg} dégâts** *(Poison)*.\n"
-                                f"❤️ {before} - {real_dmg} PV = {after} PV"
-                            )
-
-                        desc += f"\n⏳ Temps restant : **{remaining_min} min**"
-
-                        embed = discord.Embed(description=desc, color=discord.Color.dark_green())
-                        await channel.send(embed=embed)
-                        await asyncio.sleep(0.05)
-
-                        if shield_broken:
-                            await channel.send(embed=discord.Embed(
-                                title="🛡 Bouclier détruit",
-                                description=f"Le bouclier de {member.mention} a été **détruit** sous l'effet du poison.",
-                                color=discord.Color.dark_blue()
-                            ))
-
-                        if after == 0:
-                            handle_death(gid, uid, source_id)
-                            embed_ko = discord.Embed(
-                                title="💀 KO toxique détecté",
-                                description=(
-                                    f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
-                                    f"🧪 Effondrement dû à une **intoxication sévère**.\n"
-                                    f"🔄 {member.mention} est **stabilisé à 100 PV**."
-                                ),
-                                color=0x006600
-                            )
-                            await channel.send(embed=embed_ko)
-                except Exception as e:
-                    print(f"[poison_damage_loop] Erreur d’envoi embed : {e}")
-
-        await asyncio.sleep(30)
-        
 @tasks.loop(seconds=30)
 async def infection_damage_loop():
     await bot.wait_until_ready()
-    print("🧟 Boucle de dégâts d'infection démarrée.")
-
-    while not bot.is_closed():
-        now = time.time()
-
-        for guild in bot.guilds:
-            gid = str(guild.id)
+    now = time.time()
+    for guild in bot.guilds:
+        gid = str(guild.id)
+        await asyncio.sleep(0)
+        if gid not in infection_status:
+            continue
+        for uid, status in list(infection_status[gid].items()):
             await asyncio.sleep(0)
+            hp.setdefault(gid, {})
+            shields.setdefault(gid, {})
 
-            if gid not in infection_status:
+            start = status.get("start")
+            duration = status.get("duration")
+            source_id = status.get("source")
+            channel_id = status.get("channel_id")
+            next_tick = status.get("next_tick", 0)
+
+            if now - start >= duration:
+                del infection_status[gid][uid]
+                continue
+            if now < next_tick:
                 continue
 
-            for uid, status in list(infection_status[gid].items()):
-                await asyncio.sleep(0)
+            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            if purge_result and purge_result.get("purger_statut"):
+                del infection_status[gid][uid]
+                continue
 
-                hp.setdefault(gid, {})
-                shields.setdefault(gid, {})
+            passif_result = appliquer_passif(uid, "tick_infection", {"guild_id": gid, "user_id": uid, "cible_id": uid})
+            if passif_result and passif_result.get("ignore_infection_damage"):
+                continue
 
-                start = status.get("start")
-                duration = status.get("duration")
-                source_id = status.get("source")
-                channel_id = status.get("channel_id")
-                next_tick = status.get("next_tick", 0)
+            infection_status[gid][uid]["next_tick"] = now + 1800
 
-                # Supprime le statut s’il est expiré
-                if now - start >= duration:
-                    del infection_status[gid][uid]
-                    continue
+            dmg = 2
+            hp_before = hp[gid].get(uid, 100)
+            pb_before = shields[gid].get(uid, 0)
+            dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
+            pb_after = shields[gid].get(uid, 0)
+            hp_after = max(hp_before - dmg_final, 0)
+            hp[gid][uid] = hp_after
+            real_dmg = hp_before - hp_after
 
-                # Ce n’est pas encore l’heure du tick
-                if now < next_tick:
-                    continue
+            if uid != source_id:
+                leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
+                leaderboard[gid][source_id]["degats"] += real_dmg
 
-                # ✅ Tentative de purge via passif Maelis Dorne
-                purge_result = appliquer_passif("purge_auto", {
-                    "guild_id": gid,
-                    "user_id": uid,
-                    "last_timestamp": start
-                })
-                if purge_result and purge_result.get("purger_statut"):
-                    del infection_status[gid][uid]
-                    continue
+            remaining = max(0, duration - (now - start))
+            remaining_min = int(remaining // 60)
+            try:
+                channel = bot.get_channel(channel_id)
+                if channel:
+                    member = await bot.fetch_user(int(uid))
+                    if lost_pb and real_dmg == 0:
+                        desc = f"🧟 {member.mention} subit **{lost_pb} dégâts** *(Infection)*.\n🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
+                    elif lost_pb and real_dmg > 0:
+                        desc = f"🧟 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Infection)*.\n❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
+                    else:
+                        desc = f"🧟 {member.mention} subit **{real_dmg} dégâts** *(Infection)*.\n❤️ {hp_before} - {real_dmg} PV = {hp_after} PV"
+                    desc += f"\n⏳ Temps restant : **{remaining_min} min**"
+                    embed = discord.Embed(description=desc, color=discord.Color.dark_green())
+                    await channel.send(embed=embed)
+                    if shield_broken:
+                        await channel.send(embed=discord.Embed(
+                            title="🛡 Bouclier détruit",
+                            description=f"Le bouclier de {member.mention} a été **détruit** par l'infection.",
+                            color=discord.Color.dark_blue()
+                        ))
+                    if hp_after == 0:
+                        handle_death(gid, uid, source_id)
+                        await channel.send(embed=discord.Embed(
+                            title="💀 KO infectieux détecté",
+                            description=(f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
+                                         f"🧟 Effondrement dû à une infection invasive.\n"
+                                         f"🔄 Le patient est stabilisé à **100 PV**."),
+                            color=0x880088
+                        ))
+            except Exception as e:
+                print(f"[infection_damage_loop] Erreur d’envoi embed : {e}")
 
-                # ✅ Vérifie les passifs d’immunité aux dégâts d’infection
-                passif_result = appliquer_passif(uid, "tick_infection", {
-                    "guild_id": gid,
-                    "user_id": uid,
-                    "cible_id": uid
-                })
-                if passif_result and passif_result.get("ignore_infection_damage"):
-                    continue
-
-                # Tick : mise à jour du prochain tick
-                infection_status[gid][uid]["next_tick"] = now + 1800
-
-                # Appliquer les dégâts
-                dmg = 2
-                hp_before = hp[gid].get(uid, 100)
-                pb_before = shields[gid].get(uid, 0)
-
-                dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
-                pb_after = shields[gid].get(uid, 0)
-                hp_after = max(hp_before - dmg_final, 0)
-                hp[gid][uid] = hp_after
-
-                real_dmg = hp_before - hp_after
-
-                # Leaderboard
-                if uid != source_id:
-                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                    leaderboard[gid][source_id]["degats"] += real_dmg
-
-                # Affichage
-                remaining = max(0, duration - (now - start))
-                remaining_min = int(remaining // 60)
-
-                try:
-                    channel = bot.get_channel(channel_id)
-                    if channel:
-                        member = await bot.fetch_user(int(uid))
-                        await asyncio.sleep(0.05)
-
-                        if lost_pb and real_dmg == 0:
-                            desc = (
-                                f"🧟 {member.mention} subit **{lost_pb} dégâts** *(Infection)*.\n"
-                                f"🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
-                            )
-                        elif lost_pb and real_dmg > 0:
-                            desc = (
-                                f"🧟 {member.mention} subit **{lost_pb + real_dmg} dégâts** *(Infection)*.\n"
-                                f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB"
-                            )
-                        else:
-                            desc = (
-                                f"🧟 {member.mention} subit **{real_dmg} dégâts** *(Infection)*.\n"
-                                f"❤️ {hp_before} - {real_dmg} PV = {hp_after} PV"
-                            )
-
-                        desc += f"\n⏳ Temps restant : **{remaining_min} min**"
-                        embed = discord.Embed(description=desc, color=discord.Color.dark_green())
-                        await channel.send(embed=embed)
-                        await asyncio.sleep(0.05)
-
-                        if shield_broken:
-                            await channel.send(embed=discord.Embed(
-                                title="🛡 Bouclier détruit",
-                                description=f"Le bouclier de {member.mention} a été **détruit** par l'infection.",
-                                color=discord.Color.dark_blue()
-                            ))
-
-                        if hp_after == 0:
-                            handle_death(gid, uid, source_id)
-                            ko_embed = discord.Embed(
-                                title="💀 KO infectieux détecté",
-                                description=(
-                                    f"**GotValis** détecte une chute à 0 PV pour {member.mention}.\n"
-                                    f"🧟 Effondrement dû à une infection invasive.\n"
-                                    f"🔄 Le patient est stabilisé à **100 PV**."
-                                ),
-                                color=0x880088
-                            )
-                            await channel.send(embed=ko_embed)
-                except Exception as e:
-                    print(f"[infection_damage_loop] Erreur d’envoi embed : {e}")
-
-        await asyncio.sleep(30)
-
+@tasks.loop(seconds=30)
 async def regeneration_loop():
+    await bot.wait_until_ready()
     now = time.time()
     for guild_id, users in list(regeneration_status.items()):
         for user_id, stat in list(users.items()):
-            # Supprimer le statut s'il est expiré
             if now - stat["start"] > stat["duration"]:
                 del regeneration_status[guild_id][user_id]
                 continue
-
-            # Vérifie si c’est le bon moment pour le tick
             if now < stat.get("next_tick", 0):
                 continue
-
-            # Met à jour le prochain tick
             stat["next_tick"] = now + 1800
-
-            # Applique la régénération
             hp.setdefault(guild_id, {})
             before = hp[guild_id].get(user_id, 100)
             healed = min(3, 100 - before)
             after = min(before + healed, 100)
             hp[guild_id][user_id] = after
 
-            # Leaderboard (si source définie)
             if "source" in stat and stat["source"]:
                 leaderboard.setdefault(guild_id, {})
                 leaderboard[guild_id].setdefault(stat["source"], {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                 leaderboard[guild_id][stat["source"]]["soin"] += healed
 
-            # Temps restant
             elapsed = now - stat["start"]
             remaining = max(0, stat["duration"] - elapsed)
             remaining_mn = int(remaining // 60)
 
-            # Message
             try:
                 channel = bot.get_channel(stat.get("channel_id", 0))
                 if channel:
                     member = await bot.fetch_user(int(user_id))
                     embed = discord.Embed(
-                        description=(
-                            f"💕 {member.mention} récupère **{healed} PV** *(Régénération)*.\n"
-                            f"❤️ {before} PV + {healed} PV = {after} PV\n"
-                            f"⏳ Temps restant : **{remaining_mn} min**"
-                        ),
-                        color=discord.Color.green()
-                    )
-                    await channel.send(embed=embed)
-            except Exception as e:
-                print(f"[regeneration_loop] Erreur: {e}")
-                
-@tasks.loop(seconds=30)
-async def voice_tracking_loop():
-    global voice_tracking
-
-    await bot.wait_until_ready()
-    print("🎙️ Boucle de suivi vocal démarrée.")
-
-    while not bot.is_closed():
-        # On réimporte weekly_voice_time à chaque itération
-        from data import weekly_voice_time
-
-        for guild in bot.guilds:
-            gid = str(guild.id)
-            voice_tracking.setdefault(gid, {})
-
-            # Récupère les membres actuellement en vocal (hors bots et AFK)
-            active_user_ids = set()
-            for vc in guild.voice_channels:
-                if vc.id == guild.afk_channel.id if guild.afk_channel else False:
-                    continue
-
-                for member in vc.members:
-                    if member.bot:
-                        continue
-
-                    uid = str(member.id)
-                    active_user_ids.add(uid)
-                    voice_tracking[gid].setdefault(uid, {
-                        "start": time.time(),
-                        "last_reward": time.time()
-                    })
-
-                    tracking = voice_tracking[gid][uid]
-                    elapsed = time.time() - tracking["last_reward"]
-
-                    # Ajoute +3 GotCoins toutes les 30 min
-                    if elapsed >= 1800:
-                        add_gotcoins(gid, uid, 3, category="autre")
-                        tracking["last_reward"] = time.time()
-
-                        # Ajoute 1800 sec dans les stats
-                        weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
-                        weekly_voice_time[gid][uid] += 1800
-
-                        print(f"🎙️ +3 GotCoins pour {member.display_name} (30 min atteinte)")
-
-            # Nettoyage → membres qui ne sont plus en vocal
-            tracked_user_ids = set(voice_tracking[gid].keys())
-            for uid in tracked_user_ids - active_user_ids:
-                tracking = voice_tracking[gid][uid]
-                elapsed = time.time() - tracking["last_reward"]
-
-                # On ajoute le temps restant (moins de 30 min restant) à weekly_voice_time
-                if elapsed > 0:
-                    weekly_voice_time.setdefault(gid, {}).setdefault(uid, 0)
-                    weekly_voice_time[gid][uid] += int(elapsed)
-
-                    print(f"🎙️ {uid} a quitté → +{int(elapsed)} sec ajoutés (partiel)")
-
-                    sauvegarder()
-
-                # On retire le user du tracking
-                del voice_tracking[gid][uid]
-
-        await asyncio.sleep(30)
-@tasks.loop(seconds=30)
-async def burn_damage_loop():
-    await bot.wait_until_ready()
-    print("🔥 Boucle de dégâts de brûlure démarrée.")
-
-    while not bot.is_closed():
-        now = time.time()
-
-        for guild in bot.guilds:
-            gid = str(guild.id)
-            if gid not in burn_status:
-                continue
-
-            for uid, status in list(burn_status[gid].items()):
-                if not status.get("actif"):
-                    continue
-
-                if now < status.get("next_tick", 0):
-                    continue
-                
-                # 🔥 Tentative de purge du statut
-                purge_result = appliquer_passif("purge_auto", {
-                    "guild_id": gid,
-                    "user_id": uid,
-                    "last_timestamp": status["start"]
-                })
-                if purge_result and purge_result.get("purger_statut"):
-                    del burn_status[gid][uid]
-                    continue
-                
-                # ✅ On applique le tick si pas purgé
-                status["ticks_restants"] -= 1
-                status["next_tick"] = now + 3600
-                
-                if status["ticks_restants"] <= 0:
-                    del burn_status[gid][uid]
-                    continue
-
-                # Appliquer les dégâts
-                dmg = 5
-                hp.setdefault(gid, {})
-                shields.setdefault(gid, {})
-
-                hp_before = hp[gid].get(uid, 100)
-                pb_before = shields[gid].get(uid, 0)
-
-                dmg_final, lost_pb, shield_broken = apply_shield(gid, uid, dmg)
-                pb_after = shields[gid].get(uid, 0)
-                hp_after = max(hp_before - dmg_final, 0)
-                hp[gid][uid] = hp_after
-
-                real_dmg = hp_before - hp_after
-                source_id = status.get("source")
-
-                # Leaderboard
-                if uid != source_id and source_id:
-                    leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
-                    leaderboard[gid][source_id]["degats"] += real_dmg
-
-                # Annonce dans le salon
-                try:
-                    channel = bot.get_channel(status["channel_id"])
-                    member = await bot.fetch_user(int(uid))
-                    if not channel:
-                        continue
-
-                    desc = (
-                        f"🔥 {member.mention} subit **{real_dmg + lost_pb} dégâts** *(Brûlure)*.\n"
-                        f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB\n"
-                        f"⏳ Brûlure restante : **{status['ticks_restants']}h**"
-                    )
-
-                    embed = discord.Embed(description=desc, color=discord.Color.orange())
-                    await channel.send(embed=embed)
-
-                    if shield_broken:
-                        await channel.send(embed=discord.Embed(
-                            title="🛡 Bouclier détruit",
-                            description=f"Le bouclier de {member.mention} a été **détruit** par la brûlure.",
-                            color=discord.Color.dark_blue()
-                        ))
-
-                    if hp_after == 0:
-                        handle_death(gid, uid, source_id)
-                        embed_ko = discord.Embed(
-                            title="💀 KO par brûlure",
-                            description=(f"{member.mention} a succombé à une **brûlure sévère**.\n"
-                                         "🔄 Stabilisé à **100 PV**."),
-                            color=0xFF5500
-                        )
-                        await channel.send(embed=embed_ko)
-
-                except Exception as e:
-                    print(f"[burn_damage_loop] Erreur : {e}")
-
-        await asyncio.sleep(30)
-
-@tasks.loop(hours=1)
-async def cleanup_weekly_logs():
-    print("🧹 Nettoyage des logs hebdomadaires...")
-    now = time.time()
-    seven_days_seconds = 7 * 24 * 3600
-
-    # Messages
-    for gid, users in weekly_message_log.items():
-        for uid, timestamps in users.items():
-            # Ne garder que les messages des 7 derniers jours
-            users[uid] = [t for t in timestamps if now - t <= seven_days_seconds]
-            
-async def auto_backup_loop():
-    await bot.wait_until_ready()
-    print("🔄 Boucle de backup auto indépendante démarrée")
-    while not bot.is_closed():
-        backup_auto_independante()
-        await asyncio.sleep(3600)
-        
-def on_shutdown():
-    print("💾 Sauvegarde finale avant extinction du bot...")
-    sauvegarder()
-
-# Appel automatique à la fermeture normale du programme
-atexit.register(on_shutdown)
-
-# Capture manuelle de signaux comme Ctrl+C ou arrêt système
-def handle_signal(sig, frame):
-    on_shutdown()
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, handle_signal)
-signal.signal(signal.SIGTERM, handle_signal)
-# ===================== Run ======================
-
-bot.run(os.getenv("DISCORD_TOKEN"))
+                        description=(f"💕 {member.mention} récupère **{healed} PV** *(Régénération)*.\n"
+                                     f"❤️ {before} PV + {
