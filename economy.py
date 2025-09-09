@@ -1,23 +1,23 @@
 # economy.py
-import random
+from __future__ import annotations
 
 # {guild_id: {user_id: {"autre": X, "achats": X, ...}}}
-gotcoins_stats = {}
+gotcoins_stats: dict[str, dict[str, dict[str, int]]] = {}
 
 # {guild_id: {user_id: balance_int}}
-gotcoins_balance = {}
+gotcoins_balance: dict[str, dict[str, int]] = {}
 
 DEFAULT_STATS = {
-    "autre": 0,    # gains génériques
-    "achats": 0,   # dépenses (on additionne les montants dépensés)
-    # ajoute d'autres catégories si tu veux : "combat", "box", "loot", ...
+    "autre": 0,   # gains génériques
+    "achats": 0,  # dépenses (on additionne les montants dépensés)
+    # tu peux ajouter d'autres catégories si besoin : "combat", "box", "loot", ...
 }
 
 # ---------------------------------------------------------------------------
 # Init & helpers
 # ---------------------------------------------------------------------------
 
-def init_gotcoins_stats(guild_id: str, user_id: str):
+def init_gotcoins_stats(guild_id: str, user_id: str) -> None:
     gid, uid = str(guild_id), str(user_id)
     gotcoins_stats.setdefault(gid, {}).setdefault(uid, DEFAULT_STATS.copy())
     gotcoins_balance.setdefault(gid, {}).setdefault(uid, 0)
@@ -51,7 +51,7 @@ def can_afford(guild_id: str, user_id: str, amount: int) -> bool:
 # Ajout / retrait
 # ---------------------------------------------------------------------------
 
-def add_gotcoins(guild_id: str, user_id: str, amount: int, category: str = "autre"):
+def add_gotcoins(guild_id: str, user_id: str, amount: int, category: str = "autre") -> None:
     """
     Ajoute des GotCoins au solde et log le gain dans la catégorie.
     amount <= 0 : ignoré (utilise remove_gotcoins pour dépenser).
@@ -70,14 +70,18 @@ def add_gotcoins(guild_id: str, user_id: str, amount: int, category: str = "autr
     st[category] = st.get(category, 0) + int(amount)
 
     # ✅ Sauvegarde (import local pour éviter les imports circulaires)
-    from data import sauvegarder
-    sauvegarder()
+    try:
+        from data import sauvegarder
+        sauvegarder()
+    except Exception:
+        # si data n'est pas encore importé au démarrage, on ignore silencieusement
+        pass
 
-def ajouter_gotcoins(guild_id: str, user_id: str, amount: int, category: str = "autre"):
+def ajouter_gotcoins(guild_id: str, user_id: str, amount: int, category: str = "autre") -> None:
     """Alias francisé utilisé par /shop, /special_supply, etc."""
     add_gotcoins(guild_id, user_id, amount, category)
 
-def add_gotcoins_with_passif(guild_id: str, user_id: str, amount: int, category: str = "autre"):
+def add_gotcoins_with_passif(guild_id: str, user_id: str, amount: int, category: str = "autre") -> None:
     """
     Ajoute un gain puis applique un éventuel bonus de passif.
     ⚠️ Import paresseux de passifs ici pour éviter l’import circulaire.
@@ -100,12 +104,12 @@ def add_gotcoins_with_passif(guild_id: str, user_id: str, amount: int, category:
             bonus = int(res["gotcoins_bonus"])
             add_gotcoins(guild_id, user_id, bonus, category)
             print(f"💠 Bonus passif appliqué : +{bonus} GotCoins pour {user_id}")
-    except Exception as e:
+    except Exception:
         # On ignore silencieusement si les passifs ne sont pas disponibles à ce moment
         # (ex. au démarrage, pendant import).
         pass
 
-def remove_gotcoins(guild_id: str, user_id: str, amount: int, log_as_purchase: bool = True):
+def remove_gotcoins(guild_id: str, user_id: str, amount: int, log_as_purchase: bool = True) -> None:
     """
     Retire des GotCoins du solde. Si log_as_purchase=True, on trace la dépense
     dans la catégorie 'achats' (additionne le montant positif dépensé).
@@ -125,10 +129,13 @@ def remove_gotcoins(guild_id: str, user_id: str, amount: int, log_as_purchase: b
         st = _stats(gid, uid)
         st["achats"] = st.get("achats", 0) + int(amount)
 
-    from data import sauvegarder
-    sauvegarder()
+    try:
+        from data import sauvegarder
+        sauvegarder()
+    except Exception:
+        pass
 
-def retirer_gotcoins(guild_id: str, user_id: str, amount: int):
+def retirer_gotcoins(guild_id: str, user_id: str, amount: int) -> None:
     """Alias francisé (utilisé par /shop)."""
     remove_gotcoins(guild_id, user_id, amount, log_as_purchase=True)
 
@@ -150,3 +157,28 @@ def get_total_gotcoins_earned(guild_id: str, user_id: str) -> int:
     """
     st = _stats(guild_id, user_id)
     return sum(v for k, v in st.items() if k != "achats")
+
+# ---------------------------------------------------------------------------
+# Gains liés aux messages (utilisé par main.py)
+# ---------------------------------------------------------------------------
+
+def compute_message_gains(message_len: int = 0, has_attachments: bool = False) -> int:
+    """
+    Calcule un petit gain de coins pour l’activité message.
+    Règles par défaut :
+      - 0 GC pour les messages < 10 caractères
+      - 1 GC pour 10–80 caractères
+      - 2 GC au-delà de 80 caractères
+      - +1 GC si pièce jointe
+      - clamp à [0, 5]
+    """
+    base = 0
+    if message_len >= 80:
+        base = 2
+    elif message_len >= 10:
+        base = 1
+
+    if has_attachments:
+        base += 1
+
+    return max(0, min(5, base))
