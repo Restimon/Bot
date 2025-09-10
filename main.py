@@ -49,14 +49,14 @@ from utilitaire import register_utilitaire_command
 from lick import register_lick_command
 from love import register_love_command
 from bite import register_bite_command
-from economy import add_gotcoins, gotcoins_balance, get_balance  # compute_message_gains est local
+from economy import add_gotcoins, gotcoins_balance, get_balance
 from stats import register_stats_command
 from bank import register_bank_command
-from passifs import appliquer_passif
+from passifs import appliquer_passif_utilisateur
 from shop import register_shop_commands
 from perso import setup as setup_perso
-from tirage import setup as setup_tirage  # setup(bot) défini dans tirage.py
-from chat_ai import register_chat_ai_command, generate_oracle_reply  # ⬅️ IA mention/réponse
+from tirage import setup as setup_tirage
+from chat_ai import register_chat_ai_command, generate_oracle_reply
 
 # --------------------------------------------------------------------
 # Variables globales
@@ -291,7 +291,13 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    guild_id = str(message.guild.id)
+    guild = message.guild
+    if not guild:
+        # Laisser la logique IA au Cog chat_ai pour les DMs si nécessaire
+        await bot.process_commands(message)
+        return
+
+    guild_id = str(guild.id)
     user_id = str(message.author.id)
     channel_id = message.channel.id
 
@@ -335,7 +341,7 @@ async def on_message(message):
                 async with message.channel.typing():
                     try:
                         reply = await generate_oracle_reply(
-                            message.guild.name,
+                            guild.name,
                             prompt,
                             tone=("threat" if tone == "threat" else "normal"),
                             reason=reason
@@ -521,30 +527,6 @@ async def update_leaderboard_loop():
             except Exception as e:
                 print(f"❌ Échec de l’envoi du message dans {channel.name} : {e}")
 
-@tasks.loop(seconds=30)
-async def yearly_reset_loop():
-    await bot.wait_until_ready()
-    now = datetime.datetime.utcnow()
-    if now.month == 12 and now.day == 31 and now.hour == 23 and now.minute == 59:
-        from data import sauvegarder as data_save
-        for gid in list(inventaire.keys()):
-            inventaire[gid] = {}
-        for gid in list(hp.keys()):
-            hp[gid] = {}
-        for gid in list(leaderboard.keys()):
-            leaderboard[gid] = {}
-        data_save()
-        print("🎉 Réinitialisation annuelle effectuée pour tous les serveurs.")
-        config = get_config()
-        announcement_msg = "🎊 Les statistiques ont été remises à zéro pour la nouvelle année ! Merci pour votre participation à GotValis."
-        for server_id, server_conf in config.items():
-            ch_id = server_conf.get("leaderboard_channel_id")
-            if not ch_id:
-                continue
-            channel = bot.get_channel(ch_id)
-            if channel:
-                await channel.send(announcement_msg)
-
 @tasks.loop(seconds=300)
 async def autosave_data_loop():
     await bot.wait_until_ready()
@@ -586,7 +568,10 @@ async def virus_damage_loop():
                     del virus_status[gid][uid]
                 continue
 
-            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            purge_result = appliquer_passif_utilisateur(
+                gid, uid, "purge_auto",
+                {"guild_id": gid, "user_id": uid, "last_timestamp": start}
+            )
             if purge_result and purge_result.get("purger_statut"):
                 del virus_status[gid][uid]
                 continue
@@ -661,7 +646,10 @@ async def poison_damage_loop():
                     del poison_status[gid][uid]
                 continue
 
-            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            purge_result = appliquer_passif_utilisateur(
+                gid, uid, "purge_auto",
+                {"guild_id": gid, "user_id": uid, "last_timestamp": start}
+            )
             if purge_result and purge_result.get("purger_statut"):
                 del poison_status[gid][uid]
                 continue
@@ -740,12 +728,18 @@ async def infection_damage_loop():
             if now < next_tick:
                 continue
 
-            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            purge_result = appliquer_passif_utilisateur(
+                gid, uid, "purge_auto",
+                {"guild_id": gid, "user_id": uid, "last_timestamp": start}
+            )
             if purge_result and purge_result.get("purger_statut"):
                 del infection_status[gid][uid]
                 continue
 
-            passif_result = appliquer_passif(uid, "tick_infection", {"guild_id": gid, "user_id": uid, "cible_id": uid})
+            passif_result = appliquer_passif_utilisateur(
+                gid, uid, "tick_infection",
+                {"guild_id": gid, "user_id": uid, "cible_id": uid}
+            )
             if passif_result and passif_result.get("ignore_infection_damage"):
                 continue
 
@@ -883,10 +877,15 @@ async def burn_damage_loop():
         for uid, status in list(burn_status[gid].items()):
             if not status.get("actif") or now < status.get("next_tick", 0):
                 continue
-            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": status["start"]})
+
+            purge_result = appliquer_passif_utilisateur(
+                gid, uid, "purge_auto",
+                {"guild_id": gid, "user_id": uid, "last_timestamp": status["start"]}
+            )
             if purge_result and purge_result.get("purger_statut"):
                 del burn_status[gid][uid]
                 continue
+
             status["ticks_restants"] -= 1
             status["next_tick"] = now + 3600
             if status["ticks_restants"] <= 0:
