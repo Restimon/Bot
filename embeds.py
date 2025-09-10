@@ -69,47 +69,34 @@ def _color_for_item(item: Optional[str], is_heal_other: bool = False, is_crit: b
 # 1) Embed générique orienté « objet » (combat/soin)
 # ------------------------------------------------
 def build_embed_from_item(
-    item: Optional[str],
+    item: str,
     description: str,
     *,
     is_heal_other: bool = False,
     is_crit: bool = False,
     disable_gif: bool = False,
-    custom_title: Optional[str] = None,
-    extra_fields: Optional[Dict[str, str]] = None,
+    custom_title: str | None = None,
 ) -> discord.Embed:
-    """
-    Construit un embed uniforme pour les actions du bot liées à un item (attaque, soin, statut, utilitaire).
-    - item: emoji (peut être None pour un fallback)
-    - description: texte principal
-    - is_heal_other: formatage « soin »
-    - is_crit: met un petit accent si critique
-    - disable_gif: pas d’image/gif additionnel (combat.py gère déjà ses images)
-    - custom_title: force un titre particulier
-    - extra_fields: dict {name: value} pour ajouter des champs
-    """
-    title = _title_for_item(item, custom_title)
-    color = _color_for_item(item, is_heal_other, is_crit)
+    meta = OBJETS.get(item, {}) if isinstance(item, str) else {}
+    title = custom_title or meta.get("title") or ("⚡ Action de GotValis" if meta.get("type") != "soin" else "💕 Soin de GotValis")
+
+    # couleur simple ; tu peux raffiner par type
+    color = discord.Color.gold() if meta.get("type") in {"attaque","attaque_chaine","virus","poison","infection"} else discord.Color.green()
 
     embed = discord.Embed(title=title, description=description, color=color)
 
-    # Accent critique subtil
+    if not disable_gif:
+        # Priorité au GIF contextuel (soin), sinon GIF générique de l’objet
+        gif_url = meta.get("gif_soin") if meta.get("type") == "soin" else meta.get("gif")
+        gif_url = gif_url or meta.get("image")  # fallback
+        if gif_url:
+            embed.set_image(url=gif_url)
+
+    # petit badge critique optionnel
     if is_crit:
         embed.set_footer(text="💥 Coup critique !")
 
-    # Ajout de champs optionnels
-    if isinstance(extra_fields, dict):
-        for name, value in extra_fields.items():
-            embed.add_field(name=name, value=value, inline=False)
-
-    # Optionnellement, on pourrait définir une image par défaut sur certains items
-    # mais par défaut on laisse l’appelant gérer (combat.py force parfois set_image(None))
-    if disable_gif:
-        # explicitement rien
-        pass
-
     return embed
-
 
 # ---------------------------------------------------------
 # 2) Embed spécialisé : transmission virale (🦠 → 🧬)
