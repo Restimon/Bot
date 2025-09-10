@@ -1,4 +1,9 @@
 # perso.py
+# ─────────────────────────────────────────────────────────────────────────────
+# Commande /perso : affiche un personnage de la collection d'un joueur
+# par **numéro** (l’ordre correspond à /collection : tri par rareté → faction → nom).
+# ─────────────────────────────────────────────────────────────────────────────
+
 import os
 import discord
 from discord import app_commands
@@ -9,29 +14,53 @@ from storage import get_collection
 from embeds import build_personnage_embed
 
 
-def _all_personnages_sorted():
-    """
-    Retourne la liste de TOUS les persos triés par:
-      1) rareté (ordre RARETES)
-      2) faction (ordre FACTION_ORDER)
-      3) nom (alphabétique)
-    """
-    # Regrouper par rareté
-    by_rarity = {r: [] for r in RARETES}
-    for p in PERSONNAGES.values():
-        by_rarity.setdefault(p["rarete"], []).append(p)
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers internes
+# ─────────────────────────────────────────────────────────────────────────────
 
-    out = []
-    for rarete in RARETES:
-        group = by_rarity.get(rarete, [])
-        # Tri faction puis nom
-        group.sort(key=lambda p: (FACTION_ORDER.index(p["faction"]), p["nom"]))
-        out.extend(group)
+def _tri_key(p: dict):
+    """Clé de tri : (rareté, faction, nom) avec garde-fous."""
+    try:
+        r_idx = RARETES.index(p.get("rarete", "Commun"))
+    except ValueError:
+        r_idx = 999
+
+    try:
+        f_idx = FACTION_ORDER.index(p.get("faction", ""))
+    except ValueError:
+        f_idx = 999
+
+    return (r_idx, f_idx, p.get("nom", ""))
+
+
+# Liste globale triée une fois (réduit le CPU à chaque /perso)
+_ALL_PERSONNAGES_SORTED = sorted(PERSONNAGES.values(), key=_tri_key)
+
+
+def _materialiser_collection_ordonnee(collection: dict) -> list[dict]:
+    """
+    À partir de la collection {nom: quantité}, génère une liste **dupliquée**
+    des persos dans l’ordre global pré-calculé.
+    Exemple : {"Kael Dris": 2} → [Kael, Kael] aux positions où Kael apparaît.
+    """
+    if not isinstance(collection, dict) or not collection:
+        return []
+
+    out: list[dict] = []
+    for p in _ALL_PERSONNAGES_SORTED:
+        nom = p.get("nom")
+        qte = int(collection.get(nom, 0) or 0)
+        if qte > 0:
+            out.extend([p] * qte)
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Cog
+# ─────────────────────────────────────────────────────────────────────────────
+
 class Perso(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @app_commands.command(
@@ -42,54 +71,72 @@ class Perso(commands.Cog):
         index="Numéro du personnage (dans l’ordre de ta /collection)",
         user="Joueur cible (optionnel)"
     )
-    async def perso(self, interaction: discord.Interaction, index: int, user: discord.Member = None):
+    async def perso(
+        self,
+        interaction: discord.Interaction,
+        index: int,
+        user: discord.Member | None = None
+    ):
         await interaction.response.defer()
 
         target = user or interaction.user
         user_id = str(target.id)
         guild_id = str(interaction.guild_id)
 
-        # Collection du joueur: {nom: count}
-        collection = get_collection(guild_id, user_id)
+        # 1) Récupérer la collection de l’utilisateur
+        collection = get_collection(guild_id, user_id)  # {nom: quantité}
         if not collection:
-            await interaction.followup.send("❌ Ce joueur n’a aucun personnage dans sa collection.", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ {target.mention} n’a **aucun personnage** dans sa collection.",
+                ephemeral=True
+            )
             return
 
-        # Construire la liste complète triée, dupliquant selon la quantité possédée
-        full_list = []
-        for perso in _all_personnages_sorted():
-            nom = perso["nom"]
-            nb = collection.get(nom, 0)
-            if nb > 0:
-                full_list.extend([perso] * nb)
-
-        if not (1 <= index <= len(full_list)):
+        # 2) Construire la liste matérialisée (duplication par quantité)
+        full_list = _materialiser_collection_ordonnee(collection)
+        total = len(full_list)
+        if total == 0:
             await interaction.followup.send(
-                f"❌ Numéro invalide. {target.display_name} possède **{len(full_list)}** personnage(s).",
+                f"❌ {target.mention} n’a **aucun personnage** dans sa collection.",
+                ephemeral=True
+            )
+            return
+
+        # 3) Vérifier l’index (1-based)
+        if not (1 <= index <= total):
+            await interaction.followup.send(
+                f"❌ Numéro invalide. {target.display_name} possède **{total}** personnage(s).",
                 ephemeral=True
             )
             return
 
         perso = full_list[index - 1]
+
+        # 4) Construire l’embed
         embed = build_personnage_embed(perso, user=target)
 
-        # Image locale si dispo
+        # 5) Joindre l’image locale si dispo (fallback : embed sans fichier)
         image_path = perso.get("image")
         if image_path and os.path.exists(image_path):
-            image_filename = os.path.basename(image_path)
             try:
-                file = discord.File(image_path, filename=image_filename)
-                embed.set_image(url=f"attachment://{image_filename}")
+                filename = os.path.basename(image_path)
+                file = discord.File(image_path, filename=filename)
+                embed.set_image(url=f"attachment://{filename}")
                 await interaction.followup.send(embed=embed, file=file)
                 return
             except Exception:
-                pass  # on retombe sur l’envoi sans fichier si souci I/O
+                # En cas d’erreur I/O, on envoie sans fichier
+                pass
 
         await interaction.followup.send(embed=embed)
 
-    # Autocomplétion dynamique sur l’index
+    # ── Autocomplétion d’index : affiche "i. Nom" jusqu’à 25 entrées
     @perso.autocomplete("index")
-    async def index_autocomplete(self, interaction: discord.Interaction, current: str):
+    async def index_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str
+    ):
         target = interaction.namespace.user or interaction.user
         user_id = str(target.id)
         guild_id = str(interaction.guild_id)
@@ -98,17 +145,16 @@ class Perso(commands.Cog):
         if not collection:
             return []
 
-        # Recrée la liste des noms selon le tri + duplication
-        names = []
-        for p in _all_personnages_sorted():
+        names: list[str] = []
+        for p in _ALL_PERSONNAGES_SORTED:
             nom = p["nom"]
-            nb = collection.get(nom, 0)
-            if nb > 0:
-                names.extend([nom] * nb)
+            qte = int(collection.get(nom, 0) or 0)
+            if qte > 0:
+                names.extend([nom] * qte)
 
-        # Filtre simple: l’utilisateur tape un bout de chiffre → propose
         cur = (current or "").strip()
-        choices = []
+        # On ne renvoie que des Choice(value=int) comme attendu par la cmd
+        choices: list[app_commands.Choice[int]] = []
         for i, nom in enumerate(names, start=1):
             if cur and cur not in str(i):
                 continue
@@ -119,5 +165,5 @@ class Perso(commands.Cog):
         return choices
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Perso(bot))
