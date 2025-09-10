@@ -5,7 +5,7 @@ def valider_personnages():
     erreurs = []
     noms_vus = set()
 
-    for perso in PERSONNAGES:
+    for perso in PERSONNAGES.values():
         nom = perso.get("nom")
         rarete = perso.get("rarete")
         faction = perso.get("faction")
