@@ -83,7 +83,7 @@ def register_fight_command(bot: discord.Client):
                 return
 
             # ☠️ Cas particulier : Attaque en chaîne
-            if item == "☠️":
+            if action.get("type") == "attaque_chaine" or item == "☠️":
                 try:
                     # La fonction envoie elle-même les messages
                     await asyncio.wait_for(
@@ -114,8 +114,8 @@ def register_fight_command(bot: discord.Client):
 
             # 🔹 Attaques « normales » (attaque / virus / poison / infection)
             try:
-                # Le moteur peut définir action["no_consume"] via un passif (ex: Marn / Rouven)
-                embed, success = await asyncio.wait_for(
+                # Le moteur enverra lui-même l’embed; on récupère juste le flag de succès
+                _, success = await asyncio.wait_for(
                     apply_item_with_cooldown(interaction, uid, tid, item, action),
                     timeout=TIMEOUT_INTERNE,
                 )
@@ -131,15 +131,6 @@ def register_fight_command(bot: discord.Client):
                     ephemeral=True,
                 )
                 return
-
-            # 📨 Toujours envoyer quelque chose
-            if embed is None:
-                await interaction.followup.send(
-                    f"{interaction.user.mention} lance son attaque sur {target.mention}…",
-                    ephemeral=False,
-                )
-            else:
-                await interaction.followup.send(embed=embed, ephemeral=False)
 
             # ✅ Consommer l'objet si l’attaque a été validée ET pas de “pas_de_conso”
             if success and not action.get("no_consume", False):
