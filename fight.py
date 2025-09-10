@@ -32,7 +32,7 @@ def register_fight_command(bot: discord.Client):
         target: discord.Member,
         item: str,
     ):
-        # On défère immédiatement pour éviter le timeout de Discord
+        # On défère immédiatement pour éviter le timeout Discord
         await interaction.response.defer(thinking=True)
 
         try:
@@ -85,7 +85,7 @@ def register_fight_command(bot: discord.Client):
             # ☠️ Cas particulier : Attaque en chaîne
             if item == "☠️":
                 try:
-                    # Ne renvoie pas forcément d'embed ; la fonction envoie elle-même les messages
+                    # La fonction envoie elle-même les messages
                     await asyncio.wait_for(
                         apply_attack_chain(interaction, uid, tid, item, action),
                         timeout=TIMEOUT_INTERNE,
@@ -103,16 +103,18 @@ def register_fight_command(bot: discord.Client):
                     )
                     return
 
-                # ✅ On consomme l'objet si tout s'est (a priori) bien passé
-                try:
-                    user_inv.remove(item)
-                    sauvegarder()
-                except Exception:
-                    pass
+                # ✅ On consomme l'objet si le moteur ne demande pas de le conserver
+                if not action.get("no_consume", False):
+                    try:
+                        user_inv.remove(item)
+                        sauvegarder()
+                    except Exception:
+                        pass
                 return
 
             # 🔹 Attaques « normales » (attaque / virus / poison / infection)
             try:
+                # Le moteur peut définir action["no_consume"] via un passif (ex: Marn / Rouven)
                 embed, success = await asyncio.wait_for(
                     apply_item_with_cooldown(interaction, uid, tid, item, action),
                     timeout=TIMEOUT_INTERNE,
@@ -139,8 +141,8 @@ def register_fight_command(bot: discord.Client):
             else:
                 await interaction.followup.send(embed=embed, ephemeral=False)
 
-            # ✅ Consommer l'objet si l’attaque a été validée côté moteur
-            if success:
+            # ✅ Consommer l'objet si l’attaque a été validée ET pas de “pas_de_conso”
+            if success and not action.get("no_consume", False):
                 try:
                     user_inv.remove(item)
                     sauvegarder()
