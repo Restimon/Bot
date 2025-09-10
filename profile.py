@@ -1,15 +1,60 @@
-import discord
-import time
+# profile.py
 import os
+import time
+import discord
 from discord import app_commands
+
 from storage import get_user_data, get_collection, hp
 from data import (
     virus_status, poison_status, infection_status,
     shields, esquive_status, casque_status, immunite_status,
-    regeneration_status, personnages_equipés
+    regeneration_status, personnages_equipés  # garde le même nom que dans tes autres fichiers
 )
 from personnage import PERSONNAGES
 from economy import get_total_gotcoins_earned, get_balance, gotcoins_stats
+
+
+def _remaining_minutes_from_dict(data: dict) -> int:
+    """data attendu: {'start': <ts>, 'duration': <secs>} → minutes restantes."""
+    if not isinstance(data, dict):
+        return 0
+    now = time.time()
+    start = data.get("start")
+    duration = data.get("duration")
+    if not isinstance(start, (int, float)) or not isinstance(duration, (int, float)):
+        return 0
+    remaining = max(0, (start + duration) - now)
+    return int(remaining // 60)
+
+
+def _remaining_minutes_from_expiry(expiry_ts: float) -> int:
+    """expiry_ts: timestamp en secondes (float) → minutes restantes."""
+    if not isinstance(expiry_ts, (int, float)):
+        return 0
+    now = time.time()
+    remaining = max(0, expiry_ts - now)
+    return int(remaining // 60)
+
+
+def _fmt_duration_minutes(mins: int) -> str:
+    """joli format pour X min (affiche heures si nécessaire)."""
+    if mins >= 120:
+        h = mins // 60
+        m = mins % 60
+        return f"{h}h {m}min" if m else f"{h}h"
+    return f"{mins} min"
+
+
+def _rarity_sort_key(nom: str):
+    """clé de tri (rareté, faction, nom) en cohérence avec personnage.py"""
+    p = PERSONNAGES.get(nom, {})
+    ordre_r = {"Commun": 0, "Rare": 1, "Épique": 2, "Légendaire": 3}
+    return (
+        ordre_r.get(p.get("rarete"), 99),
+        p.get("faction", "ZZZ"),
+        nom
+    )
+
 
 def register_profile_command(bot):
     @bot.tree.command(name="profile", description="Affiche le profil GotValis d’un membre.")
@@ -21,32 +66,34 @@ def register_profile_command(bot):
         guild_id = str(interaction.guild.id)
         uid = str(member.id)
 
+        # Données principales
         user_inv, user_hp, _ = get_user_data(guild_id, uid)
         total_gotcoins = get_total_gotcoins_earned(guild_id, uid)
         balance = get_balance(guild_id, uid)
 
-        # Classement GotCoins
+        # Classement carrière
         server_lb = gotcoins_stats.get(guild_id, {})
         sorted_lb = sorted(
             server_lb.items(),
             key=lambda x: get_total_gotcoins_earned(guild_id, x[0]),
             reverse=True
         )
-        rank = next((i + 1 for i, (id, _) in enumerate(sorted_lb) if id == uid), None)
+        rank = next((i + 1 for i, (id_, _) in enumerate(sorted_lb) if id_ == uid), None)
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, "")
 
         # PV + Bouclier
         shield_amt = shields.get(guild_id, {}).get(uid, 0)
         hp_display = f"{user_hp} / 100" + (f" + 🛡 {shield_amt}" if shield_amt > 0 else "")
 
+        # Faction du personnage équipé (si existant)
         perso_nom = personnages_equipés.get(guild_id, {}).get(uid)
         faction_line = ""
         if perso_nom and perso_nom in PERSONNAGES:
-            perso_data = PERSONNAGES[perso_nom]
-            faction = perso_data.get("faction")
+            faction = PERSONNAGES[perso_nom].get("faction")
             if faction:
                 faction_line = f"\n🎖 Faction : **{faction}**"
-        
+
+        # Embed principal
         embed = discord.Embed(
             title=f"📄 Profil GotValis de {member.display_name}{faction_line}",
             description="Analyse médicale et opérationnelle en cours...",
@@ -70,38 +117,38 @@ def register_profile_command(bot):
                 inline=False
             )
 
-        # Inventaire
+        # Inventaire (regroupe les émojis)
         item_counts = {}
-        for item in user_inv:
-            if isinstance(item, str):
-                item_counts[item] = item_counts.get(item, 0) + 1
+        for it in user_inv:
+            if isinstance(it, str):
+                item_counts[it] = item_counts.get(it, 0) + 1
 
         if not item_counts:
             embed.add_field(name="🎒 Inventaire", value="Aucun objet.", inline=False)
         else:
-            chunk_size = 4
             items = list(item_counts.items())
-            chunks = [items[i:i+chunk_size] for i in range(0, len(items), chunk_size)]
-            for i, chunk in enumerate(chunks):
+            chunk_size = 4
+            for i in range(0, len(items), chunk_size):
+                chunk = items[i:i+chunk_size]
                 value = "\n".join(f"{emoji} × {count}" for emoji, count in chunk)
                 embed.add_field(name="🎒 Inventaire" if i == 0 else "\u200b", value=value, inline=True)
 
-        # États pathologiques
+        # États pathologiques (virus / poison / infection)
         now = time.time()
         status_lines = []
         for status, label, tick, emoji, note in [
             (virus_status, "Virus actif", 3600, "🦠", "-2 PV à chaque attaque + propagation."),
             (poison_status, "Empoisonnement", 1800, "🧪", "-1 dégât sur tes attaques."),
-            (infection_status, "Infection", 1800, "🧟", "25% de propager une infection.")
+            (infection_status, "Infection", 1800, "🧟", "25% de propager une infection."),
         ]:
             data = status.get(guild_id, {}).get(uid)
             if isinstance(data, dict) and "start" in data and "duration" in data:
                 elapsed = now - data["start"]
                 remaining = max(0, data["duration"] - elapsed)
                 next_tick = tick - (elapsed % tick)
-                warning = " ⚠️" if next_tick < 300 else ""
                 rem_min = int(remaining // 60)
                 t_m, t_s = int(next_tick // 60), int(next_tick % 60)
+                warning = " ⚠️" if next_tick < 300 else ""
                 status_lines.append(
                     f"{emoji} **{label}**\n"
                     f"• Temps restant : **{rem_min} min**\n"
@@ -115,25 +162,42 @@ def register_profile_command(bot):
             inline=False
         )
 
-        # Bonus temporaires
+        # Bonus temporaires (prend en charge dict {start,duration} OU timestamp d’expiration)
         bonus_lines = []
-        for bonus, emoji, label, extra in [
-            (esquive_status, "💨", "Esquive améliorée", "+20%"),
-            (casque_status, "🪖", "Casque", "½ dégâts"),
-            (immunite_status, "⭐️", "Immunité", "")
-        ]:
-            data = bonus.get(guild_id, {}).get(uid)
-            if isinstance(data, dict) and "start" in data and "duration" in data:
-                elapsed = now - data["start"]
-                rem_min = int(max(0, data["duration"] - elapsed) // 60)
-                bonus_lines.append(f"{emoji} **{label}** — {rem_min} min restants {extra}")
 
+        # Esquive+ (dict)
+        esquive = esquive_status.get(guild_id, {}).get(uid)
+        if isinstance(esquive, dict):
+            rem = _remaining_minutes_from_dict(esquive)
+            if rem > 0:
+                bonus_lines.append(f"💨 **Esquive améliorée** — {_fmt_duration_minutes(rem)} restants (+{int(esquive.get('valeur', 0.2)*100)}%)")
+
+        # Casque (timestamp d’expiration ou dict)
+        casque = casque_status.get(guild_id, {}).get(uid)
+        if isinstance(casque, dict):
+            rem = _remaining_minutes_from_dict(casque)
+        else:
+            rem = _remaining_minutes_from_expiry(casque)
+        if rem > 0:
+            bonus_lines.append(f"🪖 **Casque** — {_fmt_duration_minutes(rem)} (½ dégâts)")
+
+        # Immunité (timestamp ou dict)
+        immun = immunite_status.get(guild_id, {}).get(uid)
+        if isinstance(immun, dict):
+            rem = _remaining_minutes_from_dict(immun)
+        else:
+            rem = _remaining_minutes_from_expiry(immun)
+        if rem > 0:
+            bonus_lines.append(f"⭐️ **Immunité** — {_fmt_duration_minutes(rem)}")
+
+        # Régénération (dict)
         regen = regeneration_status.get(guild_id, {}).get(uid)
-        if isinstance(regen, dict) and "start" in regen and "duration" in regen:
-            elapsed = now - regen["start"]
-            rem_min = int(max(0, regen["duration"] - elapsed) // 60)
-            bonus_lines.append(f"💕 **Régénération** — {rem_min} min (+3 PV / 30 min)")
+        if isinstance(regen, dict):
+            rem = _remaining_minutes_from_dict(regen)
+            if rem > 0:
+                bonus_lines.append(f"💕 **Régénération** — {_fmt_duration_minutes(rem)} (+3 PV / 30 min)")
 
+        bonus_embed = None
         if bonus_lines:
             bonus_embed = discord.Embed(
                 title="🌀 Effets temporaires actifs",
@@ -141,47 +205,40 @@ def register_profile_command(bot):
                 color=discord.Color.teal()
             )
             bonus_embed.set_footer(text="⏳ Bonus positifs actifs détectés.")
-            await interaction.followup.send(embed=embed)
-            await interaction.followup.send(embed=bonus_embed)
-        else:
-            await interaction.followup.send(embed=embed)
 
-        # Personnage actif
-        perso_nom = personnages_equipés.get(guild_id, {}).get(uid)
-        file = None  # ← à déclarer pour l'image éventuelle
-
+        # Personnage équipé (affiche passif + image si dispo)
+        file = None
         if perso_nom and perso_nom in PERSONNAGES:
-            collection = get_collection(guild_id, uid)
+            collection = get_collection(guild_id, uid) or {}
             if perso_nom in collection:
-                sorted_names = sorted(
-                    collection.keys(),
-                    key=lambda nom: (
-                        {"Commun": 0, "Rare": 1, "Epique": 2, "Legendaire": 3}.get(PERSONNAGES[nom]["rarete"], 99),
-                        PERSONNAGES[nom]["faction"],
-                        nom
-                    )
-                )
+                # reconstitue l’index visuel (tri par rareté/faction/nom)
+                sorted_names = sorted(collection.keys(), key=_rarity_sort_key)
                 index = sorted_names.index(perso_nom) + 1
-                perso_data = PERSONNAGES[perso_nom]
-                image_path = perso_data.get("image")
-                image_name = os.path.basename(image_path) if image_path else None
+
+                p = PERSONNAGES[perso_nom]
+                passif = p.get("passif", {})
+                passif_nom = passif.get("nom", "Passif")
+                passif_effet = passif.get("effet", "")
 
                 embed.add_field(
                     name="🎭 Personnage équipé",
-                    value=(
-                        f"**#{index} – {perso_nom}**\n"
-                        f"🎁 {perso_data['passif_nom']} {perso_data['emoji']}\n"
-                        f"> {perso_data['passif_desc']}"
-                    ),
+                    value=(f"**#{index} – {perso_nom}**\n"
+                           f"🎁 **{passif_nom}**\n"
+                           f"> {passif_effet}"),
                     inline=False
                 )
 
+                image_path = p.get("image")
                 if image_path and os.path.exists(image_path):
-                    file = discord.File(image_path, filename=image_name)
-                    embed.set_image(url=f"attachment://{image_name}")
+                    image_name = os.path.basename(image_path)
+                    try:
+                        file = discord.File(image_path, filename=image_name)
+                        embed.set_image(url=f"attachment://{image_name}")
+                    except Exception:
+                        file = None  # si souci I/O, on envoie sans fichier
 
-        # Envoi final (toujours à la fin)
-        if bonus_lines:
+        # Envois
+        if bonus_embed:
             await interaction.followup.send(embed=embed, file=file)
             await interaction.followup.send(embed=bonus_embed)
         else:
