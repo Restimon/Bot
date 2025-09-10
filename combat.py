@@ -23,43 +23,9 @@ from statuts import (
 )
 from embeds import build_embed_from_item, build_embed_transmission_virale
 from economy import add_gotcoins
+# ✅ API passifs (wrapper unique côté passifs.py)
+from passifs import appliquer_passif_utilisateur as appliquer_passif
 
-# ===== Wrapper tolérant pour les passifs ============================
-# (évite l’exception quand on passe (event, data) au lieu de (user_id, event, data) ou inversement)
-try:
-    from passifs import appliquer_passif as _appliquer_passif
-except Exception:  # si le module n'est pas prêt, on renvoie un dict vide
-    def _appliquer_passif(*args, **kwargs):
-        return {}
-
-def passif(*args):
-    """
-    Accepte :
-      - (event, data)
-      - (user_id, event, data)
-    et adapte automatiquement le format attendu par _appliquer_passif.
-    """
-    try:
-        # d'abord on tente tel quel
-        return _appliquer_passif(*args)
-    except TypeError:
-        # Conversion (user_id, event, data) -> (event, data+user_id)
-        if len(args) == 3 and isinstance(args[2], dict):
-            uid, event, payload = args
-            payload = dict(payload)
-            payload.setdefault("user_id", str(uid))
-            return _appliquer_passif(event, payload)
-        # Conversion (event, data) -> (user_id, event, data)
-        if len(args) == 2 and isinstance(args[1], dict):
-            event, payload = args
-            uid = (payload.get("user_id")
-                   or payload.get("attaquant")
-                   or payload.get("defenseur")
-                   or payload.get("cible")
-                   or payload.get("soigneur")
-                   or "")
-            return _appliquer_passif(uid, event, payload)
-        return {}
 
 # ------------------------------ Helpers sûrs ------------------------------
 def _as_dict(x):
@@ -73,20 +39,17 @@ def safe_embed(item, description, **kwargs):
     try:
         return build_embed_from_item(item, description, **kwargs)
     except Exception:
-        # Fallback simple : on répond quoi qu’il arrive
         return discord.Embed(description=str(description), color=discord.Color.dark_grey())
 
 
 # ------------------------------ API d’attaque principale ------------------------------
 async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     guild_id = str(ctx.guild.id)
+    user_id = str(user_id)
+    target_id = str(target_id)
 
     # 🔒 Normalisation de l'action (évite 'str' has no attribute 'get')
-    if isinstance(action, dict):
-        act = dict(action)  # copie pour éviter effets de bord
-    else:
-        # Valeurs par défaut très sûres
-        act = {"type": "attaque", "degats": 0, "crit": 0.0}
+    act = dict(action) if isinstance(action, dict) else {"type": "attaque", "degats": 0, "crit": 0.0}
 
     action_type = str(act.get("type", "attaque"))
     degats = int(act.get("degats", 0) or 0)
@@ -104,9 +67,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         inv_cible, _, _ = get_user_data(guild_id, target_id)
 
         # ❌ Immunité au vol
-        immunite = _as_dict(passif("protection_vol", {
-            "guild_id": guild_id,
-            "user_id": target_id,
+        immunite = _as_dict(appliquer_passif(guild_id, target_id, "protection_vol", {
             "item": item,
             "attacker_id": user_id
         }))
@@ -120,9 +81,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 
         # Aucun objet à voler
         if not inv_cible:
-            res = _as_dict(passif("utilitaire_vol", {
-                "guild_id": guild_id,
-                "user_id": user_id,
+            res = _as_dict(appliquer_passif(guild_id, user_id, "utilitaire_vol", {
                 "item": item,
                 "target_id": target_id
             }))
@@ -138,9 +97,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         inv_cible.remove(stolen_items[0])
 
         # Passifs: double vol / conserver l'objet
-        res = _as_dict(passif("utilitaire_vol", {
-            "guild_id": guild_id,
-            "user_id": user_id,
+        res = _as_dict(appliquer_passif(guild_id, user_id, "utilitaire_vol", {
             "item": item,
             "target_id": target_id
         }))
@@ -194,9 +151,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 
     # 🎁 Passif « survie »
     if hp[guild_id].get(target_id, 0) > 0:
-        result_passif = _as_dict(passif("defense_survie", {
-            "guild_id": guild_id,
-            "user_id": target_id,
+        result_passif = _as_dict(appliquer_passif(guild_id, target_id, "defense_survie", {
             "attaquant": user_id,
             "item_utilise": item
         }))
@@ -231,6 +186,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
 
     sauvegarder()
     return None, True
+
 
 # ------------------------------ Petites briques ------------------------------
 def is_immune(guild_id, user_id):
@@ -374,8 +330,7 @@ async def appliquer_soin(ctx, user_id, target_id, action):
     crit = float(action.get("crit", 0.0) or 0.0)
 
     # Bonus du soigneur
-    bonus_result = _as_dict(passif(user_id, "bonus_soin", {
-        "guild_id": guild_id,
+    bonus_result = _as_dict(appliquer_passif(guild_id, user_id, "bonus_soin", {
         "soigneur": user_id,
         "cible": target_id,
         "base_soin": heal_amount
@@ -383,8 +338,7 @@ async def appliquer_soin(ctx, user_id, target_id, action):
     heal_amount += int(bonus_result.get("bonus_pv_soin", 0))
 
     # Multiplicateur sur la cible
-    multiplicateur_result = _as_dict(passif(target_id, "soin_reçu", {
-        "guild_id": guild_id,
+    multiplicateur_result = _as_dict(appliquer_passif(guild_id, target_id, "soin_reçu", {
         "soigneur": user_id,
         "cible": target_id,
         "base_soin": heal_amount
@@ -420,8 +374,7 @@ async def appliquer_soin(ctx, user_id, target_id, action):
     ligne_2 = f"❤️ {start_hp} PV + {real_heal} PV = ❤️ {new_hp} PV{crit_txt}"
 
     # Post-soin
-    _ = passif(user_id, "soin", {
-        "guild_id": guild_id,
+    _ = appliquer_passif(guild_id, user_id, "soin", {
         "soigneur": user_id,
         "cible": target_id,
         "soin_reel": real_heal
@@ -442,9 +395,8 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     )
     base_dmg_after_crit, crit_txt = apply_crit(int(base_dmg or 0), float(crit_chance or 0.0))
 
-    # Passifs offensifs
-    donnees_passif = {
-        "guild_id": guild_id,
+    # Passifs offensifs (attaquant)
+    donnees_attaque = {
         "attaquant_id": user_id,
         "cible_id": target_id,
         "ctx": ctx,
@@ -452,20 +404,19 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         "objet": item,
         "pv_actuel": hp[guild_id].get(user_id, 100),
     }
-    result_passif_attaquant = _as_dict(passif(user_id, "attaque", donnees_passif))
+    result_passif_attaquant = _as_dict(appliquer_passif(guild_id, user_id, "attaque", donnees_attaque))
     ignore_helmet = result_passif_attaquant.get("ignorer_reduction_casque", False)
     ignore_pb = result_passif_attaquant.get("ignorer_pb", False)
     ignore_reduction = result_passif_attaquant.get("ignorer_reduction", False)
 
-    # Défense immédiate
+    # Défense immédiate (défenseur)
     donnees_defense_calc = {
-        "guild_id": guild_id,
         "defenseur": target_id,
         "attaquant": user_id,
         "degats_initiaux": base_dmg_after_crit + bonus_dmg,
         "pv_actuel": start_hp,
     }
-    res_maitre = _as_dict(passif(target_id, "defense", donnees_defense_calc))
+    res_maitre = _as_dict(appliquer_passif(guild_id, target_id, "defense", donnees_defense_calc))
 
     if res_maitre.get("annuler_degats"):
         total_dmg = 0
@@ -487,13 +438,14 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
 
     # Réductions supplémentaires
     if not ignore_reduction:
-        res_def = _as_dict(passif(target_id, "calcul_defense", donnees_defense_calc))
+        res_def = _as_dict(appliquer_passif(guild_id, target_id, "calcul_defense", donnees_defense_calc))
         if "reduction_multiplicateur" in res_def:
             total_dmg = math.ceil(total_dmg * float(res_def["reduction_multiplicateur"]))
         if "reduction_degats" in res_def:
             total_dmg = math.ceil(total_dmg * (1 - float(res_def["reduction_degats"])))
 
-        res_veylor = _as_dict(passif(target_id, "defense", donnees_defense_calc))
+        # (ex: Veylor) seconde réduction fixe potentielle
+        res_veylor = _as_dict(appliquer_passif(guild_id, target_id, "defense", donnees_defense_calc))
         if "reduction_fixe" in res_veylor:
             total_dmg = max(0, total_dmg - int(res_veylor["reduction_fixe"]))
 
@@ -518,8 +470,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
         add_gotcoins(guild_id, src_credit, max(0, bonus_dmg), category="degats")
 
     # Vampirisme / autres effets post-dégâts
-    res_kael = _as_dict(passif(user_id, "degats_infliges", {
-        "guild_id": guild_id,
+    res_kael = _as_dict(appliquer_passif(guild_id, user_id, "degats_infliges", {
         "attaquant": user_id,
         "cible_id": target_id,
         "degats": real_dmg
@@ -541,8 +492,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
             description=f"**GotValis** détecte une défaillance vitale chez {target_mention}.",
             color=discord.Color.red()
         )
-        result_kill = _as_dict(passif(user_id, "kill", {
-            "guild_id": guild_id,
+        result_kill = _as_dict(appliquer_passif(guild_id, user_id, "kill", {
             "user_id": user_id,
             "cible_id": target_id
         }))
@@ -557,7 +507,7 @@ async def calculer_degats_complets(ctx, guild_id, user_id, target_id, base_dmg, 
     # Embeds additionnels éventuels (attaquant & défenseur)
     for e in _as_list(result_passif_attaquant.get("embeds")):
         effets.append(e)
-    result_passif_cible = _as_dict(passif(target_id, "defense", donnees_passif))
+    result_passif_cible = _as_dict(appliquer_passif(guild_id, target_id, "defense", donnees_attaque))
     for e in _as_list(result_passif_cible.get("embeds")):
         effets.append(e)
 
@@ -691,7 +641,7 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
     guild_id = str(ctx.guild.id)
     user_mention = get_mention(ctx.guild, user_id)
 
-    # cibles secondaires
+    # cibles secondaires aléatoires
     all_members = [m for m in ctx.guild.members if not m.bot and m.id != int(target_id) and m.id != int(user_id)]
     random.shuffle(all_members)
     secondary_targets = all_members[:2]
