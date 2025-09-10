@@ -1,109 +1,178 @@
+# embeds.py
 import discord
-from utils import OBJETS
+from typing import Optional, Dict, Any
 
-GIFS = {
-    "❄️": "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExY3NlcTYyZDVkMjhpY3dpbmVhaXB2OXRoZGNxMHp2d3dnMmhldWR4OSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/sTUe8s1481gY0/giphy.gif",
-    "🪓": "https://media.giphy.com/media/oFVr84BOpjyiA/giphy.gif",
-    "🔥": "https://i.gifer.com/MV3z.gif",
-    "⚡": "https://act-webstatic.hoyoverse.com/upload/contentweb/2023/02/02/9ed221220865a923de00661f5f9e7dea_7010733949792563480.gif",
-    "🔫": "https://media3.giphy.com/media/10ZuedtImbopos/giphy.gif",
-    "🧨": "https://media.giphy.com/media/oe33xf3B50fsc/giphy.gif",
-    "☠️": "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExYm1kMTg4OWw0Y2s0cjludThsajgycmlsbHNoM2Ixc3k0MTdncG1obSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/e37RbTLYjfc1q/giphy.gif",
-    "🦠": "https://media.giphy.com/media/7htcRg2IORvgKBKryu/giphy.gif",
-    "🧪": "https://media.giphy.com/media/9lHsP26ijVJwylXsff/giphy.gif",
-    "🧟": "https://media.giphy.com/media/10bKG23wIFlKmc/giphy.gif",
-    "🍀": "https://i.makeagif.com/media/9-05-2023/UUHN2G.gif",
-    "🩸": "https://media.giphy.com/media/jN07m6w9uuZAeh80z0/giphy.gif",
-    "🩹": "https://media.giphy.com/media/EwKe1XdABwk2yvTyQt/giphy.gif",
-    "💊": "https://64.media.tumblr.com/858f7aa3c8cee743d61a5ff4d73a378f/tumblr_n2mzr2nf7C1sji00bo1_500.gifv",
-    "💕": "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3dG1pdXd6OXkyYnR4cXk0cjdxdDRxNGJyYWZjdG1wcTk1NWY2eGducSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/1FqyIw2lMKT2U/giphy.gif",
-    "💉": "https://media.giphy.com/media/s8oHUwsjS8w5OD7Sg7/giphy.gif",
-    "🔍": "https://media.giphy.com/media/1fih1TYYBONo0Dkdmx/giphy.gif",
-    "⭐️": "https://media.giphy.com/media/9tz1MAa6NzMDhXiD00/giphy.gif",
-    "🪖": "https://media.giphy.com/media/VxHixRra5rtEMMw7b0/giphy.gif",
-    "🛡": "https://media.giphy.com/media/rR7wrU76zfWnf7xBDR/giphy.gif",
-    "👟": "https://media.giphy.com/media/EBiho5DrxUQ75JMcq7/giphy.gif",
-    "soin_autre": "https://media.giphy.com/media/Mxb7h4hq6mJNzWNF5W/giphy.gif",
-    "critique": "https://media.giphy.com/media/o2TqK6vEzhp96/giphy.gif",
-    "esquive": "https://media.giphy.com/media/eIm624c8nnNbiG0V3g/giphy.gif"
-}
+# Palette de couleurs (douce et lisible)
+COLOR_ATTACK      = discord.Color.red()
+COLOR_HEAL        = discord.Color.green()
+COLOR_UTILITY     = discord.Color.blurple()
+COLOR_STATUS      = discord.Color.orange()
+COLOR_INFO        = discord.Color.purple()
+COLOR_SUCCESS     = discord.Color.teal()
+COLOR_WARNING     = discord.Color.gold()
+COLOR_DARK        = discord.Color.dark_grey()
 
-def build_embed_from_item(item, description, is_heal_other=False, is_crit=False, disable_gif=False, custom_title=None):
-    embed = discord.Embed(
-        title=custom_title or f"{item} Action de GotValis",
-        description=description,
-        color=discord.Color.green() if is_heal_other or OBJETS.get(item, {}).get("type") == "soin" else discord.Color.red()
-    )
+# -----------------------------
+# Helpers d’affichage communs
+# -----------------------------
+def _title_for_item(item: Optional[str], custom_title: Optional[str] = None) -> str:
+    if custom_title:
+        return custom_title
 
-    if disable_gif:
-        return embed
-
-    gif_url = None
-
-    # On met en priorité le GIF de soin (toujours normal même si critique)
-    if OBJETS.get(item, {}).get("type") == "soin":
-        gif_url = GIFS.get("soin_autre") if is_heal_other else GIFS.get(item)
-
-    # Sinon pour attaque critique on met le GIF critique
-    elif is_crit:
-        gif_url = GIFS.get("critique")
-
-    # Cas spécial esquive
-    elif description.startswith("💨"):
-        gif_url = GIFS.get("esquive")
-
-    # Sinon GIF standard de l'item si dispo
-    elif item in GIFS:
-        gif_url = GIFS[item]
-
-    if gif_url:
-        embed.set_image(url=gif_url)
-
-    return embed
-
-def build_embed_transmission_virale(from_user_mention, to_user_mention, pv_avant, pv_apres):
-    return discord.Embed(
-        title="💉 Transmission virale",
-        description=(
-            f"{from_user_mention} confirme une transmission virale : {to_user_mention} est désormais infecté.\n"
-            f"🦠 Le virus a été retiré de {from_user_mention}, qui perd 2 PV ({pv_avant} → {pv_apres})."
-        ),
-        color=0x55ffff
-    )
-
-def build_personnage_embed(perso, user=None):
-    RARETE_COLORS = {
-        "Commun": discord.Color.light_gray(),
-        "Rare": discord.Color.blue(),
-        "Épique": discord.Color.purple(),
-        "Légendaire": discord.Color.gold()
+    # Titre par défaut selon l’emoji
+    mapping = {
+        "❄️": "Boule de neige",
+        "🪓": "Coup de hache",
+        "🔥": "Boule de feu",
+        "⚡": "Décharge",
+        "🔫": "Tir",
+        "🧨": "Explosif",
+        "☠️": "Attaque en chaîne",
+        "🦠": "Virus",
+        "🧪": "Poison",
+        "🧟": "Infection",
+        "🍀": "Petit soin",
+        "🩸": "Soin",
+        "🩹": "Grand soin",
+        "💊": "Pilule",
+        "💕": "Régénération",
+        "📦": "Boîte surprise",
+        "🔍": "Vol d’objet",
+        "💉": "Vaccination",
+        "🛡": "Bouclier",
+        "👟": "Esquive+",
+        "🪖": "Casque",
+        "⭐️": "Immunité",
+        "🎟️": "Ticket de tirage",
+        "💨": "Esquive",
     }
+    if item in mapping:
+        return mapping[item]
+    return "Action GotValis"
 
-    color = RARETE_COLORS.get(perso["rarete"], discord.Color.dark_teal())
+def _color_for_item(item: Optional[str], is_heal_other: bool = False, is_crit: bool = False) -> discord.Color:
+    if item in {"🍀", "🩸", "🩹", "💊", "💕"}:
+        return COLOR_HEAL
+    if item in {"🦠", "🧪", "🧟"}:
+        return COLOR_STATUS
+    if item in {"🔍", "🛡", "👟", "🪖", "⭐️", "📦", "🎟️"}:
+        return COLOR_UTILITY
+    if item == "☠️":
+        return COLOR_WARNING
+    if item == "💨":
+        return COLOR_SUCCESS
+    # Attaques par défaut
+    return COLOR_ATTACK if not is_heal_other else COLOR_HEAL
 
-    titre = f"🎲 {user.mention} a reçu un personnage !" if user else f"Nouveau personnage obtenu"
-    embed = discord.Embed(
-        title=titre,
-        color=color
-    )
 
-    embed.add_field(name="📛 Nom", value=f"**{perso['nom']}**", inline=False)
-    embed.add_field(name="🏷️ Faction", value=perso["faction"], inline=True)
-    embed.add_field(name="🎖️ Rareté", value=perso["rarete"], inline=True)
-    embed.add_field(name="📜 Description", value=perso["description"], inline=False)
+# ------------------------------------------------
+# 1) Embed générique orienté « objet » (combat/soin)
+# ------------------------------------------------
+def build_embed_from_item(
+    item: Optional[str],
+    description: str,
+    *,
+    is_heal_other: bool = False,
+    is_crit: bool = False,
+    disable_gif: bool = False,
+    custom_title: Optional[str] = None,
+    extra_fields: Optional[Dict[str, str]] = None,
+) -> discord.Embed:
+    """
+    Construit un embed uniforme pour les actions du bot liées à un item (attaque, soin, statut, utilitaire).
+    - item: emoji (peut être None pour un fallback)
+    - description: texte principal
+    - is_heal_other: formatage « soin »
+    - is_crit: met un petit accent si critique
+    - disable_gif: pas d’image/gif additionnel (combat.py gère déjà ses images)
+    - custom_title: force un titre particulier
+    - extra_fields: dict {name: value} pour ajouter des champs
+    """
+    title = _title_for_item(item, custom_title)
+    color = _color_for_item(item, is_heal_other, is_crit)
 
-    # 🖼️ Image d'abord
-    if "image" in perso:
-        image_filename = perso["image"].split("/")[-1]
-        embed.set_image(url=f"attachment://{image_filename}")
+    embed = discord.Embed(title=title, description=description, color=color)
 
-    # 🎁 Ensuite le passif (affiché en dessous)
-    if "passif" in perso:
-        nom_passif = perso["passif"].get("nom", "Passif inconnu")
-        effet_passif = perso["passif"].get("effet", "Effet inconnu")
-        embed.add_field(name=f"🎁 {nom_passif}", value=effet_passif, inline=False)
+    # Accent critique subtil
+    if is_crit:
+        embed.set_footer(text="💥 Coup critique !")
 
-    embed.set_footer(text="Prochain tirage disponible dans 24h.")
+    # Ajout de champs optionnels
+    if isinstance(extra_fields, dict):
+        for name, value in extra_fields.items():
+            embed.add_field(name=name, value=value, inline=False)
+
+    # Optionnellement, on pourrait définir une image par défaut sur certains items
+    # mais par défaut on laisse l’appelant gérer (combat.py force parfois set_image(None))
+    if disable_gif:
+        # explicitement rien
+        pass
 
     return embed
 
+
+# ---------------------------------------------------------
+# 2) Embed spécialisé : transmission virale (🦠 → 🧬)
+# ---------------------------------------------------------
+def build_embed_transmission_virale(
+    *,
+    from_user_mention: str,
+    to_user_mention: str,
+    pv_avant: int,
+    pv_apres: int
+) -> discord.Embed:
+    """
+    Embed standardisé pour la transmission du virus (auto-dégâts de transfert).
+    """
+    desc = (
+        f"🦠 **Transmission virale détectée**\n"
+        f"{from_user_mention} transmet le virus à {to_user_mention}.\n"
+        f"• {from_user_mention} subit **{pv_avant - pv_apres} PV** de transfert.\n"
+        f"• ❤️ {pv_avant} → ❤️ {pv_apres}"
+    )
+    return discord.Embed(
+        title="🦠 Contamination",
+        description=desc,
+        color=COLOR_STATUS
+    )
+
+
+# ---------------------------------------------------------
+# 3) Embed « fiche personnage » (perso / tirage)
+# ---------------------------------------------------------
+def build_personnage_embed(perso: Dict[str, Any], user: Optional[discord.Member] = None) -> discord.Embed:
+    """
+    Embed pour l’affichage d’une carte personnage (tirage, /perso).
+    Attend la structure de personnage.py :
+      - nom, rarete, faction, description, passif: {nom, effet}, image (optionnel)
+    L’image locale (si présente) est gérée par l’appelant (perso.py, tirage.py) via discord.File.
+    """
+    nom = perso.get("nom", "Personnage")
+    rarete = perso.get("rarete", "Inconnu")
+    faction = perso.get("faction", "—")
+    description = perso.get("description", "")
+    passif = perso.get("passif", {}) or {}
+    passif_nom = passif.get("nom", "Passif")
+    passif_effet = passif.get("effet", "")
+
+    # Couleur indicative par rareté
+    color_by_rarity = {
+        "Commun": discord.Color.light_grey(),
+        "Rare": discord.Color.blurple(),
+        "Épique": discord.Color.purple(),
+        "Epique": discord.Color.purple(),       # tolérance orthographe
+        "Légendaire": discord.Color.gold(),
+        "Legendaire": discord.Color.gold(),     # tolérance orthographe
+    }
+    color = color_by_rarity.get(rarete, COLOR_INFO)
+
+    title = f"🎭 {nom}"
+    if user:
+        title += f" — {user.display_name}"
+
+    embed = discord.Embed(title=title, color=color, description=description or "—")
+    embed.add_field(name="⭐ Rareté", value=rarete, inline=True)
+    embed.add_field(name="🎖 Faction", value=faction, inline=True)
+    embed.add_field(name="🎁 Passif", value=f"**{passif_nom}**\n> {passif_effet}", inline=False)
+
+    return embed
