@@ -46,15 +46,25 @@ def safe_embed(item, description, **kwargs):
 async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     guild_id = str(ctx.guild.id)
 
+    # 🔒 Normalisation de l'action (évite 'str' has no attribute 'get')
+    if isinstance(action, dict):
+        act = dict(action)  # copie pour éviter effets de bord
+    else:
+        # Valeurs par défaut très sûres
+        act = {"type": "attaque", "degats": 0, "crit": 0.0}
+
+    action_type = str(act.get("type", "attaque"))
+    degats = int(act.get("degats", 0) or 0)
+    crit = float(act.get("crit", 0.0) or 0.0)
+
     # 🩹 SOIN
-    if _as_dict(action).get("type") == "soin":
-        action = dict(action)
-        action["item"] = item
-        embed = await appliquer_soin(ctx, user_id, target_id, action)
+    if action_type == "soin":
+        act["item"] = item
+        embed = await appliquer_soin(ctx, user_id, target_id, act)
         return embed, True
 
     # 🔍 VOL
-    if action.get("type") == "vol":
+    if action_type == "vol":
         user_inv, _, _ = get_user_data(guild_id, user_id)
         inv_cible, _, _ = get_user_data(guild_id, target_id)
 
@@ -132,14 +142,11 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     # 🎯 Calcul des dégâts
     result = await calculer_degats_complets(
         ctx, guild_id, user_id, target_id,
-        action.get("degats", 0), action.get("type"),
-        action.get("crit", 0), item
+        degats, action_type, crit, item
     )
 
     # Type pour l’affichage
-    type_cible_affichage = action.get("type")
-    if type_cible_affichage not in {"virus", "poison", "infection"}:
-        type_cible_affichage = "attaque"
+    type_cible_affichage = action_type if action_type in {"virus", "poison", "infection"} else "attaque"
 
     description = afficher_degats(ctx, user_id, target_id, item, result, type_cible=type_cible_affichage)
     embed = safe_embed(
@@ -150,7 +157,7 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
     )
     await ctx.followup.send(embed=embed)
 
-    # 🎁 Passif « survie » (bonus d’objet sur la cible qui survit)
+    # 🎁 Passif « survie »
     if hp[guild_id].get(target_id, 0) > 0:
         result_passif = _as_dict(appliquer_passif("defense_survie", {
             "guild_id": guild_id,
@@ -180,16 +187,15 @@ async def apply_item_with_cooldown(ctx, user_id, target_id, item, action):
         await ctx.followup.send(embed=shield_embed)
 
     # 🧪 Statut post-attaque
-    await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action.get("type", ""), index=0)
+    await appliquer_statut_si_necessaire(ctx, guild_id, user_id, target_id, action_type, index=0)
 
     # Types autorisés
-    if action.get("type") not in {"attaque", "poison", "virus", "infection", "vol", "soin"}:
-        await ctx.followup.send(f"⚠️ Type d’objet inconnu : `{action.get('type')}` pour l’objet {item}.")
+    if action_type not in {"attaque", "poison", "virus", "infection", "vol", "soin"}:
+        await ctx.followup.send(f"⚠️ Type d’objet inconnu : `{action_type}` pour l’objet {item}.")
         return None, False
 
     sauvegarder()
     return None, True
-
 
 # ------------------------------ Petites briques ------------------------------
 def is_immune(guild_id, user_id):
@@ -706,3 +712,4 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
         await appliquer_statut_si_necessaire(ctx, guild_id, user_id, victim_id, "attaque", index=i)
 
     return None, True
+
