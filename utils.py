@@ -2,12 +2,49 @@
 import random
 import time
 
-from storage import hp, leaderboard, get_user_data
-from cooldowns import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN
-from effects import remove_status_effects
-from data import esquive_status
+# --- Imports "souples" pour éviter les crashs si tout n'est pas encore présent
+try:
+    # On importe le module complet pour pouvoir modifier ses attributs au besoin
+    import storage as _storage
+    from storage import get_user_data
+except Exception:  # Si storage pas prêt
+    _storage = type("S", (), {})()
+    _storage.hp = {}
+    _storage.leaderboard = {}
+    def get_user_data(guild_id, user_id):
+        return [], 100, None  # fallback ultra-minimal
 
+# Assure l'existence de hp/leaderboard dans storage
+if not hasattr(_storage, "hp") or not isinstance(getattr(_storage, "hp"), dict):
+    _storage.hp = {}
+if not hasattr(_storage, "leaderboard") or not isinstance(getattr(_storage, "leaderboard"), dict):
+    _storage.leaderboard = {}
+
+# Cooldowns (facultatif ici, on laisse des placeholders si module absent)
+try:
+    from cooldowns import is_on_cooldown, cooldowns, ATTACK_COOLDOWN, HEAL_COOLDOWN
+except Exception:
+    def is_on_cooldown(*args, **kwargs): return False
+    cooldowns = {}
+    ATTACK_COOLDOWN = 0
+    HEAL_COOLDOWN = 0
+
+# Effets (on fait un no-op si le module n'existe pas)
+try:
+    from effects import remove_status_effects
+except Exception:
+    def remove_status_effects(guild_id, user_id):  # no-op
+        return
+
+# Statut d'esquive (on tolère l'absence)
+try:
+    from data import esquive_status
+except Exception:
+    esquive_status = {}
+
+# =========================
 # Objets disponibles
+# =========================
 OBJETS = {
     "❄️": {"type": "attaque", "degats": 1, "rarete": 1, "crit": 0.35},
     "🪓": {"type": "attaque", "degats": 3, "rarete": 2, "crit": 0.3},
@@ -30,15 +67,22 @@ OBJETS = {
     "🛡": {"type": "bouclier", "valeur": 20, "rarete": 18},
     "👟": {"type": "esquive+", "valeur": 0.2, "duree": 3 * 3600, "rarete": 14},
     "🪖": {"type": "reduction", "valeur": 0.5, "duree": 4 * 3600, "rarete": 16},
-    "⭐️": {"type": "immunite", "duree": 2 * 3600, "rarete": 22}
+    "⭐️": {"type": "immunite", "duree": 2 * 3600, "rarete": 22},
 }
 
 REWARD_EMOJIS = ["💰"]
 
-def check_crit(chance):
-    return random.random() < chance
+# =========================
+# Utilitaires
+# =========================
+def check_crit(chance: float) -> bool:
+    try:
+        return random.random() < float(chance or 0.0)
+    except Exception:
+        return False
 
-def get_random_item(debug=False):
+def get_random_item(debug: bool = False):
+    # 5% : drop de coins
     if random.random() < 0.05:
         if debug:
             print("[get_random_item] 💰 Tirage spécial : Coins")
@@ -46,7 +90,7 @@ def get_random_item(debug=False):
 
     pool = []
     for emoji, data in OBJETS.items():
-        poids = 26 - data["rarete"]
+        poids = 26 - int(data.get("rarete", 25))
         if poids > 0:
             pool.extend([emoji] * poids)
 
@@ -55,23 +99,37 @@ def get_random_item(debug=False):
 
     return random.choice(pool) if pool else None
 
-def handle_death(guild_id, target_id, source_id=None):
-    hp[guild_id][target_id] = 100  # Réinitialise les PV
+def _ensure_guild_user_hp(guild_id: str, user_id: str):
+    _storage.hp.setdefault(str(guild_id), {}).setdefault(str(user_id), 100)
+
+def handle_death(guild_id: str, target_id: str, source_id: str | None = None):
+    """Réinitialise PV, nettoie les statuts, met à jour le leaderboard (safe)."""
+    gid = str(guild_id)
+    tid = str(target_id)
+    _ensure_guild_user_hp(gid, tid)
+
+    # Reset PV
+    _storage.hp[gid][tid] = 100
+
+    # Suppression des statuts (si système d'effets non présent, no-op)
     try:
-        remove_status_effects(guild_id, target_id)
+        remove_status_effects(gid, tid)
     except Exception as e:
         print(f"[handle_death] Erreur de suppression des statuts : {e}")
 
-    if source_id and source_id != target_id:
-        update_leaderboard(guild_id, source_id, 50, kill=1)
-    update_leaderboard(guild_id, target_id, -25, death=1)
+    # Leaderboard
+    if source_id and str(source_id) != tid:
+        update_leaderboard(gid, str(source_id), points_delta=50, kill=1)
+    update_leaderboard(gid, tid, points_delta=-25, death=1)
 
-def get_mention(guild, user_id):
-    member = guild.get_member(int(user_id))
-    return member.mention if member else f"<@{user_id}>"
+def get_mention(guild, user_id: str):
+    try:
+        member = guild.get_member(int(user_id))
+        return member.mention if member else f"<@{user_id}>"
+    except Exception:
+        return f"<@{user_id}>"
 
-# ---------- ✅ NOUVEAUX utilitaires demandés par passifs.py ----------
-
+# ---------- ✅ Nouveaux utilitaires demandés par passifs.py ----------
 def remove_random_item(guild_id: str, user_id: str):
     """Retire un objet (emoji str) aléatoire de l'inventaire d'un joueur. Ignore les entrées 'personnage' (dict)."""
     inv, _, _ = get_user_data(str(guild_id), str(user_id))
@@ -94,33 +152,58 @@ def get_random_enemy(guild_id: str, exclude=None):
     """
     exclude = set(map(str, exclude or []))
     gid = str(guild_id)
-    candidates = [uid for uid in hp.get(gid, {}).keys() if str(uid) not in exclude]
+    candidates = [uid for uid in _storage.hp.get(gid, {}).keys() if str(uid) not in exclude]
     return random.choice(candidates) if candidates else None
-
 # ---------- Fin des utilitaires pour passifs.py ----------
 
-def get_evade_chance(guild_id, user_id):
+def get_evade_chance(guild_id: str, user_id: str) -> float:
     """Calcule la chance d'esquive pour un utilisateur, avec bonus de statut et passifs."""
     base_chance = 0.10  # 10 % de base
     bonus = 0.0
     now = time.time()
 
     # 🔷 Statut temporaire d'esquive (ex: 👟)
-    data = esquive_status.get(guild_id, {}).get(user_id)
-    if data and now - data["start"] < data["duration"]:
-        bonus += data.get("valeur", 0.2)
-
-    # 🌀 Passifs (Nova Rell, Elira Veska, etc.)
-    # ⬇️ Import paresseux pour éviter l’import circulaire avec passifs.py
     try:
-        from passifs import appliquer_passif
-        result = appliquer_passif({"nom": ""}, "calcul_esquive", {
-            "guild_id": guild_id,
-            "defenseur": user_id
-        })
-        if result:
-            bonus += result.get("bonus_esquive", 0.0) / 100  # en pourcentage
+        data = esquive_status.get(str(guild_id), {}).get(str(user_id))
+        if data and (now - float(data.get("start", 0))) < float(data.get("duration", 0)):
+            bonus += float(data.get("valeur", 0.2))
     except Exception:
         pass
 
-    return base_chance + bonus
+    # 🌀 Passifs (appel paresseux pour éviter import circulaire)
+    try:
+        from passifs import appliquer_passif
+        result = appliquer_passif({"nom": ""}, "calcul_esquive", {
+            "guild_id": str(guild_id),
+            "defenseur": str(user_id)
+        })
+        if isinstance(result, dict):
+            bonus += float(result.get("bonus_esquive", 0.0)) / 100.0  # en pourcentage
+    except Exception:
+        pass
+
+    # clamp raisonnable
+    total = max(0.0, min(0.95, base_chance + bonus))
+    return total
+
+# =========================
+# Leaderboard helper (safe)
+# =========================
+def update_leaderboard(guild_id: str, user_id: str, points_delta: int = 0, kill: int = 0, death: int = 0):
+    """
+    Maintient un leaderboard très simple.
+    Structure: storage.leaderboard[guild_id][user_id] = {"points": int, "kills": int, "deaths": int}
+    """
+    gid = str(guild_id)
+    uid = str(user_id)
+    _storage.leaderboard.setdefault(gid, {}).setdefault(uid, {"points": 0, "kills": 0, "deaths": 0})
+    entry = _storage.leaderboard[gid][uid]
+    try:
+        entry["points"] = int(entry.get("points", 0)) + int(points_delta)
+        entry["kills"] = int(entry.get("kills", 0)) + int(kill)
+        entry["deaths"] = int(entry.get("deaths", 0)) + int(death)
+    except Exception:
+        # si jamais un type inattendu s'est glissé dedans
+        entry["points"] = int(points_delta)
+        entry["kills"] = int(kill)
+        entry["deaths"] = int(death)
