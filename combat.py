@@ -682,7 +682,7 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
         result = await calculer_degats_complets(
             ctx, guild_id, user_id, victim_id,
             dmg, "attaque",
-            action.get("crit", 0), item
+            (action or {}).get("crit", 0), item
         )
 
         ligne_type = "Attaque principale" if i == 0 else "Attaque secondaire"
@@ -712,4 +712,5 @@ async def apply_attack_chain(ctx, user_id, target_id, item, action):
         await appliquer_statut_si_necessaire(ctx, guild_id, user_id, victim_id, "attaque", index=i)
 
     return None, True
+
 
