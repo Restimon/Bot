@@ -51,7 +51,8 @@ from bite import register_bite_command
 from economy import add_gotcoins, gotcoins_balance, get_balance
 from stats import register_stats_command
 from bank import register_bank_command
-from passifs import appliquer_passif
+# ✅ nouvelle API passifs
+from passifs import appliquer_passif_utilisateur as appliquer_passif
 from shop import register_shop_commands
 from perso import setup as setup_perso
 from tirage import setup as setup_tirage
@@ -565,7 +566,8 @@ async def virus_damage_loop():
                     del virus_status[gid][uid]
                 continue
 
-            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            # ✅ nouvelle API
+            purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del virus_status[gid][uid]
                 continue
@@ -640,7 +642,8 @@ async def poison_damage_loop():
                     del poison_status[gid][uid]
                 continue
 
-            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            # ✅ nouvelle API
+            purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del poison_status[gid][uid]
                 continue
@@ -719,13 +722,16 @@ async def infection_damage_loop():
             if now < next_tick:
                 continue
 
-            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
+            # ✅ purge auto (nouvelle API)
+            purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del infection_status[gid][uid]
                 continue
 
-            passif_result = appliquer_passif(uid, "tick_infection", {"guild_id": gid, "user_id": uid, "cible_id": uid})
-            if passif_result and passif_result.get("ignore_infection_damage"):
+            # ✅ tick_infection : certains persos annulent les dégâts
+            passif_result = appliquer_passif(gid, uid, "tick_infection", {"cible_id": uid})
+            if passif_result and passif_result.get("annuler_degats"):
+                infection_status[gid][uid]["next_tick"] = now + 1800
                 continue
 
             infection_status[gid][uid]["next_tick"] = now + 1800
@@ -862,7 +868,8 @@ async def burn_damage_loop():
         for uid, status in list(burn_status[gid].items()):
             if not status.get("actif") or now < status.get("next_tick", 0):
                 continue
-            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": status["start"]})
+            # ✅ purge auto (nouvelle API)
+            purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": status["start"]})
             if purge_result and purge_result.get("purger_statut"):
                 del burn_status[gid][uid]
                 continue
