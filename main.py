@@ -32,7 +32,16 @@ from daily import register_daily_command
 from fight import register_fight_command
 from heal import register_heal_command
 from admin import register_admin_commands
-from profile import register_profile_command
+# --- profile: import robuste/optionnel
+_PROFILE_REGISTER_FN = None
+try:
+    from profile import register_profile_command as _PROFILE_REGISTER_FN
+except ImportError:
+    try:
+        from profile import register_profile_commands as _PROFILE_REGISTER_FN  # autre nom possible
+    except Exception:
+        _PROFILE_REGISTER_FN = None
+
 from status import register_status_command
 from box import register_box_command
 from cooldowns import is_on_cooldown
@@ -181,7 +190,16 @@ def register_all_commands(bot):
     register_fight_command(bot)
     register_heal_command(bot)
     register_admin_commands(bot)
-    register_profile_command(bot)
+
+    # profile: si présent, on l’enregistre ; sinon on log
+    if _PROFILE_REGISTER_FN:
+        try:
+            _PROFILE_REGISTER_FN(bot)
+        except Exception as e:
+            print(f"⚠️ Échec d’enregistrement des commandes profile: {e}")
+    else:
+        print("ℹ️ Module profile: commande d’enregistrement introuvable (ignoré).")
+
     register_status_command(bot)
     register_box_command(bot)
     register_item_command(bot)
