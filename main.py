@@ -32,16 +32,6 @@ from daily import register_daily_command
 from fight import register_fight_command
 from heal import register_heal_command
 from admin import register_admin_commands
-# --- profile: import robuste/optionnel
-_PROFILE_REGISTER_FN = None
-try:
-    from profile import register_profile_command as _PROFILE_REGISTER_FN
-except ImportError:
-    try:
-        from profile import register_profile_commands as _PROFILE_REGISTER_FN  # autre nom possible
-    except Exception:
-        _PROFILE_REGISTER_FN = None
-
 from status import register_status_command
 from box import register_box_command
 from cooldowns import is_on_cooldown
@@ -61,7 +51,7 @@ from bite import register_bite_command
 from economy import add_gotcoins, gotcoins_balance, get_balance
 from stats import register_stats_command
 from bank import register_bank_command
-from passifs import appliquer_passif_utilisateur
+from passifs import appliquer_passif
 from shop import register_shop_commands
 from perso import setup as setup_perso
 from tirage import setup as setup_tirage
@@ -190,16 +180,7 @@ def register_all_commands(bot):
     register_fight_command(bot)
     register_heal_command(bot)
     register_admin_commands(bot)
-
-    # profile: si présent, on l’enregistre ; sinon on log
-    if _PROFILE_REGISTER_FN:
-        try:
-            _PROFILE_REGISTER_FN(bot)
-        except Exception as e:
-            print(f"⚠️ Échec d’enregistrement des commandes profile: {e}")
-    else:
-        print("ℹ️ Module profile: commande d’enregistrement introuvable (ignoré).")
-
+    # (pas de profile ici — ton fichier 'profile.py' est en réalité un tirage)
     register_status_command(bot)
     register_box_command(bot)
     register_item_command(bot)
@@ -278,8 +259,6 @@ async def on_ready():
         infection_damage_loop.start()
     if not update_leaderboard_loop.is_running():
         update_leaderboard_loop.start()
-    if not yearly_reset_loop.is_running():
-        yearly_reset_loop.start()
     if not autosave_data_loop.is_running():
         autosave_data_loop.start()
     if not daily_restart_loop.is_running():
@@ -586,10 +565,7 @@ async def virus_damage_loop():
                     del virus_status[gid][uid]
                 continue
 
-            purge_result = appliquer_passif_utilisateur(
-                gid, uid, "purge_auto",
-                {"guild_id": gid, "user_id": uid, "last_timestamp": start}
-            )
+            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del virus_status[gid][uid]
                 continue
@@ -664,10 +640,7 @@ async def poison_damage_loop():
                     del poison_status[gid][uid]
                 continue
 
-            purge_result = appliquer_passif_utilisateur(
-                gid, uid, "purge_auto",
-                {"guild_id": gid, "user_id": uid, "last_timestamp": start}
-            )
+            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del poison_status[gid][uid]
                 continue
@@ -746,18 +719,12 @@ async def infection_damage_loop():
             if now < next_tick:
                 continue
 
-            purge_result = appliquer_passif_utilisateur(
-                gid, uid, "purge_auto",
-                {"guild_id": gid, "user_id": uid, "last_timestamp": start}
-            )
+            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del infection_status[gid][uid]
                 continue
 
-            passif_result = appliquer_passif_utilisateur(
-                gid, uid, "tick_infection",
-                {"guild_id": gid, "user_id": uid, "cible_id": uid}
-            )
+            passif_result = appliquer_passif(uid, "tick_infection", {"guild_id": gid, "user_id": uid, "cible_id": uid})
             if passif_result and passif_result.get("ignore_infection_damage"):
                 continue
 
@@ -895,11 +862,7 @@ async def burn_damage_loop():
         for uid, status in list(burn_status[gid].items()):
             if not status.get("actif") or now < status.get("next_tick", 0):
                 continue
-
-            purge_result = appliquer_passif_utilisateur(
-                gid, uid, "purge_auto",
-                {"guild_id": gid, "user_id": uid, "last_timestamp": status["start"]}
-            )
+            purge_result = appliquer_passif("purge_auto", {"guild_id": gid, "user_id": uid, "last_timestamp": status["start"]})
             if purge_result and purge_result.get("purger_statut"):
                 del burn_status[gid][uid]
                 continue
