@@ -7,19 +7,19 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from personnage import PERSONNAGES  # dictionnaire {nom: data}
+from personnage import PERSONNAGES  # dict {nom: data}
 from storage import get_inventory, ajouter_personnage
-from data import sauvegarder, tirages  # tirages: dict "guild-user" -> iso datetime
+from data import sauvegarder, tirages  # dict: key "guild-user" -> ISO datetime string
 from embeds import build_personnage_embed
 
-# Optionnel: si passifs non prêts au démarrage, on ignore proprement
+# Passifs optionnels (safe import)
 try:
     from passifs import appliquer_passif
 except Exception:
     def appliquer_passif(*args, **kwargs):
         return None
 
-# 🎲 Probabilités de rareté (en millièmes) — avec accents qui matchent personnage.RARETES
+# 🎲 Probabilités par rareté (en millièmes, total = 1000)
 RARETE_PROBABILITES_MILLIEMES = {
     "Commun": 845,
     "Rare": 100,
@@ -31,20 +31,22 @@ TICKET_EMOJI = "🎟️"
 
 
 def get_random_rarity(probabilities=None):
-    if probabilities is None:
-        probabilities = RARETE_PROBABILITES_MILLIEMES
-    total = sum(probabilities.values())
+    """Retourne une rareté selon les pondérations en millièmes."""
+    probs = probabilities or RARETE_PROBABILITES_MILLIEMES
+    total = sum(probs.values())
+    if total <= 0:
+        return "Commun"
     tirage = random.randint(1, total)
     cumul = 0
-    for rarete, poids in probabilities.items():
-        cumul += poids
+    for rarete, poids in probs.items():
+        cumul += max(0, int(poids))
         if tirage <= cumul:
             return rarete
     return "Commun"
 
 
 def get_random_character(rarity="Commun"):
-    # PERSONNAGES est un dict nom -> data
+    """Prend un personnage au hasard pour une rareté donnée."""
     candidats = [p for p in PERSONNAGES.values() if p.get("rarete") == rarity]
     return random.choice(candidats) if candidats else None
 
@@ -55,12 +57,21 @@ def get_random_character_by_probability(probabilities=None):
 
 
 def _consume_one_ticket(inv_list):
-    """Retire UN 🎟️ de la liste d’inventaire si présent, renvoie True si consommé."""
+    """Retire UN 🎟️ si présent. Renvoie True si un ticket a été consommé."""
     try:
         inv_list.remove(TICKET_EMOJI)
         return True
     except ValueError:
         return False
+
+
+def _cooldown_remaining_text(last_dt: datetime, now: datetime) -> str:
+    """Texte lisible du temps restant avant le prochain journalier."""
+    diff = (last_dt + timedelta(days=1)) - now
+    secs = max(0, int(diff.total_seconds()))
+    h = secs // 3600
+    m = (secs % 3600) // 60
+    return f"{h}h {m}min"
 
 
 class Tirage(commands.Cog):
@@ -86,58 +97,65 @@ class Tirage(commands.Cog):
 
         utilise_ticket = False
 
-        # ⏳ Vérifie le journalier
+        # ⏳ Journalier déjà utilisé ?
         if key in tirages:
-            last_time = datetime.fromisoformat(tirages[key])
-            if now - last_time < timedelta(days=1):
-                # Journalier déjà utilisé → on consomme un ticket si on en a
+            try:
+                last_time = datetime.fromisoformat(tirages[key])
+            except Exception:
+                # Si format corrompu, on reset comme non-utilisé
+                last_time = None
+
+            if last_time and (now - last_time) < timedelta(days=1):
+                # Journalier en cooldown → on tente d'utiliser un ticket
                 if _consume_one_ticket(inv_list):
                     utilise_ticket = True
-                    # pas besoin d’appeler sauvegarder() ici, on le fera à la fin
+                    # On ne touche pas au timer journalier
                 else:
-                    remaining = timedelta(days=1) - (now - last_time)
-                    hours = remaining.seconds // 3600
-                    minutes = (remaining.seconds % 3600) // 60
+                    # Pas de ticket → on dit quand réessayer
+                    rest = _cooldown_remaining_text(last_time, now)
                     await interaction.followup.send(
                         f"❌ Tu as déjà utilisé ton tirage journalier.\n"
-                        f"Réessaye dans **{hours}h {minutes}min** ou utilise un {TICKET_EMOJI} Ticket de Tirage.",
+                        f"Réessaye dans **{rest}** ou utilise un {TICKET_EMOJI} **Ticket de Tirage**.",
                         ephemeral=True
                     )
                     return
+            else:
+                # Journalier disponible à nouveau → on le consomme maintenant
+                tirages[key] = now.isoformat()
         else:
+            # Premier tirage journalier de ce joueur
             tirages[key] = now.isoformat()
-            sauvegarder()
 
-        # 🎯 Bonus passif (ex: Nael Mirren)
-        proba_modifiées = RARETE_PROBABILITES_MILLIEMES.copy()
-        try:
-            bonus_passif = appliquer_passif("tirage_objet", {"guild_id": guild_id, "user_id": user_id})
-        except Exception:
-            bonus_passif = None
-        bonus_rarite = bonus_passif.get("bonus_rarite") if isinstance(bonus_passif, dict) else False
+        # 🎯 Boosts/passifs éventuels
+        proba_mod = RARETE_PROBABILITES_MILLIEMES.copy()
+        bonus = appliquer_passif("tirage_objet", {"guild_id": guild_id, "user_id": user_id})
+        bonus_rarite = isinstance(bonus, dict) and bonus.get("bonus_rarite")
 
         if bonus_rarite:
-            # Petit boost: on diminue "Commun" et on augmente les autres
-            proba_modifiées["Légendaire"] += 1
-            proba_modifiées["Épique"] += 3
-            proba_modifiées["Rare"] += 6
-            proba_modifiées["Commun"] = max(0, proba_modifiées["Commun"] - 10)
+            # petit boost contrôlé
+            proba_mod["Légendaire"] = proba_mod.get("Légendaire", 0) + 1
+            proba_mod["Épique"] = proba_mod.get("Épique", 0) + 3
+            proba_mod["Rare"] = proba_mod.get("Rare", 0) + 6
+            proba_mod["Commun"] = max(0, proba_mod.get("Commun", 0) - 10)
 
-        perso = get_random_character_by_probability(probabilities=proba_modifiées)
+        # 🧲 Tirage d’un personnage
+        perso = get_random_character_by_probability(probabilities=proba_mod)
         if not perso:
             await interaction.followup.send("❌ Aucun personnage disponible pour cette rareté.", ephemeral=True)
             return
 
-        # Ajout à la collection (stockée comme dict d’objets dans inventaire via storage.ajouter_personnage)
+        # Ajout à la collection
         ajouter_personnage(guild_id, user_id, perso["nom"])
+
+        # Persistance (collection + tickets consommés + usage journalier)
         sauvegarder()
 
         # Embed résultat
         embed = build_personnage_embed(perso, user=user)
         if utilise_ticket:
-            embed.set_footer(text="🎟️ Le personnage a été obtenu grâce à un Ticket de Tirage.")
+            embed.set_footer(text="🎟️ Obtenu grâce à un Ticket de Tirage.")
         else:
-            embed.set_footer(text="🎴 Le personnage a été obtenu via le tirage journalier.")
+            embed.set_footer(text="🎴 Obtenu via le tirage journalier.")
 
         if bonus_rarite:
             embed.add_field(
@@ -147,31 +165,28 @@ class Tirage(commands.Cog):
             )
 
         # Image locale si dispo
-        try:
-            image_path = perso.get("image")
-            if image_path and os.path.exists(image_path):
-                image_filename = os.path.basename(image_path)
-                with open(image_path, "rb") as f:
-                    file = discord.File(f, filename=image_filename)
-                embed.set_image(url=f"attachment://{image_filename}")
+        image_path = perso.get("image")
+        if image_path and os.path.exists(image_path):
+            try:
+                filename = os.path.basename(image_path)
+                file = discord.File(image_path, filename=filename)
+                embed.set_image(url=f"attachment://{filename}")
                 await interaction.followup.send(embed=embed, file=file)
                 return
-        except Exception as e:
-            # On tombe sur l’envoi sans fichier si souci I/O
-            pass
+            except Exception:
+                pass  # on retombe sur l’envoi sans fichier
 
         await interaction.followup.send(embed=embed)
 
 
-# === Intégrations multiples (compatibilité) ===
-
+# === Intégrations ===
 async def setup(bot):
-    """Chargement via extensions (await bot.load_extension)."""
+    """Chargement en extension: await bot.load_extension('tirage')"""
     await bot.add_cog(Tirage(bot))
 
 
 def register_tirage_command(bot):
-    """Compat pour les main.py qui appellent register_tirage_command(bot)."""
+    """Compat si tu préfères un appel simple dans main()."""
     try:
         bot.add_cog(Tirage(bot))
     except TypeError:
