@@ -1,115 +1,133 @@
+# inventory.py
 import random
 import discord
 from utils import OBJETS
 from storage import get_user_data
 
-# === RANDOM ITEM ===
+# même emoji que tirage.py / shop.py
+TICKET_EMOJI = "🎟️"
 
-def get_random_item(debug=False):
+# === RANDOM ITEM (fallback utilitaire) ===
+def get_random_item(debug: bool = False):
     """Retourne un objet au hasard selon sa rareté."""
     pool = []
     for emoji, data in OBJETS.items():
-        poids = max(1, 26 - data["rarete"])  # sécurité : au moins 1
+        poids = max(1, 26 - data.get("rarete", 13))  # au moins 1
         pool.extend([emoji] * poids)
 
     if debug:
-        print(f"[get_random_item] Pool = {pool}")
+        print(f"[inventory.get_random_item] pool={pool}")
 
     return random.choice(pool) if pool else None
 
-# === BUILD INVENTORY EMBED ===
 
+# === BUILD INVENTORY EMBED ===
 def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> discord.Embed:
+    """
+    Construit un embed d'inventaire :
+      - Affiche d'abord le nombre de tickets 🎟️
+      - Puis liste les autres objets (hors 🎟️) avec une description lisible
+    """
     user_items, _, _ = get_user_data(guild_id, user_id)
 
-    # Compte les objets
+    # Compter les items (str uniquement)
     item_counts = {}
     for item in user_items:
-        item_counts[item] = item_counts.get(item, 0) + 1
+        if isinstance(item, str):
+            item_counts[item] = item_counts.get(item, 0) + 1
+
+    ticket_count = item_counts.get(TICKET_EMOJI, 0)
 
     embed = discord.Embed(color=discord.Color.blurple())
 
-    if not item_counts:
-        embed.description = "📦 GotValis ne détecte aucun objet dans l'inventaire."
+    # En-tête Tickets
+    if ticket_count > 0:
+        tickets_line = f"🎟️ **Tickets de tirage** : **{ticket_count}**"
     else:
-        rows = []
-        for emoji, count in sorted(item_counts.items(), key=lambda x: -x[1]):
-            obj = OBJETS.get(emoji, {})
-            obj_type = obj.get("type", "inconnu")
+        tickets_line = "🎟️ **Tickets de tirage** : aucun"
 
-            if obj_type == "attaque":
+    # Corps (hors 🎟️)
+    rows = []
+    autres = {e: c for e, c in item_counts.items() if e != TICKET_EMOJI}
+    if not autres:
+        rows.append("📦 Aucun autre objet détecté.")
+    else:
+        for emoji, count in sorted(autres.items(), key=lambda x: (-x[1], x[0])):
+            obj = OBJETS.get(emoji, {})
+            typ = obj.get("type", "inconnu")
+
+            if typ == "attaque":
                 degats = obj.get("degats", "?")
-                crit = obj.get("crit", 0)
-                rows.append(f"{emoji} × **{count}** — 🗡️ {degats} dégâts (🎯 {int(crit * 100)}% crit)")
+                crit = int(obj.get("crit", 0) * 100)
+                rows.append(f"{emoji} × **{count}** — 🗡️ {degats} dégâts (🎯 {crit}% crit)")
 
             elif emoji == "☠️":
                 d1 = obj.get("degats_principal", "?")
                 d2 = obj.get("degats_secondaire", "?")
-                crit = obj.get("crit", 0)
-                rows.append(f"{emoji} × **{count}** — ☠️ Attaque en chaîne : {d1} dégâts à 1 cible, {d2} à 2 autres (🎯 {int(crit * 100)}%)")
+                crit = int(obj.get("crit", 0) * 100)
+                rows.append(f"{emoji} × **{count}** — ☠️ Attaque en chaîne : {d1} / {d2} / {d2} (🎯 {crit}%)")
 
-            elif obj_type == "virus":
+            elif typ == "virus":
                 dmg = obj.get("degats", "?")
-                duree = obj.get("duree", 0)
-                rows.append(f"{emoji} × **{count}** — 🦠 Virus : {dmg} dégâts initiaux + 5/h pendant {duree // 3600}h")
+                duree_h = obj.get("duree", 0) // 3600
+                rows.append(f"{emoji} × **{count}** — 🦠 Virus : {dmg} initiaux + 5/h pendant {duree_h}h")
 
-            elif obj_type == "poison":
+            elif typ == "poison":
                 dmg = obj.get("degats", "?")
-                interval = obj.get("intervalle", 1800)
-                duree = obj.get("duree", 0)
-                rows.append(f"{emoji} × **{count}** — 🧪 Poison : {dmg} initiaux + 3 toutes les {interval // 60} min pendant {duree // 3600}h")
+                interval = obj.get("intervalle", 1800) // 60
+                duree_h = obj.get("duree", 0) // 3600
+                rows.append(f"{emoji} × **{count}** — 🧪 Poison : {dmg} initiaux + 3 / {interval} min ({duree_h}h)")
 
-            elif obj_type == "infection":
+            elif typ == "infection":
                 dmg = obj.get("degats", "?")
-                interval = obj.get("intervalle", 1800)
-                duree = obj.get("duree", 0)
-                rows.append(f"{emoji} × **{count}** — 🧟 Infection : {dmg} initiaux + 2 toutes les {interval // 60} min pendant {duree // 3600}h ⚠️ Propagation possible")
+                interval = obj.get("intervalle", 1800) // 60
+                duree_h = obj.get("duree", 0) // 3600
+                rows.append(f"{emoji} × **{count}** — 🧟 Infection : {dmg} initiaux + 2 / {interval} min ({duree_h}h) ⚠️ Propagation")
 
-            elif obj_type == "soin":
+            elif typ == "soin":
                 soin = obj.get("soin", "?")
-                crit = obj.get("crit", 0)
-                rows.append(f"{emoji} × **{count}** — 💚 Soigne {soin} PV (✨ {int(crit * 100)}% crit)")
+                crit = int(obj.get("crit", 0) * 100)
+                rows.append(f"{emoji} × **{count}** — 💚 Soigne {soin} PV (✨ {crit}% crit)")
 
-            elif obj_type == "regen":
+            elif typ == "regen":
                 val = obj.get("valeur", "?")
-                interval = obj.get("intervalle", 1800)
-                duree = obj.get("duree", 0)
-                rows.append(f"{emoji} × **{count}** — 💕 Régénère {val} PV toutes les {interval // 60} min pendant {duree // 3600}h")
+                interval = obj.get("intervalle", 1800) // 60
+                duree_h = obj.get("duree", 0) // 3600
+                rows.append(f"{emoji} × **{count}** — 💕 Régénère {val} PV / {interval} min pendant {duree_h}h")
 
-            elif obj_type == "vol":
+            elif typ == "vol":
                 rows.append(f"{emoji} × **{count}** — 🔍 Vole un objet aléatoire à la cible")
 
-            elif obj_type == "mysterybox":
+            elif typ == "mysterybox":
                 rows.append(f"{emoji} × **{count}** — 📦 Boîte surprise : donne 1 à 3 objets aléatoires")
 
-            elif obj_type == "vaccin":
-                rows.append(f"{emoji} × **{count}** — 💉 Utilisable uniquement via `/heal`, soigne virus et poison")
+            elif typ == "vaccin":
+                rows.append(f"{emoji} × **{count}** — 💉 Utilisable via `/heal` : soigne virus/poison")
 
-            elif obj_type == "bouclier":
+            elif typ == "bouclier":
                 val = obj.get("valeur", 20)
-                rows.append(f"{emoji} × **{count}** — 🛡 Donne un bouclier de {val} points absorbant les dégâts")
+                rows.append(f"{emoji} × **{count}** — 🛡 Bouclier de {val} PB")
 
-            elif obj_type == "reduction":
+            elif typ == "reduction":
                 pourcent = int(obj.get("valeur", 0.5) * 100)
-                duree = obj.get("duree", 0)
-                rows.append(f"{emoji} × **{count}** — 🪖 Casque : réduit les dégâts de {pourcent}% pendant {duree // 3600}h")
+                duree_h = obj.get("duree", 0) // 3600
+                rows.append(f"{emoji} × **{count}** — 🪖 Réduction dégâts {pourcent}% pendant {duree_h}h")
 
-            elif obj_type == "esquive+":
+            elif typ == "esquive+":
                 bonus = int(obj.get("valeur", 0.2) * 100)
-                duree = obj.get("duree", 0)
-                rows.append(f"{emoji} × **{count}** — 👟 Esquive +{bonus}% pendant {duree // 3600}h")
+                duree_h = obj.get("duree", 0) // 3600
+                rows.append(f"{emoji} × **{count}** — 👟 Esquive +{bonus}% pendant {duree_h}h")
 
-            elif obj_type == "immunite":
-                duree = obj.get("duree", 0)
-                rows.append(f"{emoji} × **{count}** — ⭐️ Immunité : aucun dégât reçu pendant {duree // 3600}h")
+            elif typ == "immunite":
+                duree_h = obj.get("duree", 0) // 3600
+                rows.append(f"{emoji} × **{count}** — ⭐️ Immunité pendant {duree_h}h")
 
             else:
-                # Ajout debug sur objets inconnus
-                rows.append(f"{emoji} × **{count}** — Objet inconnu ({obj})")
+                rows.append(f"{emoji} × **{count}** — Objet non référencé")
 
-        embed.description = "\n".join(rows)
+    embed.description = tickets_line + "\n\n" + ("\n".join(rows) if rows else "")
 
-    # Ajout de l'auteur de l'inventaire
+    # Auteur / avatar
     guild = bot.get_guild(int(guild_id))
     user = guild.get_member(int(user_id)) if guild else None
     name = user.display_name if user else f"ID {user_id}"
@@ -119,3 +137,13 @@ def build_inventory_embed(user_id: str, bot: discord.Client, guild_id: str) -> d
         embed.set_author(name=f"Inventaire GotValis de {name}")
 
     return embed
+
+
+# (optionnel) petite commande pour afficher l’inventaire
+async def register_inventory_command(bot: discord.Client):
+    @bot.tree.command(name="inventory", description="Affiche ton inventaire GotValis.")
+    async def inventory_cmd(interaction: discord.Interaction, user: discord.Member | None = None):
+        await interaction.response.defer(ephemeral=True)
+        m = user or interaction.user
+        embed = build_inventory_embed(str(m.id), interaction.client, str(interaction.guild_id))
+        await interaction.followup.send(embed=embed, ephemeral=True)
