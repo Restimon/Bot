@@ -14,50 +14,64 @@
   },
   "leaderboard": {
     "123456789012345678": {
-      "123456789012345678": {
-        "degats": 10,
-        "soin": 5,
-        "kills": 0,
-        "morts": 0
-      },
-      "1325448961116475405": {
-        "degats": 22,
-        "soin": 10,
-        "kills": 0,
-        "morts": 0
-      }
+      "123456789012345678": { "degats": 10, "soin": 5, "kills": 0, "morts": 0 },
+      "1325448961116475405": { "degats": 22, "soin": 10, "kills": 0, "morts": 0 }
     }
   },
-  "cooldowns": {
-    "attack": {},
-    "heal": {}
-  },
+
+  "cooldowns": { "attack": {}, "heal": {} },
+
   "virus_status": {},
   "poison_status": {},
   "infection_status": {},
   "regeneration_status": {},
   "immunite_status": {},
+  "burn_status": {},
+
   "shields": {},
   "esquive_status": {},
+  "esquive_bonus": {},
   "casque_status": {},
+  "resistance_bonus": {},
+  "malus_degat": {},
+
   "last_daily_claim": {},
   "supply_data": {
     "123456789012345678": {
       "last_channel_id": 123456789012345679,
       "last_activity_time": 1717661234.123,
-      "channel_activity_log": {
-        "123456789012345679": 1717661234.123
-      },
+      "channel_activity_log": { "123456789012345679": 1717661234.123 },
       "daily_supply_status": {
-        "2025-06-08": {
-          "morning_sent": false,
-          "afternoon_sent": false,
-          "evening_sent": false
-        }
+        "2025-06-08": { "morning_sent": false, "afternoon_sent": false, "evening_sent": false }
       },
       "is_open": false,
       "active_supply_id": null,
       "collected_users": []
+    }
+  },
+
+  "weekly_message_count": {},
+  "weekly_voice_time": {},
+  "weekly_message_log": {},
+
+  "tirages": {},
+
+  "personnages_equipés": {},
+  "derniere_equip": {},
+
+  "zeyra_last_survive_time": {},
+  "valen_seuils": {},
+
+  "gotcoins_balance": {
+    "123456789012345678": {
+      "123456789012345678": 0,
+      "1325448961116475405": 0
+    }
+  },
+  "gotcoins_stats": {
+    "123456789012345678": {
+      "123456789012345678": { "autre": 0, "achats": 0 },
+      "1325448961116475405": { "autre": 0, "achats": 0 }
     }
   }
 }
