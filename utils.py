@@ -172,15 +172,13 @@ def get_evade_chance(guild_id: str, user_id: str) -> float:
 
     # 🌀 Passifs (appel paresseux pour éviter import circulaire)
     try:
-        from passifs import appliquer_passif
-        result = appliquer_passif({"nom": ""}, "calcul_esquive", {
+        from passifs import appliquer_passif as _appliquer_passif
+        result = _appliquer_passif("calcul_esquive", {
             "guild_id": str(guild_id),
             "defenseur": str(user_id)
         })
-        if isinstance(result, dict):
-            bonus += float(result.get("bonus_esquive", 0.0)) / 100.0  # en pourcentage
     except Exception:
-        pass
+        result = {}
 
     # clamp raisonnable
     total = max(0.0, min(0.95, base_chance + bonus))
@@ -207,3 +205,4 @@ def update_leaderboard(guild_id: str, user_id: str, points_delta: int = 0, kill:
         entry["points"] = int(points_delta)
         entry["kills"] = int(kill)
         entry["deaths"] = int(death)
+
