@@ -2,60 +2,76 @@
 import discord
 import random
 import time
-
 from discord import app_commands
+
 from utils import OBJETS, get_mention
 from storage import get_user_data
 from data import sauvegarder, shields, immunite_status, esquive_status, casque_status
 from embeds import build_embed_from_item
 from passifs import appliquer_passif
 
+
 def register_utilitaire_command(bot):
-    @bot.tree.command(name="utilitaire", description="Utilise un objet utilitaire ou de protection")
-    @app_commands.describe(target="Cible (si applicable, ex: pour le vol)", item="Objet utilitaire à utiliser (emoji)")
-    async def utilitaire_slash(interaction: discord.Interaction, target: discord.Member = None, item: str = ""):
+    @bot.tree.command(
+        name="utilitaire",
+        description="Utilise un objet utilitaire ou de protection"
+    )
+    @app_commands.describe(
+        target="Cible (si applicable, ex: pour le vol)",
+        item="Objet utilitaire à utiliser (emoji)"
+    )
+    async def utilitaire_slash(
+        interaction: discord.Interaction,
+        target: discord.Member | None = None,
+        item: str = ""
+    ):
         await interaction.response.defer(thinking=True)
 
         guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
-        tid = str(target.id) if target else uid  # si pas de target : auto-ciblage
-        action = OBJETS.get(item, {})
+        tid = str(target.id) if target else uid  # si pas de cible fournie → auto-ciblage
+        action = OBJETS.get(item)
 
+        # Garde-fous de base
+        if not isinstance(action, dict):
+            await interaction.followup.send("❌ Objet inconnu ou non autorisé.", ephemeral=True)
+            return
+
+        allowed_types = {"vol", "bouclier", "esquive+", "reduction", "immunite"}
+        if action.get("type") not in allowed_types:
+            await interaction.followup.send("⚠️ Cet objet n’est pas utilisable via `/utilitaire`.", ephemeral=True)
+            return
+
+        # Inventaire de l’utilisateur
         user_inv, _, _ = get_user_data(guild_id, uid)
-
         if item not in user_inv:
-            return await interaction.followup.send(
-                "❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True
-            )
+            await interaction.followup.send("❌ Tu n’as pas cet objet dans ton inventaire.", ephemeral=True)
+            return
 
-        # Autoriser uniquement ces types :
-        allowed_types = ["vol", "bouclier", "esquive+", "reduction", "immunite"]
+        # Si c’est un vol, cible obligatoire + la cible ne doit pas être un bot
+        if action["type"] == "vol":
+            if not target:
+                await interaction.followup.send("❌ Tu dois cibler quelqu’un pour utiliser un objet de type **vol**.", ephemeral=True)
+                return
+            if target.bot:
+                await interaction.followup.send("🤖 Impossible de voler un bot.", ephemeral=True)
+                return
 
-        if item not in OBJETS or OBJETS[item]["type"] not in allowed_types:
-            return await interaction.followup.send(
-                "⚠️ Cet objet n’est pas utilisable via `/utilitaire`.", ephemeral=True
-            )
-
-        # Si c’est un vol, cible obligatoire
-        if OBJETS[item]["type"] == "vol" and not target:
-            return await interaction.followup.send(
-                "❌ Tu dois cibler quelqu’un pour utiliser un objet de type **vol**.", ephemeral=True
-            )
-
-        # Appliquer l'effet
         embed = None
         success = False
 
-        # Bouclier
+        # =========================
+        # 🛡 Bouclier
+        # =========================
         if action["type"] == "bouclier":
+            valeur = int(action.get("valeur", 20))
             current_pb = shields.get(guild_id, {}).get(tid, 0)
 
-            # 🔷 Vérifie le passif de limite de PB
-            result_passif = appliquer_passif(tid, "max_pb", {"guild_id": guild_id})
-            max_pb = result_passif.get("max_pb", 20) if result_passif else 20
+            # Passif : max PB (ex: bonus de limite)
+            res_max = appliquer_passif(tid, "max_pb", {"guild_id": guild_id}) or {}
+            max_pb = int(res_max.get("max_pb", 20))
             bonus_txt = " ✨" if max_pb > 20 else ""
 
-            # Limite atteinte
             if current_pb >= max_pb:
                 await interaction.followup.send(
                     f"❌ {get_mention(interaction.guild, tid)} possède déjà le maximum de **{max_pb} PB**{bonus_txt}.",
@@ -63,97 +79,106 @@ def register_utilitaire_command(bot):
                 )
                 return
 
-            # Ajoute les PB (sans dépasser le max autorisé)
-            new_pb = min(current_pb + 20, max_pb)
+            new_pb = min(current_pb + valeur, max_pb)
             shields.setdefault(guild_id, {})[tid] = new_pb
-            current_hp = get_user_data(guild_id, tid)[1]
 
-            # Texte
+            # PV actuel de la cible (2e valeur de get_user_data)
+            _, pv_actuels, _ = get_user_data(guild_id, tid)
+
             if uid == tid:
-                description = (
+                desc = (
                     f"{interaction.user.mention} a activé un **bouclier** de protection !\n"
-                    f"🛡 Il gagne un total de **{new_pb} PB** → ❤️ {current_hp} PV / 🛡 {new_pb} PB{bonus_txt}"
+                    f"🛡 Total **{new_pb} PB** → ❤️ {pv_actuels} PV / 🛡 {new_pb} PB{bonus_txt}"
                 )
             else:
                 mention_cible = get_mention(interaction.guild, tid)
-                description = (
-                    f"{interaction.user.mention} a activé un **bouclier** de protection pour {mention_cible} !\n"
-                    f"🛡 Il gagne un total de **{new_pb} PB** → ❤️ {current_hp} PV / 🛡 {new_pb} PB{bonus_txt}"
+                desc = (
+                    f"{interaction.user.mention} accorde un **bouclier** à {mention_cible} !\n"
+                    f"🛡 Total **{new_pb} PB** → ❤️ {pv_actuels} PV / 🛡 {new_pb} PB{bonus_txt}"
                 )
 
-            embed = build_embed_from_item(item, description)
+            embed = build_embed_from_item(item, desc)
             success = True
 
-        # Immunité
+        # =========================
+        # ⭐ Immunité
+        # =========================
         elif action["type"] == "immunite":
-            immunite_status.setdefault(guild_id, {})[tid] = time.time() + action.get("duree", 3600)
+            duree = int(action.get("duree", 2 * 3600))
+            immunite_status.setdefault(guild_id, {})[tid] = time.time() + duree
 
             mention_cible = interaction.user.mention if uid == tid else get_mention(interaction.guild, tid)
-            description = (
-                f"{mention_cible} bénéficie désormais d’une **immunité totale** pendant 2h."
-            )
-            embed = build_embed_from_item(item, description)
+            desc = f"{mention_cible} bénéficie désormais d’une **immunité totale** pendant {duree // 3600}h."
+            embed = build_embed_from_item(item, desc)
             success = True
 
-        # Esquive+
+        # =========================
+        # 👟 Esquive+
+        # =========================
         elif action["type"] == "esquive+":
+            duree = int(action.get("duree", 3 * 3600))
+            valeur = float(action.get("valeur", 0.2))
             esquive_status.setdefault(guild_id, {})[tid] = {
                 "start": time.time(),
-                "duration": action.get("duree", 3600),
-                "valeur": action.get("valeur", 0.2)
+                "duration": duree,
+                "valeur": valeur,
             }
 
             mention_cible = interaction.user.mention if uid == tid else get_mention(interaction.guild, tid)
-            description = (
-                f"{mention_cible} bénéficie désormais d’une **augmentation d’esquive** pendant 3h."
-            )
-            embed = build_embed_from_item(item, description)
+            desc = f"{mention_cible} bénéficie désormais d’une **augmentation d’esquive** (+{int(valeur*100)}%) pendant {duree // 3600}h."
+            embed = build_embed_from_item(item, desc)
             success = True
 
-        # Réduction (Casque)
+        # =========================
+        # 🪖 Réduction (Casque)
+        # =========================
         elif action["type"] == "reduction":
-            casque_status.setdefault(guild_id, {})[tid] = time.time() + action.get("duree", 3600)
+            duree = int(action.get("duree", 4 * 3600))
+            casque_status.setdefault(guild_id, {})[tid] = time.time() + duree
 
             mention_cible = interaction.user.mention if uid == tid else get_mention(interaction.guild, tid)
-            description = (
-                f"{mention_cible} bénéficie désormais d’une **réduction des dégâts** pendant 4h."
-            )
-            embed = build_embed_from_item(item, description)
+            desc = f"{mention_cible} bénéficie désormais d’une **réduction des dégâts** pendant {duree // 3600}h."
+            embed = build_embed_from_item(item, desc)
             success = True
 
-        # Vol
+        # =========================
+        # 🔍 Vol d’objet (avec passifs)
+        # =========================
         elif action["type"] == "vol":
-            result_embed = await voler_objet(interaction, uid, tid)
-            embed = result_embed
-            success = True
+            embed, success = await _voler_objet_robuste(interaction, uid, tid, item)
 
         # Retirer l'objet s'il a été utilisé avec succès
         if success:
-            user_inv.remove(item)
-            sauvegarder()
+            try:
+                user_inv.remove(item)
+                sauvegarder()
+            except Exception:
+                pass
 
         if embed:
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            # Public pour que tout le monde voie l’action utilitaire
+            await interaction.followup.send(embed=embed, ephemeral=False)
 
-    # Autocomplétion
+    # ---------------- Autocomplétion ----------------
     @utilitaire_slash.autocomplete("item")
     async def autocomplete_items(interaction: discord.Interaction, current: str):
         guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        allowed_types = ["vol", "bouclier", "esquive+", "reduction", "immunite"]
-
-        utilitaire_items = sorted(set(
-            i for i in user_inv if OBJETS.get(i, {}).get("type") in allowed_types
-        ))
+        allowed_types = {"vol", "bouclier", "esquive+", "reduction", "immunite"}
+        utilitaire_items = sorted({
+            i for i in user_inv
+            if isinstance(i, str) and OBJETS.get(i, {}).get("type") in allowed_types
+        })
 
         if not utilitaire_items:
             return [app_commands.Choice(name="Aucun objet utilitaire disponible", value="")]
 
+        cur = (current or "").strip()
         suggestions = []
         for emoji in utilitaire_items:
-            if current not in emoji:
+            if cur and cur not in emoji:
                 continue
 
             obj = OBJETS.get(emoji, {})
@@ -162,13 +187,13 @@ def register_utilitaire_command(bot):
             if typ == "vol":
                 label = f"{emoji} | Vole un objet à la cible"
             elif typ == "bouclier":
-                label = f"{emoji} | +20 Points de Bouclier"
+                label = f"{emoji} | +{obj.get('valeur', 20)} Points de Bouclier"
             elif typ == "esquive+":
-                label = f"{emoji} | Esquive +20% pendant 3h"
+                label = f"{emoji} | Esquive +{int(obj.get('valeur', 0.2)*100)}% pendant {int(obj.get('duree', 10800)//3600)}h"
             elif typ == "reduction":
-                label = f"{emoji} | Réduction dégâts x0.5 pendant 4h"
+                label = f"{emoji} | Réduction dégâts x0.5 pendant {int(obj.get('duree', 14400)//3600)}h"
             elif typ == "immunite":
-                label = f"{emoji} | Immunité totale pendant 2h"
+                label = f"{emoji} | Immunité totale pendant {int(obj.get('duree', 7200)//3600)}h"
             else:
                 label = f"{emoji} (Objet spécial)"
 
@@ -176,39 +201,81 @@ def register_utilitaire_command(bot):
 
         return suggestions[:25]
 
-# === Fonction voler_objet intégrée ici ===
 
-async def voler_objet(interaction, uid, tid):
+# =========
+# Vol “smart” avec passifs & garde-fous
+# =========
+async def _voler_objet_robuste(interaction: discord.Interaction, uid: str, tid: str, item_emoji: str):
     guild_id = str(interaction.guild.id)
 
-    # On récupère l'inventaire de la cible
+    # 1) Protection anti-vol (passif cible)
+    prot = appliquer_passif("protection_vol", {
+        "guild_id": guild_id,
+        "user_id": tid,          # cible
+        "item": item_emoji,
+        "attacker_id": uid,      # voleur
+    }) or {}
+
+    if prot.get("immunise_contre_vol"):
+        desc = f"🛡️ {get_mention(interaction.guild, tid)} est **protégé contre le vol** !"
+        return build_embed_from_item(item_emoji, desc), True  # True = on considère l’objet consommé
+
+    # 2) Récup inventaires
     target_inv, _, _ = get_user_data(guild_id, tid)
-    possible_items = target_inv  # <= c'est ici qu'il y avait l'erreur
-
-    # On filtre pour ne pas voler certains objets interdits (optionnel, à toi d'ajouter si besoin)
-
-    # Si pas d'objet à voler :
-    if not possible_items:
-        description = (
-            f"Malheureusement, aucun objet valable n’a pu être volé à {get_mention(interaction.guild, tid)}."
-        )
-        embed = build_embed_from_item("🔍", description)
-        embed.color = discord.Color.red()
-        return embed
-
-    # On choisit un objet au hasard
-    stolen = random.choice(possible_items)
-
-    # On le retire de l'inventaire cible et on l'ajoute à l'inventaire du voleur
-    target_inv.remove(stolen)
     voleur_inv, _, _ = get_user_data(guild_id, uid)
-    voleur_inv.append(stolen)
 
+    # On vole uniquement des **strings** (évite de voler des dicts/personnages)
+    candidats = [x for x in target_inv if isinstance(x, str)]
+
+    if not candidats:
+        # Passif voleur : conserve l’objet même si vol impossible ?
+        utl = appliquer_passif("utilitaire_vol", {
+            "guild_id": guild_id,
+            "user_id": uid,
+            "item": item_emoji,
+            "target_id": tid
+        }) or {}
+
+        if not utl.get("conserver_objet_vol", False):
+            # On consomme l’objet utilisé
+            if item_emoji in voleur_inv:
+                voleur_inv.remove(item_emoji)
+                sauvegarder()
+
+        desc = f"🔍 {get_mention(interaction.guild, tid)} n’a aucun objet à voler."
+        return build_embed_from_item(item_emoji, desc), True
+
+    # 3) Vol effectif (1 ou 2 objets selon passif)
+    stolen = []
+    premier = random.choice(candidats)
+    target_inv.remove(premier)
+    stolen.append(premier)
+
+    utl = appliquer_passif("utilitaire_vol", {
+        "guild_id": guild_id,
+        "user_id": uid,
+        "item": item_emoji,
+        "target_id": tid
+    }) or {}
+
+    if utl.get("double_vol", False):
+        candidats2 = [x for x in target_inv if isinstance(x, str)]
+        if candidats2:
+            second = random.choice(candidats2)
+            target_inv.remove(second)
+            stolen.append(second)
+
+    # Conserver ou non l’objet utilisé
+    if not utl.get("conserver_objet_vol", False):
+        if item_emoji in voleur_inv:
+            voleur_inv.remove(item_emoji)
+
+    # Ajouter les objets volés à l’inventaire du voleur
+    voleur_inv.extend(stolen)
     sauvegarder()
 
-    description = (
-        f"{interaction.user.mention} a volé **{stolen}** à {get_mention(interaction.guild, tid)} !"
-    )
-    embed = build_embed_from_item("🔍", description)
-    embed.color = discord.Color.green()
-    return embed
+    objets_txt = " et ".join([f"**{s}**" for s in stolen])
+    desc = f"{interaction.user.mention} a volé {objets_txt} à {get_mention(interaction.guild, tid)} !"
+    emb = build_embed_from_item("🔍", desc)
+    emb.color = discord.Color.green()
+    return emb, True
