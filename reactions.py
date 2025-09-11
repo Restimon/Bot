@@ -1,184 +1,294 @@
-# reactions.py
-# Helpers pour ajouter des réactions en fonction de la rareté / probabilité d'un item.
-# Utilisation simple (ancien système) :
-#   from reactions import add_rarity_reaction
-#   msg = await interaction.followup.send(embed=embed)
-#   await add_rarity_reaction(msg, item_emoji)
-#
-# Utilisation avancée (avec barre de proba si définie dans OBJETS) :
-#   from reactions import add_drop_reactions
-#   msg = await interaction.followup.send(embed=embed)
-#   await add_drop_reactions(msg, item_emoji)
+# reaction.py
+# Ravitaillement par réaction sur les messages du chat.
+# - Compte les messages par salon, déclenche un drop après un seuil ALÉATOIRE (ex. 18–32)
+# - Choisit 1 item selon sa rareté
+# - Ajoute la RÉACTION = emoji de l'item sur le message d'un membre
+# - Fenêtre 30s pour cliquer; les 4 premiers (non-bots) gagnent l'item
+# - Envoie un embed "📦 Ravitaillement récupéré" et met à jour l'inventaire
 
 from __future__ import annotations
 
+import asyncio
+import random
+import time
+from typing import Dict, List, Tuple, Optional
+
 import discord
-from typing import Dict, List, Optional
+from discord.ext import commands
 
-# On suppose que utils.py expose ton dictionnaire global OBJETS: Dict[str, dict]
+# --- Dépendances de TON projet ---
+from utils import OBJETS  # dict {emoji -> meta}
+from storage import get_user_data, inventaire  # inventaire[guild_id][user_id] = list d'emojis
+from data import sauvegarder  # persistance
+
+# Si tu as un interrupteur global (optionnel). Sinon, toujours activé.
 try:
-    from utils import OBJETS  # noqa: F401
+    from special_supply import is_special_supply_enabled
 except Exception:
-    # Fallback pour éviter un import error si utils n'est pas chargé au moment de l'import.
-    OBJETS: Dict[str, dict] = {}  # type: ignore
+    def is_special_supply_enabled(guild_id: str) -> bool:
+        return True
 
 
-# =========
-# Réglages
-# =========
+# ======================
+# Réglages faciles à tuner
+# ======================
 
-# Map rareté -> emoji de réaction (ancien système)
-RARITY_REACTIONS: Dict[str, str] = {
-    "commun": "🟩",
-    "common": "🟩",
-    "rare": "🟦",
-    "epique": "🟪",
-    "épique": "🟪",
-    "legendary": "🟨",
-    "légendaire": "🟨",
+# Seuil de messages aléatoire avant drop
+MIN_MSG_THRESHOLD = 18
+MAX_MSG_THRESHOLD = 32
+
+# Fenêtre pour "claimer" via la réaction
+CLAIM_WINDOW_SEC = 30
+
+# Nombre maximum de gagnants
+MAX_WINNERS = 4
+
+# Est-ce que les messages de bot peuvent déclencher un ravitaillement ?
+ALLOW_BOTS_TO_TRIGGER = False
+
+# Pondération par rareté (plus le poids est grand, plus c’est fréquent)
+RARITY_WEIGHTS = {
+    "commun": 100,
+    "common": 100,
+    "rare": 30,
+    "epique": 10,
+    "épique": 10,
+    "legendary": 2,
+    "légendaire": 2,
 }
 
-# Pour la barre de probabilité (optionnelle)
-PROB_BAR_SEGMENTS = 5            # nombre de cases dans la jauge
-PROB_BAR_FILL_EMOJI = "🟩"
-PROB_BAR_EMPTY_EMOJI = "⬜"
+# Exclusion de certains items (ex. utilitaires) si besoin
+EXCLUDED_TYPES = set()  # ex: {"utilitaire"}
 
 
-# ==================
-# Outils d’extraction
-# ==================
+# ======================
+# Helpers liés aux items
+# ======================
 
-def get_item_meta(emoji: str) -> Optional[dict]:
-    """Retourne la meta d'un item depuis OBJETS[emoji]."""
-    if not isinstance(emoji, str):
-        return None
-    return OBJETS.get(emoji)
+def _rarity_of(emoji: str) -> str:
+    meta = OBJETS.get(emoji) or {}
+    r = meta.get("rarete") or meta.get("rarity") or meta.get("tier") or ""
+    return str(r).lower().strip()
 
-def get_rarity(emoji: str) -> Optional[str]:
-    """Récupère la rareté depuis plusieurs clés possibles."""
-    meta = get_item_meta(emoji)
-    if not meta:
-        return None
-    r = meta.get("rarete") or meta.get("rarity") or meta.get("tier")
-    return str(r).lower().strip() if r else None
+def _type_of(emoji: str) -> str:
+    meta = OBJETS.get(emoji) or {}
+    return str(meta.get("type", "")).lower().strip()
 
-def get_drop_chance(emoji: str) -> Optional[float]:
-    """Récupère une proba (0..1) si tu l'as stockée dans l'item."""
-    meta = get_item_meta(emoji)
-    if not meta:
-        return None
-    val = meta.get("drop_rate") or meta.get("chance") or meta.get("prob")
-    try:
-        f = float(val)
-        if 0.0 <= f <= 1.0:
-            return f
-    except Exception:
-        pass
-    return None
+def _is_drop_eligible(emoji: str) -> bool:
+    """Filtre les items éligibles au ravitaillement (par rareté reconnue + type non exclu)."""
+    if emoji not in OBJETS:
+        return False
+    if _type_of(emoji) in EXCLUDED_TYPES:
+        return False
+    return _rarity_of(emoji) in RARITY_WEIGHTS
 
-def make_probability_bar(chance: float) -> List[str]:
-    """Construit la liste d'emojis pour afficher une petite jauge."""
-    steps = int(round(chance * PROB_BAR_SEGMENTS))
-    steps = max(0, min(PROB_BAR_SEGMENTS, steps))
-    return [PROB_BAR_FILL_EMOJI] * steps + [PROB_BAR_EMPTY_EMOJI] * (PROB_BAR_SEGMENTS - steps)
+def _weighted_choice_by_rarity(candidates: List[str]) -> str:
+    pool: List[Tuple[str, int]] = []
+    for e in candidates:
+        w = RARITY_WEIGHTS.get(_rarity_of(e), 0)
+        if w > 0:
+            pool.append((e, w))
+    if not pool:
+        # fallback total si rien de pondérable
+        return random.choice(candidates)
+    population, weights = zip(*pool)
+    return random.choices(population, weights=weights, k=1)[0]
 
 
-# ==================
-# Apis de réactions
-# ==================
-
-async def add_rarity_reaction(message: discord.Message, item_emoji: str) -> None:
+class ReactionSupply(commands.Cog):
     """
-    Ancien système : ajoute 1 réaction basée sur la rareté (commun/rare/épique/légendaire).
-    - Ignore silencieusement si le message est éphémère ou si l'item est inconnu.
+    Ravitaillement par réactions sur les messages de discussion.
     """
-    if not isinstance(message, discord.Message):
-        return
-    # pas de réaction possible sur les messages éphémères
-    try:
-        if getattr(message, "flags", None) and message.flags.ephemeral:
-            return
-    except Exception:
-        pass
 
-    rarity = get_rarity(item_emoji)
-    if not rarity:
-        return
-    react = RARITY_REACTIONS.get(rarity)
-    if not react:
-        return
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        # État par salon
+        self._counters: Dict[int, int] = {}     # channel_id -> nb de messages vus
+        self._thresholds: Dict[int, int] = {}   # channel_id -> prochain seuil aléatoire
+        # Drops actifs par message
+        self._active_drops: Dict[int, Dict] = {}  # message_id -> info (emoji, guild_id, start, etc.)
 
-    try:
-        await message.add_reaction(react)
-    except Exception:
-        # permissions manquantes / emoji externe non autorisé / etc.
-        pass
+    # ----------------
+    # Outils internes
+    # ----------------
+    def _next_threshold(self) -> int:
+        return random.randint(MIN_MSG_THRESHOLD, MAX_MSG_THRESHOLD)
 
+    def _ensure_channel_state(self, channel_id: int):
+        if channel_id not in self._counters:
+            self._counters[channel_id] = 0
+        if channel_id not in self._thresholds:
+            self._thresholds[channel_id] = self._next_threshold()
 
-async def add_drop_reactions(message: discord.Message, item_emoji: str, with_probability_bar: bool = True) -> None:
-    """
-    Système avancé : ajoute la réaction de rareté + éventuellement une barre de probabilité.
-    - with_probability_bar=True => tente d'ajouter une jauge si chance présente dans OBJETS.
-    - Ignore silencieusement si le message est éphémère ou si l'item est inconnu.
-    """
-    if not isinstance(message, discord.Message):
-        return
-    try:
-        if getattr(message, "flags", None) and message.flags.ephemeral:
-            return
-    except Exception:
-        pass
+    def _pick_drop_item(self) -> Optional[str]:
+        """Choisit un item parmi OBJETS selon rareté (pondérée)."""
+        candidates = [e for e in OBJETS.keys() if _is_drop_eligible(e)]
+        if not candidates:
+            # dernier recours : tout l'univers des objets
+            candidates = list(OBJETS.keys())
+        if not candidates:
+            return None
+        return _weighted_choice_by_rarity(candidates)
 
-    # 1) Rareté
-    await add_rarity_reaction(message, item_emoji)
+    async def _award_item(self, guild_id: str, user_id: str, emoji: str):
+        """Ajoute l’item (emoji) à l’inventaire du joueur puis sauvegarde."""
+        user_inv, _, _ = get_user_data(guild_id, user_id)
+        user_inv.append(emoji)
 
-    # 2) Barre de proba (optionnelle)
-    if with_probability_bar:
-        chance = get_drop_chance(item_emoji)
-        if isinstance(chance, float):
-            for e in make_probability_bar(chance):
-                try:
-                    await message.add_reaction(e)
-                except Exception:
-                    # On ignore les erreurs individuellement pour ne pas interrompre la série
-                    pass
+        # reflète la mutation dans le dict global inventaire
+        if guild_id not in inventaire:
+            inventaire[guild_id] = {}
+        inventaire[guild_id][user_id] = user_inv
 
-
-# =====================
-# Helpers d’intégration
-# =====================
-
-async def send_with_reactions(
-    interaction: discord.Interaction,
-    *,
-    content: Optional[str] = None,
-    embed: Optional[discord.Embed] = None,
-    item_emoji: Optional[str] = None,
-    use_followup: bool = True,
-    probability_bar: bool = True,
-) -> Optional[discord.Message]:
-    """
-    Envoie un message (content ou embed) via Interaction, puis ajoute les réactions liées à l'item.
-    - use_followup=True : utilise interaction.followup.send (après defer)
-    - use_followup=False : utilise interaction.response.send_message + original_response()
-    Retourne l'objet Message (ou None en cas d'échec).
-    """
-    msg: Optional[discord.Message] = None
-
-    try:
-        if use_followup:
-            # Nécessite un defer préalable
-            msg = await interaction.followup.send(content=content, embed=embed)
-        else:
-            await interaction.response.send_message(content=content, embed=embed)
-            msg = await interaction.original_response()
-    except Exception:
-        return None
-
-    if msg and item_emoji:
         try:
-            await add_drop_reactions(msg, item_emoji, with_probability_bar=probability_bar)
+            sauvegarder()
         except Exception:
             pass
 
-    return msg
+    # --------------
+    # Listener chat
+    # --------------
+    @commands.Cog.listener("on_message")
+    async def handle_message_for_reaction_supply(self, message: discord.Message):
+        """Déclenche un ravitaillement (via réaction) après un certain nombre de messages aléatoires."""
+        # Ignorer DMs / webhooks / système
+        if not message.guild or message.webhook_id or message.author.system:
+            return
+        # Option : pas de déclenchement via messages de bots
+        if not ALLOW_BOTS_TO_TRIGGER and message.author.bot:
+            return
+
+        guild_id = str(message.guild.id)
+        if not is_special_supply_enabled(guild_id):  # si tu veux un switch global
+            return
+
+        ch = message.channel
+        self._ensure_channel_state(ch.id)
+
+        # Incrémente le compteur pour ce salon
+        self._counters[ch.id] += 1
+
+        # Pas encore au seuil ?
+        if self._counters[ch.id] < self._thresholds[ch.id]:
+            return
+
+        # Réinitialise le seuil pour le prochain drop
+        self._counters[ch.id] = 0
+        self._thresholds[ch.id] = self._next_threshold()
+
+        # Choisir un item
+        emoji = self._pick_drop_item()
+        if not emoji:
+            return
+
+        # Ajouter la réaction sur CE message (si perms OK)
+        try:
+            await message.add_reaction(emoji)
+        except Exception:
+            # pas les permissions / emoji invalide / etc.
+            return
+
+        # Mémoriser l'état de ce drop
+        self._active_drops[message.id] = {
+            "emoji": emoji,
+            "guild_id": guild_id,
+            "channel_id": ch.id,
+            "start": time.time(),
+        }
+
+        # Lancer la collecte async
+        self.bot.loop.create_task(self._collect_claims_and_award(message))
+
+    async def _collect_claims_and_award(self, message: discord.Message):
+        """Après CLAIM_WINDOW_SEC, lit les réactions et prime les 4 premiers (non-bots)."""
+        info = self._active_drops.get(message.id)
+        if not info:
+            return
+
+        emoji = info["emoji"]
+        guild_id = info["guild_id"]
+
+        # Attendre la fenêtre de claim
+        try:
+            await asyncio.sleep(CLAIM_WINDOW_SEC)
+        except asyncio.CancelledError:
+            return
+
+        # Recharger le message pour avoir les réactions finales
+        try:
+            message = await message.channel.fetch_message(message.id)
+        except Exception:
+            self._active_drops.pop(message.id, None)
+            return
+
+        # Trouver la bonne réaction
+        target_reaction: Optional[discord.Reaction] = None
+        for r in message.reactions:
+            try:
+                if str(r.emoji) == str(emoji):
+                    target_reaction = r
+                    break
+            except Exception:
+                pass
+
+        winners: List[discord.Member] = []
+        if target_reaction:
+            # Récupère les utilisateurs ayant réagi
+            try:
+                users = await target_reaction.users().flatten()
+            except Exception:
+                users = []
+
+            # Prend les 4 premiers non-bots (dans l'ordre d'arrivée)
+            for u in users:
+                if len(winners) >= MAX_WINNERS:
+                    break
+                if getattr(u, "bot", False):
+                    continue
+                if isinstance(u, discord.Member):
+                    winners.append(u)
+                else:
+                    # Si c'est un User, tente de le convertir en Member
+                    try:
+                        m = message.guild.get_member(u.id) or await message.guild.fetch_member(u.id)
+                        if m and not m.bot:
+                            winners.append(m)
+                    except Exception:
+                        pass
+
+        # Récompenses et annonce
+        if winners:
+            for m in winners:
+                try:
+                    await _safe_award(self._award_item, guild_id, str(m.id), emoji)
+                except Exception:
+                    pass
+
+            # Embed de résultat
+            embed = discord.Embed(
+                title="📦 Ravitaillement récupéré",
+                description=(
+                    f"Le dépôt de **GotValis** contenant {emoji} a été récupéré par :\n\n" +
+                    "\n".join(f"• {m.mention}" for m in winners)
+                ),
+                color=discord.Color.green()
+            )
+            try:
+                await message.channel.send(embed=embed)
+            except Exception:
+                pass
+
+        # Nettoyage
+        self._active_drops.pop(message.id, None)
+
+
+async def _safe_award(fn, guild_id: str, user_id: str, emoji: str):
+    """Petit wrapper au cas où un award plante un joueur sans casser les autres."""
+    try:
+        await fn(guild_id, user_id, emoji)
+    except Exception:
+        pass
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(ReactionSupply(bot))
