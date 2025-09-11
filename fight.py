@@ -2,26 +2,21 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from reactions import add_drop_reactions
 from storage import get_user_data
 from utils import OBJETS, apply_item_with_cooldown
-
 
 TYPES_VALIDES_ATTAQUE = {"attaque", "attaque_chaine", "virus", "poison", "infection"}
 
 
 def _to_emoji(it):
-    """Normalise un élément d'inventaire vers un emoji (string)."""
     if isinstance(it, str):
         return it
     if isinstance(it, dict):
-        # tolérance si inventaire mal formé sur certains serveurs
         return it.get("emoji") or it.get("emote") or it.get("e")
     return None
 
 
 def _attack_items_from_inventory(user_inv):
-    """Retourne la liste triée (sans doublons) des emojis d'attaque présents dans l'inventaire."""
     emojis = []
     for it in user_inv:
         e = _to_emoji(it)
@@ -36,7 +31,6 @@ class Fight(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # --- Commande principale /fight ---
     @app_commands.command(
         name="fight",
         description="Attaque un joueur avec un objet de ton inventaire."
@@ -48,15 +42,12 @@ class Fight(commands.Cog):
     async def fight_slash(self, interaction: discord.Interaction, cible: discord.Member, item: str):
         await interaction.response.defer(thinking=True)
 
-        # --- Garde-fous rapides ---
         if cible.bot:
             await interaction.followup.send("🤖 Tu ne peux pas attaquer un bot.", ephemeral=True)
             return
-
         if cible.id == interaction.user.id:
             await interaction.followup.send("🙅 Tu ne peux pas t’attaquer toi-même.", ephemeral=True)
             return
-
         if item == "❌":
             await interaction.followup.send(
                 "❌ Tu n’as sélectionné aucun objet d’attaque valide.",
@@ -67,7 +58,6 @@ class Fight(commands.Cog):
         guild_id = str(interaction.guild.id)
         attacker_id = str(interaction.user.id)
 
-        # --- Validation côté inventaire ---
         user_inv, _, _ = get_user_data(guild_id, attacker_id)
         attack_items = _attack_items_from_inventory(user_inv)
 
@@ -80,7 +70,6 @@ class Fight(commands.Cog):
             return
 
         if item not in attack_items:
-            # l’utilisateur peut taper manuellement un emoji : on vérifie qu’il est bien un item d’attaque connu et possédé
             obj = OBJETS.get(item)
             if not obj:
                 await interaction.followup.send(
@@ -94,14 +83,12 @@ class Fight(commands.Cog):
                     ephemeral=True
                 )
                 return
-            # objet connu mais pas possédé
             await interaction.followup.send(
                 f"🚫 Tu ne possèdes pas `{item}` dans **ton inventaire** sur ce serveur.",
                 ephemeral=True
             )
             return
 
-        # --- Application de l’objet (logique déléguée) ---
         try:
             result_embed = await apply_item_with_cooldown(
                 interaction=interaction,
@@ -111,7 +98,6 @@ class Fight(commands.Cog):
                 item_emoji=item
             )
         except TypeError:
-            # compatibilité si ta signature originelle est (interaction, guild_id, attacker_id, target_id, item)
             result_embed = await apply_item_with_cooldown(
                 interaction,
                 guild_id,
@@ -126,19 +112,11 @@ class Fight(commands.Cog):
             )
             return
 
-        # --- Envoi + réactions de rareté/proba ---
-        try:
-            if isinstance(result_embed, discord.Embed):
-                sent = await interaction.followup.send(embed=result_embed)
-            else:
-                sent = await interaction.followup.send(result_embed if result_embed else "✅ Action effectuée.")
-            # Ajoute les réactions (ancien système = rareté, plus jauge si définie)
-            await add_drop_reactions(sent, item)
-        except Exception:
-            # on ignore silencieusement si pas de permissions pour réagir
-            pass
+        if isinstance(result_embed, discord.Embed):
+            await interaction.followup.send(embed=result_embed)
+        else:
+            await interaction.followup.send(result_embed if result_embed else "✅ Action effectuée.")
 
-    # --- Autocomplete pour l’argument "item" ---
     @fight_slash.autocomplete("item")
     async def autocomplete_items(self, interaction: discord.Interaction, current: str):
         guild_id = str(interaction.guild.id)
@@ -164,7 +142,6 @@ class Fight(commands.Cog):
             obj = OBJETS.get(emoji, {}) or {}
             typ = obj.get("type")
 
-            # Labels lisibles en fonction du type
             if typ == "attaque":
                 label = f"{emoji} | {obj.get('degats', '?')} dmg, {int(obj.get('crit', 0)*100)}% crit"
             elif typ == "attaque_chaine":
