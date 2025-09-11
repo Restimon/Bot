@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from reactions import add_drop_reactions
 from storage import get_user_data
 from utils import OBJETS, apply_item_with_cooldown
 
@@ -125,12 +126,17 @@ class Fight(commands.Cog):
             )
             return
 
-        # Si apply_item_with_cooldown renvoie déjà un embed prêt, on l’envoie tel quel
-        if isinstance(result_embed, discord.Embed):
-            await interaction.followup.send(embed=result_embed)
-        else:
-            # fallback textuel
-            await interaction.followup.send(result_embed if result_embed else "✅ Action effectuée.")
+        # --- Envoi + réactions de rareté/proba ---
+        try:
+            if isinstance(result_embed, discord.Embed):
+                sent = await interaction.followup.send(embed=result_embed)
+            else:
+                sent = await interaction.followup.send(result_embed if result_embed else "✅ Action effectuée.")
+            # Ajoute les réactions (ancien système = rareté, plus jauge si définie)
+            await add_drop_reactions(sent, item)
+        except Exception:
+            # on ignore silencieusement si pas de permissions pour réagir
+            pass
 
     # --- Autocomplete pour l’argument "item" ---
     @fight_slash.autocomplete("item")
@@ -162,7 +168,6 @@ class Fight(commands.Cog):
             if typ == "attaque":
                 label = f"{emoji} | {obj.get('degats', '?')} dmg, {int(obj.get('crit', 0)*100)}% crit"
             elif typ == "attaque_chaine":
-                # S’il y a des champs exacts différents dans ton OBJETS, adapte ici
                 label = f"{emoji} | ☠️ 24 dmg + 2×12, {int(obj.get('crit', 0)*100)}% crit"
             elif typ == "virus":
                 label = f"{emoji} | Virus → 5 dmg initiaux + 5 dmg/h"
