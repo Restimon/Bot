@@ -3,7 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from storage import get_user_data
-from utils import OBJETS, apply_item_with_cooldown
+from utils import OBJETS
+from combat import apply_item_with_cooldown
 
 TYPES_VALIDES_ATTAQUE = {"attaque", "attaque_chaine", "virus", "poison", "infection"}
 
@@ -162,3 +163,4 @@ class Fight(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Fight(bot))
+
