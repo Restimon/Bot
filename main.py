@@ -112,7 +112,7 @@ def detect_troll(text: str) -> tuple[str, str | None]:
     letters = re.findall(r"[A-Za-z]", t)
     if letters:
         cap_ratio = sum(1 for c in letters if c.isupper()) / max(1, len(letters))
-        if cap_ratio >= 0.7 et len(letters) >= 8:
+        if cap_ratio >= 0.7 and len(letters) >= 8:
             return "threat", f"taux de MAJ élevé ({int(cap_ratio*100)}%)"
 
     if re.search(r"([!?*]{4,}|([A-Za-z]{2,})\2{2,})", t):
@@ -570,7 +570,7 @@ async def poison_damage_loop():
                 continue
 
             purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": start})
-            if purge_result et purge_result.get("purger_statut"):
+            if purge_result and purge_result.get("purger_statut"):
                 del poison_status[gid][uid]
                 continue
 
@@ -816,7 +816,7 @@ async def burn_damage_loop():
             real_dmg = hp_before - hp_after
             source_id = status.get("source")
 
-            if uid != source_id et source_id:
+            if uid != source_id and source_id:
                 leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                 leaderboard[gid][source_id]["degats"] += real_dmg
 
