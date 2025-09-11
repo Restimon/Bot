@@ -22,10 +22,8 @@ from data import (
     weekly_message_log, malus_degat,
     zeyra_last_survive_time, valen_seuils, burn_status
 )
-# ⬇️ nettoyé: get_random_item n'est plus utilisé ici
 from utils import OBJETS, handle_death
 from storage import get_user_data, inventaire, hp, leaderboard
-# ⬇️ nettoyé: apply_item_with_cooldown non utilisé dans main.py
 from combat import apply_shield
 from inventory import build_inventory_embed
 from leaderboard import build_leaderboard_embed
@@ -52,7 +50,6 @@ from bite import register_bite_command
 from economy import add_gotcoins, gotcoins_balance, get_balance
 from stats import register_stats_command
 from bank import register_bank_command
-# ✅ nouvelle API passifs
 from passifs import appliquer_passif_utilisateur as appliquer_passif
 from shop import register_shop_commands
 from perso import setup as setup_perso
@@ -63,15 +60,8 @@ from chat_ai import register_chat_ai_command, generate_oracle_reply
 # Variables globales
 # --------------------------------------------------------------------
 gotcoins_cooldowns = {}      # {user_id: last_gain_ts}
-message_counter = 0
-random_threshold = random.randint(4, 8)
-last_drop_time = 0.0
 voice_tracking = {}          # {guild_id: {user_id: {"start": ts, "last_reward": ts}}}
-
-# Garde-fou pour éviter le double enregistrement des commandes
 _commands_registered = False
-
-# Cooldown anti-spam pour les réponses IA
 ai_reply_cooldowns = {}      # {user_id: last_ai_ts}
 AI_COOLDOWN_SECONDS = 15
 
@@ -79,7 +69,6 @@ AI_COOLDOWN_SECONDS = 15
 # Helpers
 # --------------------------------------------------------------------
 def compute_message_gains(content: str) -> int:
-    """Calcul simple du gain GotCoins pour un message texte."""
     length = len(content.strip())
     if length < 20:
         return 0
@@ -91,17 +80,12 @@ def compute_message_gains(content: str) -> int:
         return 3
     return 4
 
-# --- Détection troll simple (heuristique locale) ----------
 INSULTES_FR = {
     "fdp","enculé","pute","tg","ta gueule","connard","conne","boloss","bouffon","batard","merdeux",
     "merde","cassos","abruti","sale","clochard","débile","tarlouze","pd"
 }
 
 def detect_troll(text: str) -> tuple[str, str | None]:
-    """
-    Retourne ("threat","raison") si troll probable, sinon ("normal", None).
-    Heuristique: insultes, excès de MAJ, spam, provoc courte.
-    """
     t = text.strip()
     t_lower = t.lower()
 
@@ -181,7 +165,6 @@ def register_all_commands(bot):
     register_daily_command(bot)
     register_heal_command(bot)
     register_admin_commands(bot)
-    # (pas de profile ici — ton fichier 'profile.py' est en réalité un tirage)
     register_status_command(bot)
     register_box_command(bot)
     register_item_command(bot)
@@ -200,7 +183,6 @@ def register_all_commands(bot):
     register_bank_command(bot)
     register_shop_commands(bot)
     register_chat_ai_command(bot)   # /ask
-    # tirage via setup_tirage dans main()
 
 def register_all_commands_once(bot):
     global _commands_registered
@@ -216,18 +198,31 @@ async def main():
     register_all_commands_once(bot)
     await setup_perso(bot)
     await setup_tirage(bot)                 # enregistre le Cog Tirage
-    await bot.load_extension("fight")       # ✅ charge /fight (fight.py doit avoir async def setup)
-    await bot.load_extension("reactions")   # ✅ charge le ravitaillement (reactions.py)
+    await bot.load_extension("fight")       # /fight
+    await bot.load_extension("reactions")   # ravitaillement par réactions (reactions.py)
     await bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
     asyncio.run(main())
 
+# ===================== Gestion erreurs Slash =======================
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: Exception):
+    import traceback
+    print("[/appcmd ERROR]", "".join(traceback.format_exception(type(error), error, error.__traceback__)))
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message("⚠️ Une erreur est survenue pendant l’exécution de la commande.", ephemeral=True)
+        else:
+            await interaction.followup.send("⚠️ Une erreur est survenue pendant l’exécution de la commande.", ephemeral=True)
+    except Exception:
+        pass
+
 # ===================== Events ======================
 
 @bot.event
 async def on_ready():
-    # Sync ciblée (facultatif si tu gardes la globale)
     try:
         await bot.tree.sync(guild=discord.Object(id=1269384239254605856))
     except Exception as e:
@@ -236,24 +231,19 @@ async def on_ready():
     print("🤖 Bot prêt. Synchronisation des commandes...")
     await reset_supply_flags(bot)
 
-    # Évite le double enregistrement si on_ready est rappelé
     register_all_commands_once(bot)
 
-    # Synchronisation globale
     try:
         await bot.tree.sync()
         print("✅ Commandes slash synchronisées globalement.")
     except Exception as e:
         print(f"❌ Erreur de synchronisation globale : {e}")
 
-    # Chargement des données
     charger()
     load_config()
 
-    # Boucle de special_supply (programmée)
     asyncio.create_task(special_supply_loop(bot))
 
-    # Démarrer les loops SI PAS déjà en cours (évite doublons lors de reconnexion)
     if not virus_damage_loop.is_running():
         virus_damage_loop.start()
     if not poison_damage_loop.is_running():
@@ -277,7 +267,6 @@ async def on_ready():
     if not burn_damage_loop.is_running():
         burn_damage_loop.start()
 
-    # Présence du bot
     activity = discord.Activity(type=discord.ActivityType.watching, name="en /help | https://discord.gg/jkbfFRqzZP")
     await bot.change_presence(status=discord.Status.online, activity=activity)
 
@@ -303,15 +292,12 @@ async def on_message(message):
     weekly_message_log.setdefault(guild_id, {}).setdefault(user_id, [])
     weekly_message_log[guild_id][user_id].append(time.time())
 
-    # --- IA GotValis: mention du bot ou réponse à un message du bot ---
+    # IA GotValis: mention du bot ou réponse à un message du bot
     try:
         triggered = False
-
-        # 1) Mention directe du bot
         if bot.user in message.mentions:
             triggered = True
 
-        # 2) Réponse à un message du bot
         if not triggered and message.reference and message.reference.resolved:
             try:
                 ref_msg = message.reference.resolved
@@ -354,7 +340,7 @@ async def on_message(message):
     # Puis process les commandes si besoin
     await bot.process_commands(message)
 
-    # --- Traçage d'activité de salon ---
+    # Traçage d'activité de salon
     try:
         update_last_active_channel(message)
     except Exception as e:
@@ -368,7 +354,7 @@ async def on_message(message):
     except Exception as e:
         print(f"[on_message] Erreur update channel_activity_log : {e}")
 
-    # 💰 Gains passifs (GotCoins) — avec cooldown et longueur minimum
+    # Gains passifs (GotCoins)
     min_message_length = 20
     cooldown_seconds = 30
     now = time.time()
@@ -383,7 +369,7 @@ async def on_message(message):
                 await bot.process_commands(message)
                 return
 
-    # ⛔️ Ravitaillement inline SUPPRIMÉ : il est désormais géré par reactions.py
+    # ⛔️ Ravitaillement inline supprimé — géré par reactions.py
 
 # ===================== Loops ======================
 
