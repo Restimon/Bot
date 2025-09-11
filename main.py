@@ -215,7 +215,8 @@ def register_all_commands_once(bot):
 async def main():
     register_all_commands_once(bot)
     await setup_perso(bot)
-    await setup_tirage(bot)  # enregistre le Cog Tirage
+    await setup_tirage(bot)          # enregistre le Cog Tirage
+    await bot.load_extension("reaction")  # ✅ charge le ravitaillement (reaction.py)
     await bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
@@ -248,7 +249,7 @@ async def on_ready():
     charger()
     load_config()
 
-    # Boucle de ravitaillement (fonction asynchrone, pas tasks.loop)
+    # Boucle de special_supply (programmée)
     asyncio.create_task(special_supply_loop(bot))
 
     # Démarrer les loops SI PAS déjà en cours (évite doublons lors de reconnexion)
@@ -291,7 +292,6 @@ async def on_message(message):
 
     guild = message.guild
     if not guild:
-        # Laisser la logique IA au Cog chat_ai pour les DMs si nécessaire
         await bot.process_commands(message)
         return
 
@@ -320,13 +320,11 @@ async def on_message(message):
                 pass
 
         if triggered:
-            # Anti-spam par utilisateur
             last = ai_reply_cooldowns.get(user_id, 0)
             now_ts = time.time()
             if now_ts - last >= AI_COOLDOWN_SECONDS:
                 ai_reply_cooldowns[user_id] = now_ts
 
-                # Nettoie la mention dans le prompt
                 prompt = (message.content
                           .replace(f"<@{bot.user.id}>", "")
                           .replace(f"<@!{bot.user.id}>", "")
@@ -349,7 +347,6 @@ async def on_message(message):
 
                 header = "📡 **COMMUNIQUÉ GOTVALIS™** 📡" if tone == "normal" else "⚠️ **AVIS DE CONFORMITÉ GOTVALIS™** ⚠️"
                 await message.reply(f"{header}\n{reply}")
-            # Ne pas retourner ici : on laisse vivre les drops/gains si besoin
     except Exception as e:
         print(f"[AI mention handler] Erreur: {e}")
 
@@ -382,80 +379,11 @@ async def on_message(message):
             if gain > 0:
                 add_gotcoins(guild_id, user_id, gain, category="autre")
                 gotcoins_cooldowns[user_id] = now
-                # Pas de drop si gain actif
                 await bot.process_commands(message)
                 return
 
-    # 📦 Ravitaillement classique aléatoire
-    global message_counter, random_threshold, last_drop_time
-
-    message_counter += 1
-    if message_counter < random_threshold:
-        await bot.process_commands(message)
-        return
-
-    current_time = asyncio.get_event_loop().time()
-    if current_time - last_drop_time < 30:
-        await bot.process_commands(message)
-        return
-
-    last_drop_time = current_time
-    message_counter = 0
-    random_threshold = random.randint(4, 8)
-
-    # --- Choisir l'item ---
-    item = get_random_item()
-    await message.add_reaction(item)
-    collected_users = []
-
-    def check(reaction, user):
-        return (
-            reaction.message.id == message.id
-            and str(reaction.emoji) == item
-            and not user.bot
-            and user.id not in [u.id for u in collected_users]
-        )
-
-    end_time = current_time + 15
-    user_rewards = {}
-
-    while len(collected_users) < 3 and asyncio.get_event_loop().time() < end_time:
-        try:
-            reaction, user = await asyncio.wait_for(
-                bot.wait_for("reaction_add", check=check),
-                timeout=end_time - asyncio.get_event_loop().time(),
-            )
-            uid = str(user.id)
-            collected_users.append(user)
-
-            if item == "💰":
-                gain = random.randint(3, 12)
-                add_gotcoins(guild_id, uid, gain, category="autre")
-                user_rewards[user] = f"💰 +{gain} GotCoins"
-            else:
-                user_inv, _, _ = get_user_data(guild_id, uid)
-                user_inv.append(item)
-                user_rewards[user] = f"{item}"
-
-        except asyncio.TimeoutError:
-            break
-
-    if collected_users:
-        lines = [f"✅ {u.mention} a récupéré : {user_rewards.get(u, '❓')}" for u in collected_users]
-        embed = discord.Embed(
-            title="📦 Ravitaillement récupéré",
-            description="\n".join(lines),
-            color=0x00FFAA
-        )
-    else:
-        embed = discord.Embed(
-            title="💥 Ravitaillement détruit",
-            description=f"Le dépôt de **GotValis** contenant {item} s’est **auto-détruit**. 💣",
-            color=0xFF0000
-        )
-
-    await message.channel.send(embed=embed)
-    await bot.process_commands(message)
+    # ⛔️ Ravitaillement inline SUPPRIMÉ : il est désormais géré par reaction.py
+    # (Plus de logique de message_counter/random_threshold/add_reaction ici)
 
 # ===================== Loops ======================
 
@@ -463,8 +391,8 @@ async def on_message(message):
 async def update_leaderboard_loop():
     await bot.wait_until_ready()
     for guild in bot.guilds:
-        guild_id = str(guild.id)
-        guild_config = get_guild_config(guild_id)
+        gid = str(guild.id)
+        guild_config = get_guild_config(gid)
 
         channel_id = guild_config.get("special_leaderboard_channel_id")
         message_id = guild_config.get("special_leaderboard_message_id")
@@ -477,9 +405,9 @@ async def update_leaderboard_loop():
             continue
 
         medals = ["🥇", "🥈", "🥉"]
-        server_balance = gotcoins_balance.get(guild_id, {})
-        server_hp = hp.get(guild_id, {})
-        server_shields = shields.get(guild_id, {})
+        server_balance = gotcoins_balance.get(gid, {})
+        server_hp = hp.get(gid, {})
+        server_shields = shields.get(gid, {})
 
         sorted_lb = sorted(server_balance.items(), key=lambda x: x[1], reverse=True)
 
@@ -566,7 +494,6 @@ async def virus_damage_loop():
                     del virus_status[gid][uid]
                 continue
 
-            # ✅ nouvelle API
             purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del virus_status[gid][uid]
@@ -642,7 +569,6 @@ async def poison_damage_loop():
                     del poison_status[gid][uid]
                 continue
 
-            # ✅ nouvelle API
             purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del poison_status[gid][uid]
@@ -722,13 +648,11 @@ async def infection_damage_loop():
             if now < next_tick:
                 continue
 
-            # ✅ purge auto (nouvelle API)
             purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": start})
             if purge_result and purge_result.get("purger_statut"):
                 del infection_status[gid][uid]
                 continue
 
-            # ✅ tick_infection : certains persos annulent les dégâts
             passif_result = appliquer_passif(gid, uid, "tick_infection", {"cible_id": uid})
             if passif_result and passif_result.get("annuler_degats"):
                 infection_status[gid][uid]["next_tick"] = now + 1800
@@ -868,7 +792,7 @@ async def burn_damage_loop():
         for uid, status in list(burn_status[gid].items()):
             if not status.get("actif") or now < status.get("next_tick", 0):
                 continue
-            # ✅ purge auto (nouvelle API)
+
             purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": status["start"]})
             if purge_result and purge_result.get("purger_statut"):
                 del burn_status[gid][uid]
@@ -903,7 +827,7 @@ async def burn_damage_loop():
                 member = await bot.fetch_user(int(uid))
                 desc = (
                     f"🔥 {member.mention} subit **{real_dmg + lost_pb} dégâts** *(Brûlure)*.\n"
-                    f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB\n"
+                    f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = {hp_after} PV / 🛡️ {pb_after} PB\n"
                     f"⏳ Brûlure restante : **{status['ticks_restants']}h**"
                 )
                 embed = discord.Embed(description=desc, color=discord.Color.orange())
