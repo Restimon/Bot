@@ -29,7 +29,6 @@ from inventory import build_inventory_embed
 from leaderboard import build_leaderboard_embed
 from help import register_help_commands
 from daily import register_daily_command
-from fight import register_fight_command
 from heal import register_heal_command
 from admin import register_admin_commands
 from status import register_status_command
@@ -178,7 +177,6 @@ async def sync(ctx):
 def register_all_commands(bot):
     register_help_commands(bot)
     register_daily_command(bot)
-    register_fight_command(bot)
     register_heal_command(bot)
     register_admin_commands(bot)
     # (pas de profile ici — ton fichier 'profile.py' est en réalité un tirage)
