@@ -1,188 +1,168 @@
-# fight.py
-import asyncio
 import discord
 from discord import app_commands
+from discord.ext import commands
 
-from utils import OBJETS
 from storage import get_user_data
-from data import sauvegarder
-from combat import apply_item_with_cooldown, apply_attack_chain
-
-# ⏳ Filet de sécurité : évite les "réfléchit..." infinis côté Discord
-TIMEOUT_INTERNE = 8
+from utils import OBJETS, apply_item_with_cooldown
 
 
-def register_fight_command(bot: discord.Client):
-    """
-    Enregistre la commande /fight :
-      /fight target:<membre> item:<emoji>
-    Permet d'attaquer un joueur avec un objet de type attaque/virus/poison/infection.
-    """
+TYPES_VALIDES_ATTAQUE = {"attaque", "attaque_chaine", "virus", "poison", "infection"}
 
-    @bot.tree.command(
+
+def _to_emoji(it):
+    """Normalise un élément d'inventaire vers un emoji (string)."""
+    if isinstance(it, str):
+        return it
+    if isinstance(it, dict):
+        # tolérance si inventaire mal formé sur certains serveurs
+        return it.get("emoji") or it.get("emote") or it.get("e")
+    return None
+
+
+def _attack_items_from_inventory(user_inv):
+    """Retourne la liste triée (sans doublons) des emojis d'attaque présents dans l'inventaire."""
+    emojis = []
+    for it in user_inv:
+        e = _to_emoji(it)
+        if not e:
+            continue
+        if OBJETS.get(e, {}).get("type") in TYPES_VALIDES_ATTAQUE:
+            emojis.append(e)
+    return sorted(set(emojis))
+
+
+class Fight(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    # --- Commande principale /fight ---
+    @app_commands.command(
         name="fight",
-        description="Attaque un autre membre avec un objet spécifique",
+        description="Attaque un joueur avec un objet de ton inventaire."
     )
     @app_commands.describe(
-        target="La personne à attaquer",
-        item="Objet d’attaque à utiliser (emoji présent dans ton inventaire)",
+        cible="Le joueur que tu veux attaquer",
+        item="L’objet d’attaque à utiliser (emoji de l’objet)"
     )
-    async def fight_slash(
-        interaction: discord.Interaction,
-        target: discord.Member,
-        item: str,
-    ):
-        # On défère immédiatement pour éviter le timeout Discord
+    async def fight_slash(self, interaction: discord.Interaction, cible: discord.Member, item: str):
         await interaction.response.defer(thinking=True)
 
+        # --- Garde-fous rapides ---
+        if cible.bot:
+            await interaction.followup.send("🤖 Tu ne peux pas attaquer un bot.", ephemeral=True)
+            return
+
+        if cible.id == interaction.user.id:
+            await interaction.followup.send("🙅 Tu ne peux pas t’attaquer toi-même.", ephemeral=True)
+            return
+
+        if item == "❌":
+            await interaction.followup.send(
+                "❌ Tu n’as sélectionné aucun objet d’attaque valide.",
+                ephemeral=True
+            )
+            return
+
+        guild_id = str(interaction.guild.id)
+        attacker_id = str(interaction.user.id)
+
+        # --- Validation côté inventaire ---
+        user_inv, _, _ = get_user_data(guild_id, attacker_id)
+        attack_items = _attack_items_from_inventory(user_inv)
+
+        if not attack_items:
+            await interaction.followup.send(
+                "🧺 Ton inventaire ne contient **aucun objet d’attaque** sur ce serveur.\n"
+                "Utilise d’abord des commandes pour en obtenir (tirage, shop, etc.).",
+                ephemeral=True
+            )
+            return
+
+        if item not in attack_items:
+            # l’utilisateur peut taper manuellement un emoji : on vérifie qu’il est bien un item d’attaque connu et possédé
+            obj = OBJETS.get(item)
+            if not obj:
+                await interaction.followup.send(
+                    f"❓ L’objet `{item}` est inconnu. Choisis un objet de ton autocomplete ou un emoji d’objet valide.",
+                    ephemeral=True
+                )
+                return
+            if obj.get("type") not in TYPES_VALIDES_ATTAQUE:
+                await interaction.followup.send(
+                    f"🧪 `{item}` n’est pas un objet d’attaque utilisable pour /fight.",
+                    ephemeral=True
+                )
+                return
+            # objet connu mais pas possédé
+            await interaction.followup.send(
+                f"🚫 Tu ne possèdes pas `{item}` dans **ton inventaire** sur ce serveur.",
+                ephemeral=True
+            )
+            return
+
+        # --- Application de l’objet (logique déléguée) ---
         try:
-            guild_id = str(interaction.guild.id)
-            uid = str(interaction.user.id)
-            tid = str(target.id)
-
-            # 🚫 Garde-fous
-            if target.bot:
-                await interaction.followup.send(
-                    "🤖 Tu ne peux pas attaquer un bot, même s’il a l’air louche.",
-                    ephemeral=True,
-                )
-                return
-
-            if interaction.user.id == target.id:
-                await interaction.followup.send(
-                    "❌ Tu ne peux pas t’attaquer toi-même.",
-                    ephemeral=True,
-                )
-                return
-
-            # 🎯 Validation de l’objet
-            action = OBJETS.get(item)
-            if not isinstance(action, dict):
-                await interaction.followup.send(
-                    "❌ Objet inconnu ou non autorisé.",
-                    ephemeral=True,
-                )
-                return
-
-            # 📦 Vérifie l'inventaire de l'attaquant
-            user_inv, _, _ = get_user_data(guild_id, uid)
-            if item not in user_inv:
-                await interaction.followup.send(
-                    "❌ Tu n’as pas cet objet dans ton inventaire.",
-                    ephemeral=True,
-                )
-                return
-
-            # 🔎 Vérifie le type d'objet (armes valides)
-            types_valides = {"attaque", "attaque_chaine", "virus", "poison", "infection"}
-            if action.get("type") not in types_valides:
-                await interaction.followup.send(
-                    "⚠️ Cet objet n’est pas une arme valide !",
-                    ephemeral=True,
-                )
-                return
-
-            # ☠️ Cas particulier : Attaque en chaîne
-            if action.get("type") == "attaque_chaine" or item == "☠️":
-                try:
-                    # La fonction envoie elle-même les messages
-                    await asyncio.wait_for(
-                        apply_attack_chain(interaction, uid, tid, item, action),
-                        timeout=TIMEOUT_INTERNE,
-                    )
-                except asyncio.TimeoutError:
-                    await interaction.followup.send(
-                        "⏳ L’attaque en chaîne a pris trop de temps. Réessaie dans un instant.",
-                        ephemeral=True,
-                    )
-                    return
-                except Exception as e:
-                    await interaction.followup.send(
-                        f"❌ Erreur pendant l’attaque en chaîne : {e}",
-                        ephemeral=True,
-                    )
-                    return
-
-                # ✅ On consomme l'objet si le moteur ne demande pas de le conserver
-                if not action.get("no_consume", False):
-                    try:
-                        user_inv.remove(item)
-                        sauvegarder()
-                    except Exception:
-                        pass
-                return
-
-            # 🔹 Attaques « normales » (attaque / virus / poison / infection)
-            try:
-                # Le moteur enverra lui-même l’embed; on récupère juste le flag de succès
-                _, success = await asyncio.wait_for(
-                    apply_item_with_cooldown(interaction, uid, tid, item, action),
-                    timeout=TIMEOUT_INTERNE,
-                )
-            except asyncio.TimeoutError:
-                await interaction.followup.send(
-                    "⏳ L’attaque a mis trop de temps à se résoudre. Réessaie.",
-                    ephemeral=True,
-                )
-                return
-            except Exception as e:
-                await interaction.followup.send(
-                    f"❌ Erreur pendant l’attaque : {e}",
-                    ephemeral=True,
-                )
-                return
-
-            # ✅ Consommer l'objet si l’attaque a été validée ET pas de “pas_de_conso”
-            if success and not action.get("no_consume", False):
-                try:
-                    user_inv.remove(item)
-                    sauvegarder()
-                except Exception:
-                    pass
-
+            result_embed = await apply_item_with_cooldown(
+                interaction=interaction,
+                guild_id=guild_id,
+                attacker_id=attacker_id,
+                target_id=cible.id,
+                item_emoji=item
+            )
+        except TypeError:
+            # compatibilité si ta signature originelle est (interaction, guild_id, attacker_id, target_id, item)
+            result_embed = await apply_item_with_cooldown(
+                interaction,
+                guild_id,
+                attacker_id,
+                cible.id,
+                item
+            )
         except Exception as e:
-            # 🧯 Dernier filet : on tente d'informer l'utilisateur quoi qu'il arrive
-            try:
-                await interaction.followup.send(
-                    f"❌ Erreur inattendue : {e}",
-                    ephemeral=True,
-                )
-            except Exception:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(
-                        f"❌ Erreur inattendue : {e}",
-                        ephemeral=True,
-                    )
+            await interaction.followup.send(
+                f"⚠️ Une erreur est survenue pendant l’attaque : `{e}`",
+                ephemeral=True
+            )
+            return
 
-    # ✅ Autocomplétion : propose uniquement les armes présentes dans l’inventaire
+        # Si apply_item_with_cooldown renvoie déjà un embed prêt, on l’envoie tel quel
+        if isinstance(result_embed, discord.Embed):
+            await interaction.followup.send(embed=result_embed)
+        else:
+            # fallback textuel
+            await interaction.followup.send(result_embed if result_embed else "✅ Action effectuée.")
+
+    # --- Autocomplete pour l’argument "item" ---
     @fight_slash.autocomplete("item")
-    async def autocomplete_items(interaction: discord.Interaction, current: str):
+    async def autocomplete_items(self, interaction: discord.Interaction, current: str):
         guild_id = str(interaction.guild.id)
         uid = str(interaction.user.id)
         user_inv, _, _ = get_user_data(guild_id, uid)
 
-        types_valides = {"attaque", "attaque_chaine", "virus", "poison", "infection"}
-        # On filtre : uniquement des strings/emoji et des types d'attaque
-        attack_items = sorted({
-            i for i in user_inv
-            if isinstance(i, str) and OBJETS.get(i, {}).get("type") in types_valides
-        })
+        attack_items = _attack_items_from_inventory(user_inv)
+
+        cur = (current or "").strip()
+        if cur:
+            attack_items = [e for e in attack_items if cur in e]
 
         if not attack_items:
-            return [app_commands.Choice(name="Aucune arme disponible", value="")]
+            return [
+                app_commands.Choice(
+                    name="❌ Aucune arme disponible dans ton inventaire",
+                    value="❌"
+                )
+            ]
 
         suggestions = []
-        cur = (current or "").strip()
         for emoji in attack_items:
-            if cur and cur not in emoji:
-                continue
-
-            obj = OBJETS.get(emoji, {})
+            obj = OBJETS.get(emoji, {}) or {}
             typ = obj.get("type")
 
+            # Labels lisibles en fonction du type
             if typ == "attaque":
                 label = f"{emoji} | {obj.get('degats', '?')} dmg, {int(obj.get('crit', 0)*100)}% crit"
             elif typ == "attaque_chaine":
+                # S’il y a des champs exacts différents dans ton OBJETS, adapte ici
                 label = f"{emoji} | ☠️ 24 dmg + 2×12, {int(obj.get('crit', 0)*100)}% crit"
             elif typ == "virus":
                 label = f"{emoji} | Virus → 5 dmg initiaux + 5 dmg/h"
@@ -196,3 +176,7 @@ def register_fight_command(bot: discord.Client):
             suggestions.append(app_commands.Choice(name=label, value=emoji))
 
         return suggestions[:25]
+
+
+async def setup(bot):
+    await bot.add_cog(Fight(bot))
