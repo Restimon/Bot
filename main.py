@@ -22,9 +22,11 @@ from data import (
     weekly_message_log, malus_degat,
     zeyra_last_survive_time, valen_seuils, burn_status
 )
-from utils import get_random_item, OBJETS, handle_death
+# ⬇️ nettoyé: get_random_item n'est plus utilisé ici
+from utils import OBJETS, handle_death
 from storage import get_user_data, inventaire, hp, leaderboard
-from combat import apply_item_with_cooldown, apply_shield
+# ⬇️ nettoyé: apply_item_with_cooldown non utilisé dans main.py
+from combat import apply_shield
 from inventory import build_inventory_embed
 from leaderboard import build_leaderboard_embed
 from help import register_help_commands
@@ -110,7 +112,7 @@ def detect_troll(text: str) -> tuple[str, str | None]:
     letters = re.findall(r"[A-Za-z]", t)
     if letters:
         cap_ratio = sum(1 for c in letters if c.isupper()) / max(1, len(letters))
-        if cap_ratio >= 0.7 and len(letters) >= 8:
+        if cap_ratio >= 0.7 et len(letters) >= 8:
             return "threat", f"taux de MAJ élevé ({int(cap_ratio*100)}%)"
 
     if re.search(r"([!?*]{4,}|([A-Za-z]{2,})\2{2,})", t):
@@ -213,8 +215,9 @@ def register_all_commands_once(bot):
 async def main():
     register_all_commands_once(bot)
     await setup_perso(bot)
-    await setup_tirage(bot)          # enregistre le Cog Tirage
-    await bot.load_extension("reactions")  # ✅ charge le ravitaillement (reaction.py)
+    await setup_tirage(bot)                 # enregistre le Cog Tirage
+    await bot.load_extension("fight")       # ✅ charge /fight (fight.py doit avoir async def setup)
+    await bot.load_extension("reactions")   # ✅ charge le ravitaillement (reactions.py)
     await bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
@@ -380,8 +383,7 @@ async def on_message(message):
                 await bot.process_commands(message)
                 return
 
-    # ⛔️ Ravitaillement inline SUPPRIMÉ : il est désormais géré par reaction.py
-    # (Plus de logique de message_counter/random_threshold/add_reaction ici)
+    # ⛔️ Ravitaillement inline SUPPRIMÉ : il est désormais géré par reactions.py
 
 # ===================== Loops ======================
 
@@ -568,7 +570,7 @@ async def poison_damage_loop():
                 continue
 
             purge_result = appliquer_passif(gid, uid, "purge_auto", {"last_timestamp": start})
-            if purge_result and purge_result.get("purger_statut"):
+            if purge_result et purge_result.get("purger_statut"):
                 del poison_status[gid][uid]
                 continue
 
@@ -814,7 +816,7 @@ async def burn_damage_loop():
             real_dmg = hp_before - hp_after
             source_id = status.get("source")
 
-            if uid != source_id and source_id:
+            if uid != source_id et source_id:
                 leaderboard.setdefault(gid, {}).setdefault(source_id, {"degats": 0, "soin": 0, "kills": 0, "morts": 0})
                 leaderboard[gid][source_id]["degats"] += real_dmg
 
@@ -825,7 +827,7 @@ async def burn_damage_loop():
                 member = await bot.fetch_user(int(uid))
                 desc = (
                     f"🔥 {member.mention} subit **{real_dmg + lost_pb} dégâts** *(Brûlure)*.\n"
-                    f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = {hp_after} PV / 🛡️ {pb_after} PB\n"
+                    f"❤️ {hp_before} - {real_dmg} PV / 🛡️ {pb_before} - {lost_pb} PB = ❤️ {hp_after} PV / 🛡️ {pb_after} PB\n"
                     f"⏳ Brûlure restante : **{status['ticks_restants']}h**"
                 )
                 embed = discord.Embed(description=desc, color=discord.Color.orange())
