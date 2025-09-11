@@ -86,7 +86,7 @@ GIFS = {
     "🩹": "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExbmJzam1wdTU2d3hvZjR4anhtYTdqeWFnY3M1eXdzNnRvZ2lncWViOSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/EwKe1XdABwk2yvTyQt/giphy.gif",
     "💊": "https://www.reddit.com/media?url=https%3A%2F%2Fi.redd.it%2F9ojmyg3npkl91.gif",
     "💕": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExdGw5dGZkZHp2azRjNzU5Zms1dzFkM21wczYzajA5OWk2ZjAycTNnYyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/CoKJD9a9pxc9W/giphy.gif",
-    "🔍" "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExd2Q0MGh0MmxzbWJkZW41d3ZremZudm8xaWsxbnBveW1vbmpvNDc3YyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/1fih1TYYBONo0Dkdmx/giphy.gif",
+    "🔍": "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExd2Q0MGh0MmxzbWJkZW41d3ZremZudm8xaWsxbnBveW1vbmpvNDc3YyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/1fih1TYYBONo0Dkdmx/giphy.gif",
     "💉": "https://static.wikia.nocookie.net/bokunoheroacademia/images/1/11/Heal.gif/revision/latest?cb=20180910131529",
     "🛡": "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExNTkzb3hiNnR5Y2F1dmxycTl1OXZ6OWY0dTJ0eXoxdDlnMjZteDJmaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/rR7wrU76zfWnf7xBDR/giphy.gif",
     "👟": "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExYzEwNngwZzk4ejd2ejg1YTZ4YWtkYmQzaG4zdW9lbzFvZThsNnp6MiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/EBiho5DrxUQ75JMcq7/giphy.gif",
@@ -94,6 +94,21 @@ GIFS = {
     "⭐️": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExeXhkencxNTVud25lbzd6OHkyNHd3MXdtMWx4dm5tNm04MmNqanhpeSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/2GBfKwJ7bypANDoqRt/giphy.gif",
     "soin_autre": "https://i.makeagif.com/media/9-05-2023/UUHN2G.gif"
 }
+
+# ---------- Fusion GIFS -> OBJETS ----------
+def _merge_gifs_into_objets():
+    for emoji, url in GIFS.items():
+        if not isinstance(url, str) or not url.startswith("http"):
+            continue
+        OBJETS.setdefault(emoji, {})
+        typ = OBJETS[emoji].get("type")
+        # soignant/regen/vaccin -> clé gif_heal, sinon gif_attack
+        key = "gif_heal" if typ == "soin" or emoji in ("💕", "💉") else "gif_attack"
+        OBJETS[emoji].setdefault(key, url)
+        OBJETS[emoji].setdefault("gif", url)  # fallback générique
+
+_merge_gifs_into_objets()
+# -------------------------------------------
 
 REWARD_EMOJIS = ["💰"]
 
@@ -154,7 +169,7 @@ def get_mention(guild, user_id: str):
     except Exception:
         return f"<@{user_id}>"
 
-# ---------- ✅ Nouveaux utilitaires demandés par passifs.py ----------
+# ---------- ✅ Utilitaires pour passifs.py ----------
 def remove_random_item(guild_id: str, user_id: str):
     """Retire un objet (emoji str) aléatoire de l'inventaire d'un joueur. Ignore les entrées 'personnage' (dict)."""
     inv, _, _ = get_user_data(str(guild_id), str(user_id))
@@ -195,19 +210,22 @@ def get_evade_chance(guild_id: str, user_id: str) -> float:
     except Exception:
         pass
 
-    # 🌀 Passifs (appel paresseux pour éviter import circulaire)
+    # 🌀 Passifs
     try:
         from passifs import appliquer_passif as _appliquer_passif
-        result = _appliquer_passif("calcul_esquive", {
+        res = _appliquer_passif("calcul_esquive", {
             "guild_id": str(guild_id),
-            "defenseur": str(user_id)
-        })
+            "defenseur": str(user_id),
+        }) or {}
+        if "bonus_esquive" in res:
+            val = res["bonus_esquive"]
+            # accepte 5 (=5%) ou 0.05
+            bonus += (float(val) / 100.0) if abs(float(val)) > 1 else float(val)
     except Exception:
-        result = {}
+        pass
 
     # clamp raisonnable
-    total = max(0.0, min(0.95, base_chance + bonus))
-    return total
+    return max(0.0, min(0.95, base_chance + bonus))
 
 # =========================
 # Leaderboard helper (safe)
@@ -230,5 +248,3 @@ def update_leaderboard(guild_id: str, user_id: str, points_delta: int = 0, kill:
         entry["points"] = int(points_delta)
         entry["kills"] = int(kill)
         entry["deaths"] = int(death)
-
-
