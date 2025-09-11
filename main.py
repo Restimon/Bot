@@ -214,7 +214,7 @@ async def main():
     register_all_commands_once(bot)
     await setup_perso(bot)
     await setup_tirage(bot)          # enregistre le Cog Tirage
-    await bot.load_extension("reaction")  # ✅ charge le ravitaillement (reaction.py)
+    await bot.load_extension("reactions")  # ✅ charge le ravitaillement (reaction.py)
     await bot.start(os.getenv("DISCORD_TOKEN"))
 
 if __name__ == "__main__":
