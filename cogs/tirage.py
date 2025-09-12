@@ -83,7 +83,11 @@ class Tirage(commands.Cog):
     
         emb = Embed(
             title="🎟️ Tickets de tirage",
-            description=f"{target.mention} possède **{n}** ticket(s).",
+            description=(
+                f"{target.mention} possède **{n}** ticket(s).\n\n"
+                "💡 Tu peux en obtenir 1 chaque jour avec la commande `/daily`, "
+                "ou en acheter dans le shop."
+            ),
             colour=Colour.blurple()
         )
         emb.set_footer(text="GotValis • Inventaire")
