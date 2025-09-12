@@ -1,373 +1,274 @@
 # passifs.py
 from __future__ import annotations
-import json, math, random, time
-from typing import Dict, Any, Optional
-
 import aiosqlite
+import random
+import datetime
+from typing import Optional
 
+from stats_db import get_hp, get_shield
 from personnage import PERSONNAGES, PASSIF_CODE_MAP
-from effects_db import (
-    add_or_refresh_effect, has_effect, list_effects, remove_effect,
-)
-from stats_db import get_hp, get_shield, set_shield, heal_user
-
-# economie.add_balance est déjà appelé dans stats_db via deal_damage/heal_user
-try:
-    from economie import add_balance  # noqa: F401
-except Exception:
-    async def add_balance(*args, **kwargs):  # fallback neutre
-        return
 
 DB_PATH = "gotvalis.sqlite3"
 
 SCHEMA = """
-PRAGMA journal_mode = WAL;
+PRAGMA journal_mode=WAL;
 
-CREATE TABLE IF NOT EXISTS player_passives(
-  user_id     TEXT PRIMARY KEY,
-  code        TEXT NOT NULL,
-  meta        TEXT NOT NULL DEFAULT '{}',
-  updated_ts  INTEGER NOT NULL DEFAULT 0
+-- Personnage équipé par joueur
+CREATE TABLE IF NOT EXISTS player_equipment(
+  user_id TEXT PRIMARY KEY,
+  char_name TEXT NOT NULL,
+  passif_code TEXT NOT NULL
+);
+
+-- Compteurs/flags journaliers (ex: undying Zeyra)
+CREATE TABLE IF NOT EXISTS passive_counters(
+  user_id TEXT NOT NULL,
+  key     TEXT NOT NULL,
+  value   INTEGER NOT NULL DEFAULT 0,
+  day_ymd TEXT NOT NULL,     -- 'YYYY-MM-DD' pour reset quotidien
+  PRIMARY KEY(user_id, key)
 );
 """
 
-def _now() -> int: return int(time.time())
+# Codes internes (doivent matcher personnage.PASSIF_CODE_MAP)
+CODE_ROI      = PASSIF_CODE_MAP.get("Finisher Royal 👑⚔️") or "execute_a_10pv_ignores_et_heal"
+CODE_VALEN    = PASSIF_CODE_MAP.get("Domaine de Contrôle Absolu 🧠") or "drastique_reduc_chance_scaling_pb_dr_immune"
+CODE_ZEYRA    = PASSIF_CODE_MAP.get("Volonté de Fracture 💥") or "undying_1pv_jour_scaling_dmg_half_crit_flat_reduc"
+CODE_NOVA     = PASSIF_CODE_MAP.get("Réflexes Accélérés 🚗💨") or "bonus_esquive_constant"
+CODE_ELIRA    = PASSIF_CODE_MAP.get("Clé du Dédale Miroir 🗝️") or "redirect_si_esquive_et_gain_pb"
+CODE_CIELYA   = PASSIF_CODE_MAP.get("Filtrage actif 🎧") or "reduc_degats_si_pb"
+CODE_KEVAR    = PASSIF_CODE_MAP.get("Zone propre 🧼") or "bonus_degats_vs_infectes"
+CODE_MARN     = PASSIF_CODE_MAP.get("Rémanence d’usage ♻️") or "chance_ne_pas_consommer_objet"
+CODE_NATHANIEL= PASSIF_CODE_MAP.get("Aura d’Autorité Absolue 🏛️") or "chance_reduc_moitie_malus_attaquant_resist_status"
+CODE_VEYLOR   = PASSIF_CODE_MAP.get("Faveur de l’Hôte 🌙") or "reduc_degats_fixe_et_chance_sup"
 
 # ─────────────────────────────────────────────────────────────
-# DB helpers
+# INIT
 # ─────────────────────────────────────────────────────────────
-async def _init_db():
+
+async def init_passifs_db() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
         await db.commit()
 
-async def _get_row(user_id: int):
-    await _init_db()
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT code, meta, updated_ts FROM player_passives WHERE user_id=?",
-            (str(user_id),)
-        ) as cur:
-            return await cur.fetchone()
+# ─────────────────────────────────────────────────────────────
+# ÉQUIPEMENT — set/get
+# ─────────────────────────────────────────────────────────────
 
-async def _set_row(user_id: int, code: str, meta: Dict[str, Any]):
-    await _init_db()
+async def set_equipped(user_id: int, char_name: str) -> bool:
+    """
+    Équipe un personnage pour le joueur. Retourne True si ok.
+    char_name doit exister dans PERSONNAGES.
+    """
+    if char_name not in PERSONNAGES:
+        return False
+    code = PASSIF_CODE_MAP.get(PERSONNAGES[char_name]["passif"]["nom"], "")
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            """INSERT INTO player_passives(user_id, code, meta, updated_ts)
-               VALUES(?,?,?,?)
-               ON CONFLICT(user_id) DO UPDATE SET
-                 code=excluded.code, meta=excluded.meta, updated_ts=excluded.updated_ts
+            """
+            INSERT INTO player_equipment(user_id, char_name, passif_code)
+            VALUES(?,?,?)
+            ON CONFLICT(user_id) DO UPDATE SET char_name=excluded.char_name, passif_code=excluded.passif_code
             """,
-            (str(user_id), code, json.dumps(meta or {}), _now()),
+            (str(user_id), char_name, code)
+        )
+        await db.commit()
+    return True
+
+async def get_equipped_name(user_id: int) -> Optional[str]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT char_name FROM player_equipment WHERE user_id=?", (str(user_id),)) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+async def get_equipped_code(user_id: int) -> Optional[str]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT passif_code FROM player_equipment WHERE user_id=?", (str(user_id),)) as cur:
+            row = await cur.fetchone()
+    return row[0] if row else None
+
+# ─────────────────────────────────────────────────────────────
+# HELPERS DIVERS
+# ─────────────────────────────────────────────────────────────
+
+def _today_ymd() -> str:
+    return datetime.date.today().isoformat()
+
+async def _get_counter(user_id: int, key: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT value, day_ymd FROM passive_counters WHERE user_id=? AND key=?",
+                              (str(user_id), key)) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return 0
+    value, day = row
+    if day != _today_ymd():
+        # reset quotidien
+        await _set_counter(user_id, key, 0)
+        return 0
+    return int(value)
+
+async def _set_counter(user_id: int, key: str, value: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO passive_counters(user_id, key, value, day_ymd)
+            VALUES(?,?,?,?)
+            ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value, day_ymd=excluded.day_ymd
+            """,
+            (str(user_id), key, int(value), _today_ymd())
         )
         await db.commit()
 
-def _meta_load(s: str) -> Dict[str, Any]:
-    try: return json.loads(s or "{}")
-    except: return {}
+async def _inc_counter(user_id: int, key: str, inc: int = 1) -> int:
+    cur = await _get_counter(user_id, key)
+    cur += inc
+    await _set_counter(user_id, key, cur)
+    return cur
 
 # ─────────────────────────────────────────────────────────────
-# API publique : équiper / lire
+# HOOKS UTILISÉS PAR combat.py
 # ─────────────────────────────────────────────────────────────
-async def set_equipped_from_personnage(user_id: int, personnage_nom: str) -> bool:
-    p = PERSONNAGES.get(personnage_nom)
-    if not p: return False
-    code = PASSIF_CODE_MAP.get(p["passif"]["nom"], "")
-    if not code: return False
-    await _set_row(user_id, code, {})
-    return True
-
-async def set_equipped_code(user_id: int, code: str) -> None:
-    await _set_row(user_id, code, {})
-
-async def get_equipped_code(user_id: int) -> Optional[str]:
-    row = await _get_row(user_id)
-    return row[0] if row else None
-
-# Utilitaires pour /use
-async def can_be_stolen(victim_id: int) -> bool:
-    """False si la cible est immunisée au vol (Lyss)."""
-    return (await get_equipped_code(victim_id)) != "anti_vol_total"
-
-async def maybe_preserve_consumable(attacker_id: int) -> bool:
-    """
-    Marn Velk — 5% chance de NE PAS consommer l’objet utilisé.
-    À appeler dans /fight et /use juste après une conso.
-    """
-    return (await get_equipped_code(attacker_id)) == "chance_ne_pas_consommer_objet" and (random.random() < 0.05)
-
-# ─────────────────────────────────────────────────────────────
-# HOOKS combat — appelés depuis cogs/combat.py
-# ─────────────────────────────────────────────────────────────
-async def before_damage(attacker_id: int, target_id: int, damage: int, ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Pré-traitement dégâts. Retourne un dict "overrides" optionnel :
-      - damage (int)          : remplacer la base
-      - multiplier (float)    : multiplier les dégâts
-      - flat_reduction (int)  : retirer X après mul
-      - ignore_all_defense    : True = ignore réduction/PB/immunité (exécution)
-      - flags (dict)          : informations pour embed (ex: {"execute": True})
-    """
-    out: Dict[str, Any] = {}
-    code_att = await get_equipped_code(attacker_id)
-    code_def = await get_equipped_code(target_id)
-
-    # ----------------- ATTAQUANT -----------------
-    # Kevar Rin — +3 dégats si la cible est infectée
-    if code_att == "bonus_degats_vs_infectes" and await has_effect(target_id, "infection"):
-        out["damage"] = max(0, damage + 3)
-
-    # Varkhel Drayne — +1 dégât / 10 PV perdus (sur l'attaquant)
-    if code_att == "bonus_degats_par_10pv_perdus":
-        hp, _ = await get_hp(attacker_id)
-        bonus = max(0, (100 - hp) // 10)
-        out["damage"] = max(0, out.get("damage", damage) + bonus)
-
-    # Le Roi — exécute à 10 PV (ignore tout)
-    if code_att == "execute_a_10pv_ignores_et_heal":
-        thp, _ = await get_hp(target_id)
-        if thp <= 10:
-            out["ignore_all_defense"] = True
-            out["damage"] = max(1, out.get("damage", damage))
-            out["flags"] = {"execute": True}
-
-    # Abomination Rampante — +30% dégats si cible déjà infectée
-    if code_att == "infection_chance_et_bonus_vs_infecte_kill_heal" and await has_effect(target_id, "infection"):
-        out["multiplier"] = float(out.get("multiplier", 1.0)) * 1.30
-
-    # ----------------- DÉFENSEUR -----------------
-    # Cielya — -25% si la cible a un PB
-    if code_def == "reduc_degats_si_pb":
-        if (await get_shield(target_id)) > 0:
-            out["multiplier"] = float(out.get("multiplier", 1.0)) * 0.75
-
-    # Darin / (Alen via même code) — 10% moitié dégâts
-    if code_def == "chance_reduc_moitie_degats" and random.random() < 0.10:
-        out["multiplier"] = float(out.get("multiplier", 1.0)) * 0.5
-
-    # Veylor — -1 plat + 50% chance -2 supplémentaires
-    if code_def == "reduc_degats_fixe_et_chance_sup":
-        red = 1 + (2 if random.random() < 0.5 else 0)
-        out["flat_reduction"] = int(out.get("flat_reduction", 0)) + red
-
-    # Zeyra — réduction plate -1 (le x0.5 sur CRIT est géré côté combat si tu actives son mod critique)
-    if code_def == "undying_1pv_jour_scaling_dmg_half_crit_flat_reduc":
-        out["flat_reduction"] = int(out.get("flat_reduction", 0)) + 1
-
-    # Neyra — -10% permanent
-    if code_def == "reduc_degats_perma_et_stacks":
-        out["multiplier"] = float(out.get("multiplier", 1.0)) * 0.90
-
-    return out
-
-async def after_damage(attacker_id: int, target_id: int, summary: Dict[str, Any]) -> None:
-    """
-    Post-traitement après application des dégâts (directs):
-    summary = {
-      "emoji": str, "type": str,
-      "damage": int, "absorbed": int,
-      "target_hp": int, "target_shield": int,
-      "killed": bool
-    }
-    """
-    code_att = await get_equipped_code(attacker_id)
-    code_def = await get_equipped_code(target_id)
-    dmg = int(summary.get("damage", 0))
-    killed = bool(summary.get("killed", False))
-    typ = summary.get("type", "")
-
-    # Cassiane — +1% reduc 24h par attaque reçue (stack, cap soft à 90%)
-    if code_def == "stack_resistance_par_attaque":
-        cur = 0.0
-        for et, val, *_ in await list_effects(target_id):
-            if et == "reduction":
-                try: cur = float(val)
-                except: cur = 0.0
-        cur = min(0.90, cur + 0.01)
-        await add_or_refresh_effect(target_id, "reduction", cur, 24 * 3600)
-
-    # Liora — 25% : +3% esquive 24h
-    if code_def == "buff_esquive_apres_coup" and random.random() < 0.25:
-        ev = 0.0
-        for et, val, *_ in await list_effects(target_id):
-            if et == "esquive":
-                try: ev = float(val)
-                except: ev = 0.0
-        ev = min(0.95, ev + 0.03)
-        await add_or_refresh_effect(target_id, "esquive", ev, 24 * 3600)
-
-    # Kael Dris — vampirisme 50% des dégâts infligés
-    if code_att == "vampirisme_50pct" and dmg > 0:
-        await heal_user(attacker_id, attacker_id, dmg // 2)
-
-    # Yann Tann — 10% : applique brûlure (1 dmg/heure pendant 3h)
-    if code_att == "chance_brule_1h_x3" and typ.startswith("attaque") and random.random() < 0.10:
-        await add_or_refresh_effect(target_id, "brulure", 1, 3 * 3600, interval=3600, source_id=attacker_id)
-
-    # Neyra — sur CHAQUE attaque reçue : -5% dégâts reçus (temp 1h, stack) +3% esquive (1h, stack)
-    if code_def == "reduc_degats_perma_et_stacks":
-        # reduc stack temporaire
-        rcur = 0.0
-        for et, val, *_ in await list_effects(target_id):
-            if et == "reduction_temp":
-                try: rcur = float(val)
-                except: rcur = 0.0
-        rcur = min(0.50, rcur + 0.05)  # cap 50% temp
-        await add_or_refresh_effect(target_id, "reduction_temp", rcur, 3600)
-        # esquive stack
-        ecur = 0.0
-        for et, val, *_ in await list_effects(target_id):
-            if et == "esquive":
-                try: ecur = float(val)
-                except: ecur = 0.0
-        ecur = min(0.95, ecur + 0.03)
-        await add_or_refresh_effect(target_id, "esquive", ecur, 3600)
-
-    # Valen — seuils 40/30/20/10 : à chaque palier franchi: +5 PB & +10% reduc (stack)
-    if code_def == "drastique_reduc_chance_scaling_pb_dr_immune":
-        row = await _get_row(target_id); meta = _meta_load(row[1]) if row else {}
-        hit = set(meta.get("valen_hit", []))
-        hp_now, _ = await get_hp(target_id)
-        for seuil in (40, 30, 20, 10):
-            if hp_now <= seuil and seuil not in hit:
-                # +5 PB
-                cur_pb = await get_shield(target_id)
-                await set_shield(target_id, cur_pb + 5)
-                # +10% reduc cumul
-                r = 0.0
-                for et, val, *_ in await list_effects(target_id):
-                    if et == "reduction_valen":
-                        try: r = float(val)
-                        except: r = 0.0
-                r = min(0.75, r + 0.10)
-                await add_or_refresh_effect(target_id, "reduction_valen", r, 24 * 3600)
-                hit.add(seuil)
-        meta["valen_hit"] = sorted(list(hit))
-        await _set_row(target_id, "drastique_reduc_chance_scaling_pb_dr_immune", meta)
-
-    # Kills — effets on-kill spécifiques
-    if killed:
-        # Abomination — +3 PV
-        if code_att == "infection_chance_et_bonus_vs_infecte_kill_heal":
-            await heal_user(attacker_id, attacker_id, 3)
-        # Le Roi — +10 PV si l’exécution a tué
-        if code_att == "execute_a_10pv_ignores_et_heal":
-            await heal_user(attacker_id, attacker_id, 10)
-
-async def on_heal(healer_id: int, target_id: int, healed_amount: int, ctx: Dict[str, Any]) -> Optional[int]:
-    """
-    Modifie la valeur à soigner.
-    Retourne la nouvelle valeur (int) ou None pour inchangé.
-    """
-    code_h = await get_equipped_code(healer_id)
-    code_t = await get_equipped_code(target_id)
-    base = int(healed_amount)
-
-    # Tessa — +1 sur soins prodigués
-    if code_h == "soins_plus_un":
-        base += 1
-
-    # Aelran — +50% sur soins reçus
-    if code_t == "soin_recu_x1_5":
-        base = int(math.ceil(base * 1.5))
-
-    # Lysha — le soigneur gagne +1 PB
-    if code_h == "gain_pb_quand_soigne":
-        cur = await get_shield(healer_id)
-        await set_shield(healer_id, cur + 1)
-
-    # Kerin — 5% se soigne de 1
-    if code_h == "chance_self_heal_si_soin_autrui" and random.random() < 0.05:
-        await heal_user(healer_id, healer_id, 1)
-
-    # Seren — 2x/j : convertit les PV soignés en PB
-    if code_t == "pb_egal_soin_limite" and base > 0:
-        row = await _get_row(target_id); meta = _meta_load(row[1]) if row else {}
-        day = _now() // 86400
-        if meta.get("seren_day") != day:
-            meta["seren_day"] = day
-            meta["seren_cnt"] = 0
-        if meta.get("seren_cnt", 0) < 2:
-            cur_pb = await get_shield(target_id)
-            await set_shield(target_id, cur_pb + base)
-            meta["seren_cnt"] = meta.get("seren_cnt", 0) + 1
-            await _set_row(target_id, "pb_egal_soin_limite", meta)
-
-    return base
-
-async def on_status_apply(source_id: int, target_id: int, eff_type: str, value: float, duration: int, ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Permet d’annuler ou modifier un statut à l’application.
-    Retourne un dict optionnel: {"value": X, "duration": Y}
-    """
-    out: Dict[str, Any] = {}
-    code_src = await get_equipped_code(source_id)
-    code_tgt = await get_equipped_code(target_id)
-
-    # Dr Elwin Kaas — immun au POISON
-    if eff_type == "poison" and code_tgt == "pb_plus_un_par_heure_anti_poison":
-        out["value"] = 0; out["duration"] = 0
-        return out
-
-    # Valen Drexar — immun à TOUS les statuts (poison, virus, infection, regen, brulure...)
-    if code_tgt == "drastique_reduc_chance_scaling_pb_dr_immune":
-        out["value"] = 0; out["duration"] = 0
-        return out
-
-    # Anna — +1 dégâts sur l'INFECTION appliquée
-    if eff_type == "infection" and code_src == "infection_buff_source_pas_degats":
-        out["value"] = max(0, int(value) + 1)
-
-    return out
-
-async def on_kill(attacker_id: int, target_id: int, ctx: Dict[str, Any]) -> None:
-    # (déjà traité les heals/bonus dans after_damage)
-    return
-
-async def on_death(target_id: int, attacker_id: int, ctx: Dict[str, Any]) -> None:
-    # (le Undying de Zeyra est géré par try_undying() appelé dans combat avant revive)
-    return
-
-# Cap PB dynamique (Raya 25 max)
-async def modify_shield_cap_async(user_id: int, default_cap: int) -> int:
-    code = await get_equipped_code(user_id)
-    if code == "max_pb_25":
-        return max(default_cap, 25)
-    return default_cap
-
-# ─────────────────────────────────────────────────────────────
-# UNDYING (Zeyra) & crit modifiers — helpers pour combat
-# ─────────────────────────────────────────────────────────────
-async def try_undying(user_id: int) -> bool:
-    """
-    Zeyra Kael — 1 fois / jour :
-    Si la cible allait mourir, annule le KO et la laisse à 1 PV.
-    Retourne True si la mort doit être ANNULÉE (donc NE PAS revive/clean).
-    """
-    code = await get_equipped_code(user_id)
-    if code != "undying_1pv_jour_scaling_dmg_half_crit_flat_reduc":
-        return False
-
-    row = await _get_row(user_id); meta = _meta_load(row[1]) if row else {}
-    day = _now() // 86400
-    if meta.get("zeyra_day") == day and meta.get("zeyra_used", 0) >= 1:
-        return False  # déjà utilisé aujourd'hui
-
-    # place/maintient à 1 PV
-    hp, _ = await get_hp(user_id)
-    if hp <= 0:
-        await heal_user(user_id, user_id, 1)
-    meta["zeyra_day"] = day
-    meta["zeyra_used"] = 1
-    await _set_row(user_id, code, meta)
-    return True
 
 def crit_multiplier_against_defender_code(defender_code: Optional[str]) -> float:
     """
-    Si la DEFENSEURE est Zeyra, les coups critiques subis sont divisés par 2.
-    À utiliser côté combat pour ajuster le multiplicateur de crit avant d'appliquer les dégâts.
+    Multiplie le multiplicateur de crit en fonction du passif du défenseur.
+    - Zeyra : crit subis sont divisés par 2 → on renvoie 0.5
+    Sinon 1.0
     """
-    if defender_code == "undying_1pv_jour_scaling_dmg_half_crit_flat_reduc":
+    if defender_code == CODE_ZEYRA:
         return 0.5
     return 1.0
+
+async def get_extra_dodge_chance(user_id: int) -> float:
+    """
+    Chance d'esquive additionnelle (0..1).
+    - Nova Rell : +5%
+    - Elira Veska : +10%
+    (D’autres passifs peuvent s’ajouter plus tard.)
+    """
+    code = await get_equipped_code(user_id)
+    bonus = 0.0
+    if code == CODE_NOVA:
+        bonus += 0.05
+    if code == CODE_ELIRA:
+        bonus += 0.10
+    # TODO: Liora Venhal: +3% pendant 24h après chaque attaque reçue (nécessite hook post-défense)
+    return min(bonus, 0.95)
+
+async def get_extra_reduction_percent(user_id: int) -> float:
+    """
+    Réduction en % qui s'applique AVANT PB (et ne s'applique pas aux DOT).
+    - Cielya Morn : −25% tant qu'il a des PB > 0
+    - Nathaniel Raskov : approx simple −10% passif constant (son vrai passif est un proc 50% moitié dégats + malus attaquant 1h)
+    - Veylor Cassian : approx simple −10% passif constant (son vrai passif est −1 à −3 PV flat, ici on l’approxime)
+    """
+    code = await get_equipped_code(user_id)
+    bonus = 0.0
+    if code == CODE_CIELYA:
+        sh = await get_shield(user_id)
+        if sh > 0:
+            bonus += 0.25
+    if code == CODE_NATHANIEL:
+        bonus += 0.10  # approximation
+    if code == CODE_VEYLOR:
+        bonus += 0.10  # approximation
+    # D’autres passifs de réduction peuvent s’ajouter ici
+    return min(bonus, 0.90)
+
+async def maybe_preserve_consumable(user_id: int, item_key: str) -> bool:
+    """
+    True => ne consomme pas l’objet (ex: Marn Velk 5%).
+    """
+    code = await get_equipped_code(user_id)
+    if code == CODE_MARN:
+        return random.random() < 0.05
+    return False
+
+async def king_execute_ready(attacker_id: int, target_id: int) -> bool:
+    """
+    'Le Roi' : exécute à 10 PV (ignore défenses). True si condition remplie.
+    """
+    code = await get_equipped_code(attacker_id)
+    if code != CODE_ROI:
+        return False
+    hp, _ = await get_hp(target_id)
+    return hp <= 10
+
+async def valen_reduction_bonus(user_id: int) -> float:
+    """
+    Valen Drexar : quand < 50% PV, gagne +10% de réduction **par tranche de 10 PV perdue**
+    parmi les paliers : 40, 30, 20, 10 — cumulatif. Max 40%.
+    """
+    code = await get_equipped_code(user_id)
+    if code != CODE_VALEN:
+        return 0.0
+    hp, _ = await get_hp(user_id)
+    # hp ∈ [0..100] par ton modèle
+    if hp >= 50:
+        return 0.0
+    tiers = 0
+    if hp <= 40: tiers += 1
+    if hp <= 30: tiers += 1
+    if hp <= 20: tiers += 1
+    if hp <= 10: tiers += 1
+    return min(0.10 * tiers, 0.40)
+
+async def undying_zeyra_check_and_mark(user_id: int) -> bool:
+    """
+    Zeyra Kael : ne meurt pas une fois par jour → reste à 1 PV.
+    Retourne True si le sauvetage s'applique ET consomme la charge du jour.
+    """
+    code = await get_equipped_code(user_id)
+    if code != CODE_ZEYRA:
+        return False
+    key = "undying_zeyra"
+    used = await _get_counter(user_id, key)
+    if used >= 1:
+        return False
+    await _inc_counter(user_id, key, 1)
+    return True
+
+async def on_attack_after(attacker_id: int, target_id: int, item_key: str) -> None:
+    """
+    Post-attaque : place pour déclencher des effets (loot, vampirisme, etc.).
+    ⚠️ Le moteur ne passe pas (encore) le montant de dégâts infligés,
+       donc certains passifs (ex: Kael Dris vampirisme 50%) demandent une extension d'API.
+    TODO (si tu étends `combat.fight` pour renvoyer les dégâts réels):
+      - Kael Dris: heal_user(attacker_id, attacker_id, dealt // 2)
+      - Sive Arden: 5% chance +1 coin (côté économie)
+      - Neyra Velenis: stacks dodge/+reduc 1h (effects_db custom)
+      - Roulette de minuit: table d’effets aléatoires
+    """
+    return
+
+async def on_heal_after(healer_id: int, target_id: int, item_key: str) -> None:
+    """
+    Post-soin : déclenchements liés aux soins.
+    Exemples à brancher si tu passes 'healed' à ce hook :
+      - Tessa Korrin: +1 PV aux soins prodigués (à appliquer plutôt AVANT le heal dans combat.py)
+      - Seren Iskar: PB égal aux PV soignés, 2x/j (nécessite un compteur & healed amount)
+      - Lysha Varn: quand le porteur soigne quelqu’un, il gagne +1 PB.
+    """
+    # Exemple simple (Lysha Varn) si tu veux activer tout de suite :
+    # code = await get_equipped_code(healer_id)
+    # if code == PASSIF_CODE_MAP.get("Champ brouillé 📡"):
+    #     from stats_db import add_shield
+    #     await add_shield(healer_id, 1)
+    return
+
+async def on_use_after(user_id: int, target_id: int, item_key: str) -> None:
+    """
+    Post-use : pour des effets secondaires après /use si nécessaire.
+    Ex: Kieran Vox (box +1) devrait plutôt se gérer au moment d’ouvrir la box.
+    """
+    return
+
+async def bonus_damage_vs_infected(attacker_id: int) -> int:
+    """
+    Kevar Rin : +3 dégâts contre les infectés.
+    """
+    code = await get_equipped_code(attacker_id)
+    if code == CODE_KEVAR:
+        return 3
+    return 0
