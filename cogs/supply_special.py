@@ -32,24 +32,30 @@ REWARD_WEIGHTS = {
 # tranches horaires locales (24h)
 WINDOWS = [(8, 12), (13, 16), (18, 22)]
 
-# anti “double drop” : il faut au moins N messages (non-bot) depuis le dernier drop
+# quota pour armer une tranche
 MIN_MSGS_BETWEEN_DROPS = 20
 
 # ─────────────────────────────────────────────────────────────────────
 # Utils temps
 # ─────────────────────────────────────────────────────────────────────
-def _window_bounds_today(h1: int, h2: int) -> tuple[int, int]:
+def _bounds_today(h1: int, h2: int) -> tuple[int, int]:
     now = dt.datetime.now()
     a = now.replace(hour=h1, minute=0, second=0, microsecond=0)
     b = now.replace(hour=h2, minute=0, second=0, microsecond=0)
     return int(a.timestamp()), int(b.timestamp())
 
-def _random_ts(a: int, b: int) -> int:
-    # évite de planifier dans les 5 dernières minutes pour garantir la durée
+def _rand_between(a: int, b: int) -> int:
+    # on évite de planifier dans les 5 dernières minutes pour préserver la durée
     safe_b = max(a + 60, b - DROP_DURATION)
     if safe_b <= a:
         safe_b = b
     return random.randint(a, safe_b)
+
+def _rand_between_now_end(now_ts: int, end_ts: int) -> int:
+    safe_end = max(now_ts + 60, end_ts - DROP_DURATION)
+    if safe_end <= now_ts:
+        safe_end = end_ts
+    return random.randint(now_ts, safe_end)
 
 def _pick_item(exclude: set[str] | None = None) -> str:
     exclude = exclude or set()
@@ -66,14 +72,20 @@ def _pick_item(exclude: set[str] | None = None) -> str:
 # Cog
 # ─────────────────────────────────────────────────────────────────────
 class SupplySpecial(commands.Cog):
-    """Supply spécial programmé (08–12, 13–16, 18–22), max 1 par tranche, et ≥20 msgs depuis le dernier drop."""
+    """
+    Supply spécial par tranches (08–12, 13–16, 18–22) :
+    - 1 drop max par tranche.
+    - tranche "armée" uniquement si ≥ MIN_MSGS_BETWEEN_DROPS messages non-bot depuis le dernier drop.
+    - si quota atteint pendant la tranche → planifie un drop aléatoire entre "maintenant" et la fin.
+    - pas de fallback automatique à 12/16/22 si quota non atteint.
+    """
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._last_active: Dict[int, int] = {}            # guild_id -> last text channel id
-        self._state: Dict[int, dict] = {}                 # guild_id -> {day, windows:[{start,end,scheduled,sent}]}
-        self._active_drop: Dict[int, bool] = {}           # guild_id -> bool
-        self._msg_since_last_drop: Dict[int, int] = {}    # guild_id -> counter non-bot msgs since last drop
+        self._last_active: Dict[int, int] = {}          # guild_id -> last text channel id
+        self._state: Dict[int, dict] = {}               # guild_id -> {day, windows:[{start,end,armed,scheduled,sent}]}
+        self._active_drop: Dict[int, bool] = {}         # guild_id -> bool
+        self._msgs_since_drop: Dict[int, int] = {}      # guild_id -> compteur non-bot depuis dernier drop
         self._loop_task: asyncio.Task | None = None
 
     async def cog_load(self):
@@ -91,8 +103,7 @@ class SupplySpecial(commands.Cog):
             return
         if isinstance(message.channel, discord.TextChannel):
             self._last_active[message.guild.id] = message.channel.id
-        # incrémente le compteur depuis dernier drop
-        self._msg_since_last_drop[message.guild.id] = self._msg_since_last_drop.get(message.guild.id, 0) + 1
+        self._msgs_since_drop[message.guild.id] = self._msgs_since_drop.get(message.guild.id, 0) + 1
 
     # boucle planif
     async def _scheduler_loop(self):
@@ -102,55 +113,69 @@ class SupplySpecial(commands.Cog):
                 await self._tick()
             except Exception:
                 pass
-            await asyncio.sleep(30)
+            await asyncio.sleep(15)
+
+    async def _ensure_day_state(self, guild_id: int):
+        today = dt.datetime.now().strftime("%Y-%m-%d")
+        gstate = self._state.get(guild_id)
+        if not gstate or gstate.get("day") != today:
+            windows = []
+            for (h1, h2) in WINDOWS:
+                a, b = _bounds_today(h1, h2)
+                windows.append({
+                    "start": a, "end": b,
+                    "armed": False,     # tranche autorisée ?
+                    "scheduled": None,  # timestamp prévu si armée
+                    "sent": False,      # a déjà envoyé un drop ?
+                })
+            self._state[guild_id] = {"day": today, "windows": windows}
+            self._active_drop[guild_id] = False
+            # on NE reset PAS _msgs_since_drop ici : c'est depuis le dernier drop, pas par jour
 
     async def _tick(self):
         now = int(time.time())
-        today_key = dt.datetime.now().strftime("%Y-%m-%d")
-
         for guild in self.bot.guilds:
-            gstate = self._state.get(guild.id)
-            if not gstate or gstate.get("day") != today_key:
-                # reset état du jour
-                windows = []
-                for (h1, h2) in WINDOWS:
-                    a, b = _window_bounds_today(h1, h2)
-                    windows.append({
-                        "start": a,
-                        "end": b,
-                        "scheduled": _random_ts(a, b),
-                        "sent": False,
-                    })
-                self._state[guild.id] = {"day": today_key, "windows": windows}
-                self._active_drop[guild.id] = False
-                # ne reset PAS msg_since_last_drop ici (on le conserve d’un jour à l’autre)
+            await self._ensure_day_state(guild.id)
+            gstate = self._state[guild.id]
+            win_list = gstate["windows"]
 
-            for w in self._state[guild.id]["windows"]:
+            for w in win_list:
                 if w["sent"]:
+                    continue  # déjà un drop cette tranche
+
+                start, end = w["start"], w["end"]
+                # 1) avant la tranche → on arme si quota déjà atteint
+                if now < start:
+                    if not w["armed"] and self._msgs_since_drop.get(guild.id, 0) >= MIN_MSGS_BETWEEN_DROPS:
+                        w["armed"] = True
+                        w["scheduled"] = _rand_between(start, end)
                     continue
 
-                # fin de tranche → si pas envoyé, on tente *mais* on respecte la règle des 20 messages
-                if now >= w["end"]:
-                    await self._try_spawn_in_last_active(guild)
-                    # on marque "sent" même si le drop n’est pas parti? Non.
-                    # On **ne marque pas** sent si la règle des 20 msgs bloque => la tranche est manquée.
-                    if self._active_drop.get(guild.id) is False:
-                        # rien à faire : si _try_spawn... n'a pas lancé (ex: <20 msgs), on laisse sent=False
-                        pass
-                    else:
-                        w["sent"] = True
+                # 2) pendant la tranche
+                if start <= now < end:
+                    # a) si pas armée au début → peut s'armer à chaud si quota atteint pendant la tranche
+                    if not w["armed"] and self._msgs_since_drop.get(guild.id, 0) >= MIN_MSGS_BETWEEN_DROPS:
+                        w["armed"] = True
+                        w["scheduled"] = _rand_between_now_end(now, end)
+
+                    # b) si armée et horaire atteint → tente de drop
+                    if w["armed"] and w["scheduled"] is not None and now >= w["scheduled"]:
+                        launched = await self._try_spawn_in_last_active(guild)
+                        if launched:
+                            w["sent"] = True
+                            # reset du quota puisqu’on vient de faire un drop
+                            self._msgs_since_drop[guild.id] = 0
+                        else:
+                            # si on n'a pas pu lancer (ex: pas de salon/perm), on peut retenter plus tard
+                            # on reprogramme un nouvel horaire dans le reste de la tranche
+                            w["scheduled"] = _rand_between_now_end(now, end)
                     continue
 
-                # pendant la tranche → si l'horaire planifié est atteint, on tente
-                if w["start"] <= now and now >= w["scheduled"]:
-                    before_active = self._active_drop.get(guild.id, False)
-                    await self._try_spawn_in_last_active(guild)
-                    # w["sent"] seulement si on a effectivement spawn (active_drop a été True durant l'appel)
-                    if not before_active and self._active_drop.get(guild.id, False) is False:
-                        # pas lancé (ex: <20 msgs) → on laisse la fenêtre retenter plus tard
-                        pass
-                    else:
-                        w["sent"] = True
+                # 3) après la tranche → si rien n'a été envoyé, on ne fait rien (pas de fallback)
+                if now >= end:
+                    # tranche manquée, on la marque comme "sent" pour ne pas la retravailler
+                    w["sent"] = True
+                    continue
 
     async def _choose_channel(self, guild: discord.Guild) -> Optional[discord.TextChannel]:
         ch_id = self._last_active.get(guild.id)
@@ -165,23 +190,18 @@ class SupplySpecial(commands.Cog):
             return None
         return ch
 
-    async def _try_spawn_in_last_active(self, guild: discord.Guild):
-        # 1) si un drop est déjà en cours → on ne lance pas
+    async def _try_spawn_in_last_active(self, guild: discord.Guild) -> bool:
+        # pas 2 drops en même temps
         if self._active_drop.get(guild.id):
-            return
-        # 2) règle des 20 messages
-        if self._msg_since_last_drop.get(guild.id, 0) < MIN_MSGS_BETWEEN_DROPS:
-            return
-        # 3) salon valide
+            return False
         ch = await self._choose_channel(guild)
         if not ch:
-            return
+            return False
 
         self._active_drop[guild.id] = True
         try:
             await self._spawn_supply(ch)
-            # reset le compteur de messages après un drop réussi
-            self._msg_since_last_drop[guild.id] = 0
+            return True
         finally:
             self._active_drop[guild.id] = False
 
@@ -272,27 +292,23 @@ class SupplySpecial(commands.Cog):
         await add_tickets(user_id, t)
         return f"🎟️ <@{user_id}> gagne **{t}** ticket(s)."
 
-    # staff
+    # staff (respecte toujours la non-concurrence, mais ignore le quota volontairement)
     @app_commands.command(name="force_special_supply", description="Lance un ravitaillement spécial maintenant (dernier salon actif).")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def force_special_supply(self, itx: Interaction):
         await itx.response.defer(ephemeral=True)
-        # respecte aussi les 20 messages
-        if self._msg_since_last_drop.get(itx.guild.id, 0) < MIN_MSGS_BETWEEN_DROPS:
-            missing = MIN_MSGS_BETWEEN_DROPS - self._msg_since_last_drop.get(itx.guild.id, 0)
-            return await itx.followup.send(f"⚠️ Impossible : il manque **{missing}** message(s) non-bot depuis le dernier drop.", ephemeral=True)
-
+        if self._active_drop.get(itx.guild.id):
+            return await itx.followup.send("⚠️ Un supply spécial est déjà en cours.", ephemeral=True)
         ch_id = self._last_active.get(itx.guild.id) if itx.guild else None
         ch = itx.guild.get_channel(ch_id) if ch_id else None
         if not isinstance(ch, discord.TextChannel):
             return await itx.followup.send("❌ Aucun salon texte actif trouvé.", ephemeral=True)
-        if self._active_drop.get(itx.guild.id):
-            return await itx.followup.send("⚠️ Un supply spécial est déjà en cours.", ephemeral=True)
 
         self._active_drop[itx.guild.id] = True
         try:
             await self._spawn_supply(ch)
-            self._msg_since_last_drop[itx.guild.id] = 0
+            # on considère que c'est un vrai drop → reset du quota
+            self._msgs_since_drop[itx.guild.id] = 0
         finally:
             self._active_drop[itx.guild.id] = False
         await itx.followup.send(f"✅ Supply spécial lancé dans {ch.mention}.", ephemeral=True)
