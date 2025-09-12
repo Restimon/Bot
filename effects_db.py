@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import time
 from typing import Optional, Dict, Any, List, Callable, Tuple
@@ -31,7 +32,7 @@ CREATE TABLE IF NOT EXISTS player_effects(
   next_ts   INTEGER NOT NULL DEFAULT 0, -- prochain tick
   end_ts    INTEGER NOT NULL,           -- fin d'effet (timestamp)
   source_id TEXT NOT NULL DEFAULT '0',  -- auteur de l'effet (pour attribuer dégâts/coins)
-  meta      TEXT NOT NULL DEFAULT '{}', -- JSON libre (emoji, label, etc.)
+  meta      TEXT NOT NULL DEFAULT '{}', -- JSON libre (ex: {"gid": 123, "cid": 456})
   PRIMARY KEY(user_id, eff_type)
 );
 
@@ -54,6 +55,21 @@ def set_broadcaster(cb: Callable[[int, int, Dict[str, Any]], Any]) -> None:
 
 def _now() -> int:
     return int(time.time())
+
+def _pack_meta(guild_id: Optional[int], channel_id: Optional[int], extra: Optional[dict] = None) -> str:
+    d = dict(extra or {})
+    if guild_id is not None:
+        d["gid"] = int(guild_id)
+    if channel_id is not None:
+        d["cid"] = int(channel_id)
+    return json.dumps(d, ensure_ascii=False)
+
+def _unpack_meta(meta_json: str) -> dict:
+    try:
+        d = json.loads(meta_json or "{}")
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
 
 # ─────────────────────────────────────────────────────────────
 # INIT
@@ -79,32 +95,32 @@ async def add_or_refresh_effect(
     """
     Ajoute un effet, ou le remplace s'il existe déjà.
     - Les effets à tick (poison, virus, brulure, regen, infection) utilisent interval/next_ts.
-    - **Infection**: si déjà présent sur la cible, **ne pas reset** la durée (on conserve end_ts/next_ts existants).
+    - **Infection**: si déjà présente sur la cible, **ne pas reset** la durée (on conserve end_ts/next_ts/meta existants).
     - Les effets de stat (reduction*, esquive, immunite) n’ont pas de tick (interval=0).
+    TIP côté combat: passe meta_json=_pack_meta(guild_id, channel_id) pour logger au bon salon.
     """
     uid = str(user_id)
     sid = str(source_id)
     now = _now()
 
-    # Vérifie si déjà présent (utile pour la règle spéciale "infection ne reset pas la durée")
     prev = await get_effect(user_id, eff_type)
 
     if eff_type == "infection" and prev is not None:
-        # Conserve timer actuel (end_ts/next_ts), met éventuellement à jour la value/source/meta
-        prev_value, prev_interval, prev_next, prev_end, _prev_src, _prev_meta = prev
+        # Infection: on ne reset PAS le timer ni le salon; on met juste à jour value/source si besoin.
+        prev_value, prev_interval, prev_next, prev_end, _prev_src, prev_meta = prev
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 """
                 UPDATE player_effects
-                SET value=?, interval=?, source_id=?, meta=?
+                SET value=?, interval=?, source_id=?
                 WHERE user_id=? AND eff_type=?
                 """,
-                (float(value), int(prev_interval), sid, meta_json, uid, eff_type),
+                (float(value), int(prev_interval), sid, uid, eff_type),
             )
             await db.commit()
         return
 
-    # Cas généraux : (on refresh la durée)
+    # Cas généraux : refresh durée + salon/meta nouveaux
     end_ts = now + max(0, duration)
     next_ts = now + interval if interval > 0 else 0
 
@@ -121,7 +137,7 @@ async def add_or_refresh_effect(
               source_id=excluded.source_id,
               meta=excluded.meta
             """,
-            (uid, eff_type, float(value), int(interval), int(next_ts), int(end_ts), sid, meta_json),
+            (uid, eff_type, float(value), int(interval), int(next_ts), int(end_ts), sid, meta_json or "{}"),
         )
         await db.commit()
 
@@ -181,19 +197,20 @@ async def get_outgoing_damage_penalty(user_id: int) -> int:
     eff = await get_effect(user_id, "poison")
     return 1 if eff is not None else 0
 
-async def transfer_virus_on_attack(attacker_id: int, target_id: int) -> bool:
+async def transfer_virus_on_attack(attacker_id: int, target_id: int, *, guild_id: int, channel_id: int) -> bool:
     """
     Si l'attaquant porte un **virus** :
       - Inflige 5 dégâts directs à l'ANCIEN PORTEUR (source système = 0 → gains au Bot).
       - Inflige 5 dégâts directs à la CIBLE (source = attaquant).
       - Déplace l'effet 'virus' à la cible en **conservant** interval/next_ts/end_ts (timer inchangé).
+      - Met à jour le SALON (meta gid/cid) vers celui de l'attaque actuelle.
       - Retourne True si transfert effectué.
     """
     row = await get_effect(attacker_id, "virus")
     if not row:
         return False
 
-    value, interval, next_ts, end_ts, _src, meta_json = row
+    value, interval, next_ts, end_ts, _src, _old_meta = row
 
     # 1) piqûre de sortie (ancien porteur) — source système (0)
     await deal_damage(0, attacker_id, 5)
@@ -201,8 +218,9 @@ async def transfer_virus_on_attack(attacker_id: int, target_id: int) -> bool:
     # 2) piqûre d'entrée (nouvelle cible) — source = attaquant
     await deal_damage(attacker_id, target_id, 5)
 
-    # 3) transfert (timer conservé)
+    # 3) transfert (timer conservé) + nouveau meta (salon actuel)
     await remove_effect(attacker_id, "virus")
+    new_meta = _pack_meta(guild_id, channel_id)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
@@ -216,7 +234,7 @@ async def transfer_virus_on_attack(attacker_id: int, target_id: int) -> bool:
               source_id=excluded.source_id,
               meta=excluded.meta
             """,
-            (str(target_id), "virus", float(value), int(interval), int(next_ts), int(end_ts), str(attacker_id), meta_json or "{}"),
+            (str(target_id), "virus", float(value), int(interval), int(next_ts), int(end_ts), str(attacker_id), new_meta),
         )
         await db.commit()
     return True
@@ -225,8 +243,8 @@ async def transfer_virus_on_attack(attacker_id: int, target_id: int) -> bool:
 # TICKER : applique les effets périodiques
 # ─────────────────────────────────────────────────────────────
 async def _apply_dot_tick(
-    guild_id: int,
-    channel_id: int,
+    guild_id: Optional[int],
+    channel_id: Optional[int],
     user_id: int,
     eff_type: str,
     value: float,
@@ -258,22 +276,20 @@ async def _apply_dot_tick(
         await revive_full(user_id)
         await clear_effects(user_id)
 
-    # broadcast
-    if _BROADCAST:
-        hp, _ = await get_hp(user_id)
+    # broadcast (uniquement si on a gid/cid + callback dispo)
+    if _BROADCAST and guild_id and channel_id:
         remain_min = max(0, (end_ts - _now()) // 60)
         icon = "🧪" if eff_type == "poison" else ("🦠" if eff_type == "virus" else ("🧟" if eff_type == "infection" else "🔥"))
-        title = f"{icon} @{user_id} subit {dmg} dégâts ({eff_type})."
-        lines = [
-            f"🛡 {res['absorbed']} PB absorbés." if res.get("absorbed", 0) > 0 else "",
-            f"⏳ Temps restant : **{remain_min} min**",
-        ]
-        lines = [ln for ln in lines if ln]
+        title = f"{icon} <@{user_id}> subit {dmg} dégâts ({eff_type})."
+        lines = []
+        if res.get("absorbed", 0) > 0:
+            lines.append(f"🛡 {res['absorbed']} PB absorbés.")
+        lines.append(f"⏳ Temps restant : **{remain_min} min**")
         await _BROADCAST(guild_id, channel_id, {"title": title, "lines": lines, "color": 0xe74c3c})
 
 async def _apply_regen_tick(
-    guild_id: int,
-    channel_id: int,
+    guild_id: Optional[int],
+    channel_id: Optional[int],
     user_id: int,
     value: float,
     end_ts: int,
@@ -282,17 +298,14 @@ async def _apply_regen_tick(
     healed = await heal_user(source_id or user_id, user_id, int(value))
     if healed <= 0:
         return
-    # broadcast
-    if _BROADCAST:
-        hp, _ = await get_hp(user_id)
+    # broadcast (si on connaît le salon)
+    if _BROADCAST and guild_id and channel_id:
         remain_min = max(0, (end_ts - _now()) // 60)
-        title = f"💕 @{user_id} régénère {healed} PV."
-        lines = [
-            f"⏳ Temps restant : **{remain_min} min**",
-        ]
+        title = f"💕 <@{user_id}> régénère {healed} PV."
+        lines = [f"⏳ Temps restant : **{remain_min} min**"]
         await _BROADCAST(guild_id, channel_id, {"title": title, "lines": lines, "color": 0x2ecc71})
 
-async def _tick_once(guild_id: int, channel_id: int) -> None:
+async def _tick_once() -> None:
     now = _now()
 
     # Expire naturellement (effets terminés)
@@ -303,7 +316,7 @@ async def _tick_once(guild_id: int, channel_id: int) -> None:
     # Effets à déclencher (ceux dont le next_ts est arrivé)
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT user_id, eff_type, value, interval, next_ts, end_ts, source_id "
+            "SELECT user_id, eff_type, value, interval, next_ts, end_ts, source_id, meta "
             "FROM player_effects "
             "WHERE interval > 0 AND next_ts > 0 AND next_ts <= ?",
             (now,),
@@ -311,7 +324,7 @@ async def _tick_once(guild_id: int, channel_id: int) -> None:
             due = await cur.fetchall()
 
     # Replanifie + applique
-    for uid, eff_type, value, interval, next_ts, end_ts, source_id in due:
+    for uid, eff_type, value, interval, next_ts, end_ts, source_id, meta_json in due:
         # replanifier le prochain tick AVANT d'appliquer (pour éviter double tick en cas d'exception)
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
@@ -320,14 +333,19 @@ async def _tick_once(guild_id: int, channel_id: int) -> None:
             )
             await db.commit()
 
+        # salon d'origine stocké dans meta
+        meta = _unpack_meta(meta_json)
+        gid = int(meta["gid"]) if "gid" in meta else None
+        cid = int(meta["cid"]) if "cid" in meta else None
+
         uid_i = int(uid)
         src_i = int(source_id)
 
         try:
             if eff_type in ("poison", "virus", "infection", "brulure"):
-                await _apply_dot_tick(guild_id, channel_id, uid_i, eff_type, float(value), int(end_ts), src_i)
+                await _apply_dot_tick(gid, cid, uid_i, eff_type, float(value), int(end_ts), src_i)
             elif eff_type == "regen":
-                await _apply_regen_tick(guild_id, channel_id, uid_i, float(value), int(end_ts), src_i)
+                await _apply_regen_tick(gid, cid, uid_i, float(value), int(end_ts), src_i)
             else:
                 # reduction/reduction_temp/reduction_valen/esquive/immunite : pas de tick
                 pass
@@ -338,19 +356,15 @@ async def _tick_once(guild_id: int, channel_id: int) -> None:
 # ─────────────────────────────────────────────────────────────
 # LOOP PUBLIQUE À LANCER DEPUIS LE COG
 # ─────────────────────────────────────────────────────────────
-async def effects_loop(get_targets: Callable[[], List[Tuple[int, int]]], interval: int = TICK_SCAN_INTERVAL):
+async def effects_loop(interval: int = TICK_SCAN_INTERVAL):
     """
     Lance une boucle qui scanne tous les effets et exécute les ticks.
-    - get_targets() doit renvoyer une liste de (guild_id, channel_id) où poster les embeds de ticks
-      (ex: le dernier salon combat par serveur).
-    - interval = fréquence de scan (en secondes). Les ticks réels suivent leur propre 'interval'.
+    Les logs de tick sont publiés dans le salon où l'effet a été appliqué (meta gid/cid).
     """
     await init_effects_db()
     while True:
         try:
-            targets = get_targets() or []
-            for guild_id, channel_id in targets:
-                await _tick_once(guild_id, channel_id)
+            await _tick_once()
         except Exception:
             pass
         await asyncio.sleep(interval)
