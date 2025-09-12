@@ -80,8 +80,16 @@ class Tirage(commands.Cog):
     async def tickets(self, itx: Interaction, user: discord.User | None = None):
         target = user or itx.user
         n = await get_tickets(target.id)
+    
+        emb = Embed(
+            title="🎟️ Tickets de tirage",
+            description=f"{target.mention} possède **{n}** ticket(s).",
+            colour=Colour.blurple()
+        )
+        emb.set_footer(text="GotValis • Inventaire")
+    
         await itx.response.send_message(
-            f"🎟️ Tickets de {target.mention} : **{n}**.",
+            embed=emb,
             ephemeral=(target.id == itx.user.id)
         )
 
