@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from typing import Dict, Optional, Tuple, List, Any, Callable
+from typing import Dict, Optional, Tuple, List, Any
 
 import discord
 from discord import app_commands, Interaction, Embed, Colour
@@ -16,7 +16,7 @@ from inventory import get_item_qty, remove_item, add_item, get_all_items
 # Stats & économie
 from stats_db import (
     deal_damage, heal_user,
-    get_profile, get_hp, get_shield, set_shield,
+    get_hp, get_shield, set_shield,
     is_dead, revive_full,
 )
 
@@ -27,20 +27,12 @@ from effects_db import (
     get_outgoing_damage_penalty, transfer_virus_on_attack,
 )
 
-# ─────────────────────────────────────────────────────────────
-# Hooks passifs (facultatif) — fallback no-op si passifs.py absent
-# ─────────────────────────────────────────────────────────────
+# Passifs (hooks) — avec fallbacks no-op si le module n’est pas dispo
 try:
-    # signatures suggérées :
-    # before_damage(attacker_id, target_id, damage, ctx) -> dict overrides ex: {"damage": int, "ignore_shield": bool, "multiplier": float}
-    # after_damage(attacker_id, target_id, summary_dict) -> None
-    # on_heal(healer_id, target_id, healed, ctx) -> Optional[int] (pour ajuster le heal renvoyé)
-    # on_status_apply(source_id, target_id, eff_type, value, duration, ctx) -> dict overrides (value/duration) ou {} 
-    # on_kill(attacker_id, target_id, ctx) -> None
-    # on_death(target_id, attacker_id, ctx) -> None
-    # modify_shield_cap(user_id, default_cap) -> int
     from passifs import (
-        before_damage, after_damage, on_heal, on_status_apply, on_kill, on_death, modify_shield_cap
+        before_damage, after_damage, on_heal, on_status_apply,
+        on_kill, on_death,
+        modify_shield_cap_async, can_be_stolen, maybe_preserve_consumable,
     )
 except Exception:
     async def before_damage(attacker_id: int, target_id: int, damage: int, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -55,17 +47,18 @@ except Exception:
         return None
     async def on_death(target_id: int, attacker_id: int, ctx: Dict[str, Any]) -> None:
         return None
-    def modify_shield_cap(user_id: int, default_cap: int) -> int:
+    async def modify_shield_cap_async(user_id: int, default_cap: int) -> int:
         return default_cap
+    async def can_be_stolen(victim_id: int) -> bool:
+        return True
+    async def maybe_preserve_consumable(attacker_id: int) -> bool:
+        return False
 
-# ─────────────────────────────────────────────────────────────
 ATTACK_COOLDOWN = 5               # CD global sur /fight (en secondes)
-DEFAULT_SHIELD_CAP = 20           # Cap PB par défaut (peut être modifié par passif)
-
-# ─────────────────────────────────────────────────────────────
+DEFAULT_SHIELD_CAP = 20           # Cap PB par défaut (Raya peut monter à 25 via passif)
 
 class Combat(commands.Cog):
-    """Système de combat complet: /fight, /heal, /use + DOTs, passifs, ticks & embeds."""
+    """Système de combat : /fight /heal /use + DOTs, passifs, boucle de ticks & embeds."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -172,7 +165,7 @@ class Combat(commands.Cog):
 
     async def _shield_cap_for(self, user_id: int) -> int:
         # Cap PB dynamique via passif (ex: 25)
-        return int(max(1, modify_shield_cap(user_id, DEFAULT_SHIELD_CAP)))
+        return int(max(1, await modify_shield_cap_async(user_id, DEFAULT_SHIELD_CAP)))
 
     # ------------------------- /fight ---------------------------------------
     @app_commands.command(name="fight", description="Attaquer une cible avec un objet d’attaque (dégâts ou DOT).")
@@ -206,17 +199,21 @@ class Combat(commands.Cog):
 
         # Esquive (sur l'APPLICATION ; pas les ticks)
         if await self._roll_esquive(cible.id):
-            # consomme quand même l’objet
-            await remove_item(itx.user.id, objet, 1)
+            # Consommation (avec passif éventuel de non-consommation)
+            preserved = await maybe_preserve_consumable(itx.user.id)
+            if not preserved:
+                await remove_item(itx.user.id, objet, 1)
             self._record_attack(itx.user.id)
             emb = Embed(title="🌀 Action de GotValis", colour=Colour.blue())
             emb.description = f"{cible.mention} **esquive habilement** l’attaque de {itx.user.mention} !"
             dodge_gif = self._gif_for("👟")
             if dodge_gif:
                 emb.set_image(url=dodge_gif)
+            if preserved:
+                emb.add_field(name="♻️ Chance", value="L’objet n’a **pas** été consommé.")
             return await itx.followup.send(embed=emb)
 
-        immu = await self._has_immunite(cible.id)  # bloque tous dégâts directs (et DOT ticks, mais n’empêche pas l’application)
+        immu = await self._has_immunite(cible.id)  # bloque les dégâts directs (et ticks DOT), n’empêche pas l’application du statut
 
         title_emoji = objet
         lines: List[str] = []
@@ -228,13 +225,17 @@ class Combat(commands.Cog):
         if data["type"] in ("attaque", "attaque_chaine"):
             # Base dégâts (coup principal)
             deg = int(data.get("degats", 0))
-            # Hook passif avant : peut modifier damage, etc.
+
+            # Hook passif avant : peut modifier damage/multiplicateur/flat_reduction
             pre = await before_damage(itx.user.id, cible.id, deg, ctx_base)
             if "damage" in pre:
                 deg = int(max(0, pre["damage"]))
             mult = float(pre.get("multiplier", 1.0) or 1.0)
             if mult != 1.0:
                 deg = max(0, int(round(deg * mult)))
+            flat_red = int(pre.get("flat_reduction", 0) or 0)
+            if flat_red > 0:
+                deg = max(0, deg - flat_red)
 
             # Crit direct (x2) — sur le coup principal
             if data.get("crit") and random.random() < float(data["crit"]):
@@ -328,8 +329,10 @@ class Combat(commands.Cog):
             # Si l'attaquant est infecté, tente la contagion (25 %)
             await self._maybe_spread_infection(itx, itx.user.id, cible.id)
 
-        # Consomme l’objet et enregistre le CD
-        await remove_item(itx.user.id, objet, 1)
+        # Consommation (avec passif éventuel de non-consommation)
+        preserved = await maybe_preserve_consumable(itx.user.id)
+        if not preserved:
+            await remove_item(itx.user.id, objet, 1)
         self._record_attack(itx.user.id)
 
         # Transfert du **virus** à l'attaque (2×5 dégâts + timer conservé)
@@ -358,7 +361,8 @@ class Combat(commands.Cog):
             title=f"{title_emoji} Action de GotValis",
             colour=Colour.orange() if data["type"] in ("attaque", "attaque_chaine") else Colour.blurple(),
         )
-        emb.description = f"{itx.user.mention} **{verb}** {cible.mention} avec {objet}.\n" + "\n".join(lines)
+        extra = "\n♻️ **L’objet n’a pas été consommé.**" if preserved else ""
+        emb.description = f"{itx.user.mention} **{verb}** {cible.mention} avec {objet}.\n" + "\n".join(lines) + extra
         gif = self._gif_for(objet)
         if gif:
             emb.set_image(url=gif)
@@ -406,9 +410,14 @@ class Combat(commands.Cog):
             )
             lines.append(f"{target.mention} gagne une **régénération** sur la durée.")
 
-        await remove_item(itx.user.id, objet, 1)
+        # Consommation (avec passif éventuel)
+        preserved = await maybe_preserve_consumable(itx.user.id)
+        if not preserved:
+            await remove_item(itx.user.id, objet, 1)
 
         emb = Embed(title="💖 Soin de GotValis", colour=Colour.green())
+        if preserved:
+            lines.append("♻️ **L’objet n’a pas été consommé.**")
         emb.description = "\n".join(lines)
         gif = self._gif_for(objet)
         if gif:
@@ -479,9 +488,14 @@ class Combat(commands.Cog):
                 await add_item(itx.user.id, em, 1)
                 lines.append(f"{itx.user.mention} obtient {em} × **1**.")
 
-        await remove_item(itx.user.id, objet, 1)
+        # Consommation (avec passif éventuel)
+        preserved = await maybe_preserve_consumable(itx.user.id)
+        if not preserved:
+            await remove_item(itx.user.id, objet, 1)
 
         emb = Embed(title="🛠️ Utilitaire de GotValis", colour=Colour.dark_teal())
+        if preserved:
+            lines.append("♻️ **L’objet n’a pas été consommé.**")
         emb.description = "\n".join(lines)
         gif = self._gif_for(objet)
         if gif:
@@ -490,7 +504,11 @@ class Combat(commands.Cog):
 
     # ------------------------- utils internes --------------------------------
     async def _vol_simple(self, itx: Interaction, thief_id: int, target_id: int) -> Tuple[bool, str]:
-        """Vole 1 item aléatoire à la cible (sauf tickets 🎟️)."""
+        """Vole 1 item aléatoire à la cible (sauf tickets 🎟️). Respecte l’anti-vol (Lyss)."""
+        # Anti-vol (passif)
+        if not await can_be_stolen(target_id):
+            return False, f"<@{target_id}> est **intouchable** (anti-vol)."
+
         items = await get_all_items(target_id)
         pool = [(k, q) for k, q in items if q > 0 and k != "🎟️"]
         if not pool:
