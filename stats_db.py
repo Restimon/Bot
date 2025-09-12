@@ -1,12 +1,17 @@
 # stats_db.py
-# Gestion centralisée des stats joueurs : PV, PV max, Bouclier (PB)
-# + journalisation des dégâts, heals, KO/morts et kills.
-# SQLite asynchrone (aiosqlite), sans dépendances externes.
+# Gestion centralisée des stats joueurs :
+# - PV (hp), PV max (max_hp), Bouclier (shield/PB)
+# - Cumulés : kills, deaths, dmg_dealt, dmg_taken, heal_done
+# - KO/kill automatiques
+# - Récompenses éco : +1 GV/dégât, +1 GV/soin, +50 GV/kill, −25 GV/mort
+# SQLite async (aiosqlite)
 
 from __future__ import annotations
 import time
 from typing import Tuple, Optional, List, Dict, Any
 import aiosqlite
+
+from economy_db import add_balance  # doit clampler à >= 0 côté économie
 
 DB_PATH = "gotvalis.sqlite3"
 
@@ -18,32 +23,38 @@ CREATE TABLE IF NOT EXISTS players_stats(
   hp        INTEGER NOT NULL,
   max_hp    INTEGER NOT NULL,
   shield    INTEGER NOT NULL,
-  -- nouvelles stats cumulées
+  -- cumulés
   kills     INTEGER NOT NULL DEFAULT 0,
   deaths    INTEGER NOT NULL DEFAULT 0,
   dmg_dealt INTEGER NOT NULL DEFAULT 0,
   dmg_taken INTEGER NOT NULL DEFAULT 0,
   heal_done INTEGER NOT NULL DEFAULT 0,
   -- état KO
-  is_dead   INTEGER NOT NULL DEFAULT 0,
+  is_dead    INTEGER NOT NULL DEFAULT 0,
   last_ko_ts INTEGER NOT NULL DEFAULT 0
 );
 """
 
-# Valeurs par défaut (ajuste si besoin)
+# Valeurs par défaut
 DEFAULT_HP = 100
 DEFAULT_MAX_HP = 100
 DEFAULT_SHIELD = 0
+
+# Récompenses / pénalités économie
+REWARD_PER_DMG    = 1     # +1 GV / PV perdu
+REWARD_PER_HEAL   = 1     # +1 GV / PV soigné
+REWARD_PER_KILL   = 50    # +50 GV pour l'attaquant
+PENALTY_PER_DEATH = -25   # -25 GV pour la victime
 
 # ─────────────────────────────────────────────────────────────
 # Init & migration
 # ─────────────────────────────────────────────────────────────
 
 async def init_stats_db() -> None:
-    """Crée la table si nécessaire et applique une migration légère (ADD COLUMN)."""
+    """Crée la table si besoin et ajoute les colonnes manquantes si déjà existante."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
-        # Migration défensive : ajoute les colonnes manquantes si la table existe déjà.
+        # Migration défensive
         cols = {
             "kills": "INTEGER NOT NULL DEFAULT 0",
             "deaths": "INTEGER NOT NULL DEFAULT 0",
@@ -53,7 +64,6 @@ async def init_stats_db() -> None:
             "is_dead": "INTEGER NOT NULL DEFAULT 0",
             "last_ko_ts": "INTEGER NOT NULL DEFAULT 0",
         }
-        # Récupère les colonnes existantes
         await _ensure_columns(db, "players_stats", cols)
         await db.commit()
 
@@ -77,7 +87,7 @@ async def _ensure_row(user_id: int) -> None:
             await db.commit()
 
 # ─────────────────────────────────────────────────────────────
-# Getters de base
+# Getters
 # ─────────────────────────────────────────────────────────────
 
 async def get_hp(user_id: int) -> Tuple[int, int]:
@@ -95,12 +105,13 @@ async def get_shield(user_id: int) -> int:
     return pb
 
 async def get_profile(user_id: int) -> Dict[str, Any]:
-    """Petit résumé pour affichage ou debug."""
+    """Résumé utile pour affichage (/profile, etc.)."""
     await _ensure_row(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT hp, max_hp, shield, kills, deaths, dmg_dealt, dmg_taken, heal_done, is_dead, last_ko_ts "
-            "FROM players_stats WHERE user_id=?", (str(user_id),)
+            "FROM players_stats WHERE user_id=?",
+            (str(user_id),)
         ) as cur:
             hp, mx, pb, k, d, dd, dt, hd, dead, ko_ts = await cur.fetchone()
     return {
@@ -110,7 +121,7 @@ async def get_profile(user_id: int) -> Dict[str, Any]:
     }
 
 # ─────────────────────────────────────────────────────────────
-# Setters simple (admin/effets spéciaux)
+# Setters simples
 # ─────────────────────────────────────────────────────────────
 
 async def set_hp(user_id: int, hp: int, *, clamp: bool = True) -> None:
@@ -144,11 +155,11 @@ async def set_shield(user_id: int, shield: int) -> None:
         await db.commit()
 
 # ─────────────────────────────────────────────────────────────
-# Actions unitaires (compat backward)
+# Actions unitaires (sans attribution)
 # ─────────────────────────────────────────────────────────────
 
 async def heal_hp(user_id: int, amount: int) -> int:
-    """Soigne 'amount' PV (sans attribution). Retourne les PV réellement rendus."""
+    """Soigne 'amount' PV. Retourne les PV réellement rendus (pas d’éco ici)."""
     await _ensure_row(user_id)
     amount = max(0, amount)
     async with aiosqlite.connect(DB_PATH) as db:
@@ -164,8 +175,8 @@ async def heal_hp(user_id: int, amount: int) -> int:
 
 async def damage_hp(user_id: int, amount: int) -> int:
     """
-    Inflige des dégâts (sans attribution). Bouclier absorbé d'abord.
-    Retourne les PV réellement perdus.
+    Inflige des dégâts (sans attribution).
+    Consomme d'abord le PB. Retourne les PV réellement perdus (pas d’éco ici).
     """
     await _ensure_row(user_id)
     dmg = max(0, amount)
@@ -174,7 +185,7 @@ async def damage_hp(user_id: int, amount: int) -> int:
             hp, pb, dead = await cur.fetchone()
 
         if dead:
-            return 0  # pas de dégâts supplémentaires si déjà KO
+            return 0
 
         # consomme le bouclier
         if pb > 0 and dmg > 0:
@@ -188,19 +199,22 @@ async def damage_hp(user_id: int, amount: int) -> int:
         ts = int(time.time()) if ko else 0
 
         await db.execute(
-            "UPDATE players_stats SET hp=?, shield=?, deaths = deaths + ?, is_dead = CASE WHEN ?=1 THEN 1 ELSE is_dead END, last_ko_ts = CASE WHEN ?=1 THEN ? ELSE last_ko_ts END WHERE user_id=?",
+            "UPDATE players_stats SET hp=?, shield=?, deaths = deaths + ?, "
+            "is_dead = CASE WHEN ?=1 THEN 1 ELSE is_dead END, "
+            "last_ko_ts = CASE WHEN ?=1 THEN ? ELSE last_ko_ts END "
+            "WHERE user_id=?",
             (hp_after, pb, ko, ko, ko, ts, str(user_id))
         )
         await db.commit()
     return lost
 
 # ─────────────────────────────────────────────────────────────
-# Actions AVEC attribution (combat)
+# Actions AVEC attribution (combat) + économie
 # ─────────────────────────────────────────────────────────────
 
 async def heal_user(healer_id: int, target_id: int, amount: int) -> int:
     """
-    Soigne target et crédite le soigneur (heal_done).
+    Soigne target et crédite le soigneur (heal_done + économie).
     Retourne les PV réellement rendus.
     """
     await _ensure_row(healer_id)
@@ -209,24 +223,24 @@ async def heal_user(healer_id: int, target_id: int, amount: int) -> int:
     if healed <= 0:
         return 0
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE players_stats SET heal_done = heal_done + ? WHERE user_id=?", (healed, str(healer_id)))
+        await db.execute(
+            "UPDATE players_stats SET heal_done = heal_done + ? WHERE user_id=?",
+            (healed, str(healer_id))
+        )
         await db.commit()
+    # 💰 économie
+    if REWARD_PER_HEAL and healed > 0:
+        await add_balance(healer_id, healed * REWARD_PER_HEAL, "combat_heal")
     return healed
 
 async def deal_damage(attacker_id: int, target_id: int, amount: int) -> Dict[str, Any]:
     """
     Inflige des dégâts avec attribution.
-    - Consomme le PB de la cible d'abord.
-    - Incrémente dmg_dealt (attaquant) et dmg_taken (cible).
-    - KO si hp tombe à 0 → deaths+1 (cible) et kills+1 (attaquant).
-    Retourne un dict résultat :
-      {
-        'absorbed': int,   # dégâts absorbés par PB
-        'lost': int,       # PV perdus
-        'target_hp': int,  # PV restants
-        'target_shield': int, # PB restants
-        'killed': bool
-      }
+    - Consomme d'abord le PB de la cible.
+    - Met à jour dmg_dealt (attaquant), dmg_taken (cible).
+    - Si KO: deaths+1 (cible) et kills+1 (attaquant).
+    - Applique les récompenses/penalités d'économie.
+    Retourne: {'absorbed','lost','target_hp','target_shield','killed'}
     """
     await _ensure_row(attacker_id)
     await _ensure_row(target_id)
@@ -270,6 +284,14 @@ async def deal_damage(attacker_id: int, target_id: int, amount: int) -> Dict[str
         )
         await db.commit()
 
+    # 💰 économie : récompenses & pénalités
+    if REWARD_PER_DMG and lost > 0:
+        await add_balance(attacker_id, lost * REWARD_PER_DMG, "combat_damage")
+    if killed and REWARD_PER_KILL:
+        await add_balance(attacker_id, REWARD_PER_KILL, "combat_kill")
+    if killed and PENALTY_PER_DEATH:
+        await add_balance(target_id, PENALTY_PER_DEATH, "combat_death")
+
     return {'absorbed': absorbed, 'lost': lost, 'target_hp': new_hp, 'target_shield': pb, 'killed': killed}
 
 # ─────────────────────────────────────────────────────────────
@@ -284,7 +306,7 @@ async def is_dead(user_id: int) -> bool:
     return bool(dead)
 
 async def revive_full(user_id: int) -> None:
-    """Remet le joueur en état 'vivant' et PV = max_hp (PB non modifié)."""
+    """Remet le joueur vivant et PV = max_hp (PB inchangé)."""
     await _ensure_row(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT max_hp FROM players_stats WHERE user_id=?", (str(user_id),)) as cur:
