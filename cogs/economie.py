@@ -1,155 +1,248 @@
 # cogs/economie.py
-import asyncio, random, time, math
-from typing import Dict
+from __future__ import annotations
+import asyncio
+import random
+import time
+from typing import Dict, Optional, List, Tuple
+
+import aiosqlite
 import discord
 from discord import app_commands, Interaction, Embed, Colour
 from discord.ext import commands
 
-from economy_db import (
-    init_economy_db, get_balance, add_balance, transfer,
-    get_recent_earnings, get_top_balances,
-    get_next_voice_payout, set_next_voice_payout,
-    get_last_msg_count_ts, set_last_msg_count_ts,
-    VOICE_INTERVAL
-)
+from economy_db import init_economy_db, get_balance, add_balance
 
-# -------- Réglages gains (divisés par 2) --------
-ECON_MULTIPLIER = 0.5  # applique /2 aux gains passifs
+DB_PATH = "gotvalis.sqlite3"
 
-VOICE_MIN = 2
-VOICE_MAX = 20
+# ─────────────────────────────────────────────────────────────
+# Réglages généraux
+# ─────────────────────────────────────────────────────────────
+ECON_MULTIPLIER = 0.5  # ÷2 pour messages et vocal comme demandé
 
-MSG_TARGET_MIN = 2
-MSG_TARGET_MAX = 5
-MSG_MIN_LEN = 8
-MSG_COOLDOWN = 5  # s
+# Messages
+MSG_MIN_LEN = 6            # longueur minimale pour compter
+MSG_COOLDOWN = 5           # secondes anti-spam par utilisateur
+MSG_REWARD_MIN = 1         # base 1..10, puis × ECON_MULTIPLIER
+MSG_REWARD_MAX = 10
+MSG_STREAK_MIN = 2         # toutes les 2..5 contributions valides
+MSG_STREAK_MAX = 5
 
-def compute_msg_reward(length: int) -> int:
-    if length < 25:
-        base = random.randint(1, 3)
-    elif length < 80:
-        base = random.randint(4, 7)
-    else:
-        base = random.randint(8, 10)
-    return max(1, math.ceil(base * ECON_MULTIPLIER))
+# Vocal
+VC_TICK_SECONDS = 60       # boucle interne
+VC_AWARD_INTERVAL = 30*60  # 30 minutes
+VC_REWARD_MIN = 2          # base 2..20, puis × ECON_MULTIPLIER
+VC_REWARD_MAX = 20
 
-class _MsgState:
-    __slots__ = ("count", "target", "last_contrib_ts")
-    def __init__(self):
-        self.count = 0
-        self.target = random.randint(MSG_TARGET_MIN, MSG_TARGET_MAX)
-        self.last_contrib_ts = 0.0
+# Leaderboard
+TOP_LIMIT = 10
 
+# ─────────────────────────────────────────────────────────────
+# Cog
+# ─────────────────────────────────────────────────────────────
 class Economie(commands.Cog):
-    """Économie: gains messages & vocal, wallet/top/logs/give (sans shop)."""
+    """Économie : gains par messages & vocal, /wallet, /give, /top, /earnings."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.msg_states: Dict[tuple[int,int], _MsgState] = {}
-        self._voice_task: asyncio.Task | None = None
+        # Messages : suivi par user (global par guild)
+        self._last_msg_ts: Dict[int, float] = {}           # user_id -> last ts
+        self._msg_counts: Dict[int, int] = {}              # user_id -> compteur valid msgs
+        self._msg_threshold: Dict[int, int] = {}           # user_id -> palier 2..5
 
+        # Vocal : suivi temps cumulé depuis dernier award
+        self._vc_accum: Dict[int, int] = {}                # user_id -> secondes accumulées
+        self._vc_task: Optional[asyncio.Task] = None
+
+    # ─────────────────────────────────────────────────────────
+    # Lifecycle
+    # ─────────────────────────────────────────────────────────
     async def cog_load(self):
         await init_economy_db()
-        self._voice_task = asyncio.create_task(self._voice_loop())
+        self._vc_task = asyncio.create_task(self._voice_loop())
 
     async def cog_unload(self):
-        if self._voice_task:
-            self._voice_task.cancel()
+        if self._vc_task:
+            self._vc_task.cancel()
 
-    # -------- boucle vocal (scan / min) --------
+    # ─────────────────────────────────────────────────────────
+    # Messages → gains
+    # ─────────────────────────────────────────────────────────
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        # ignore DM, bots, systèmes
+        if not message.guild or message.author.bot:
+            return
+        if not isinstance(message.channel, discord.TextChannel):
+            return
+
+        user_id = message.author.id
+
+        # anti-spam : cooldown et longueur minimale
+        now = time.time()
+        last = self._last_msg_ts.get(user_id, 0.0)
+        if now - last < MSG_COOLDOWN:
+            return
+        if len(message.content.strip()) < MSG_MIN_LEN:
+            return
+
+        # ok, contribution valide
+        self._last_msg_ts[user_id] = now
+
+        # incrémente le compteur du user
+        n = self._msg_counts.get(user_id, 0) + 1
+        self._msg_counts[user_id] = n
+        thr = self._msg_threshold.get(user_id)
+        if thr is None:
+            thr = random.randint(MSG_STREAK_MIN, MSG_STREAK_MAX)
+            self._msg_threshold[user_id] = thr
+
+        # si atteint le palier → récompense
+        if n >= thr:
+            base = random.randint(MSG_REWARD_MIN, MSG_REWARD_MAX)
+            reward = max(1, int(base * ECON_MULTIPLIER))
+            await add_balance(user_id, reward, "msg_reward")
+            # reset le compteur et nouveau palier
+            self._msg_counts[user_id] = 0
+            self._msg_threshold[user_id] = random.randint(MSG_STREAK_MIN, MSG_STREAK_MAX)
+
+    # ─────────────────────────────────────────────────────────
+    # Vocal → gains (toutes les 30min d'activité)
+    # ─────────────────────────────────────────────────────────
     async def _voice_loop(self):
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
-            now = int(time.time())
             try:
-                for guild in self.bot.guilds:
-                    for vc in guild.voice_channels:
-                        for member in vc.members:
-                            if member.bot:
-                                continue
-                            next_ts = await get_next_voice_payout(member.id)
-                            if not next_ts or now >= next_ts:
-                                raw = random.randint(VOICE_MIN, VOICE_MAX)
-                                amount = max(1, math.floor(raw * ECON_MULTIPLIER))
-                                await add_balance(member.id, amount, "voice_interval")
-                                await set_next_voice_payout(member.id, now + VOICE_INTERVAL)
+                await self._voice_tick()
             except Exception:
                 pass
-            await asyncio.sleep(60)
+            await asyncio.sleep(VC_TICK_SECONDS)
 
-    # -------- listener messages --------
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if not message.guild or message.author.bot:
-            return
-        if not isinstance(message.channel, discord.abc.Messageable):
-            return
+    async def _voice_tick(self):
+        # Parcourt tous les membres en vocal sur toutes les guilds
+        for guild in self.bot.guilds:
+            if not guild.voice_client and not guild.members:
+                continue
 
-        content = (message.content or "").strip()
-        if content.startswith("/"):
-            return
-        if len(content) < MSG_MIN_LEN and not message.attachments:
-            return
+            # Identifie le canal AFK (si existe) pour ignorer
+            afk_channel_id = guild.afk_channel.id if guild.afk_channel else None
 
-        now = int(time.time())
-        last_global = await get_last_msg_count_ts(message.author.id)
-        if last_global and (now - last_global) < MSG_COOLDOWN:
-            return
-        await set_last_msg_count_ts(message.author.id, now)
+            for member in guild.members:
+                # membre en vocal ?
+                vs = member.voice
+                if not vs or not vs.channel:
+                    continue
+                # ignore AFK, self-deafened, self-muted, server-deafened
+                if afk_channel_id and vs.channel.id == afk_channel_id:
+                    continue
+                if vs.self_deaf or vs.self_mute or vs.deaf:  # deaf = server-deafened
+                    continue
 
-        key = (message.channel.id, message.author.id)
-        st = self.msg_states.get(key) or _MsgState()
-        self.msg_states[key] = st
+                # cumule 60 sec
+                uid = member.id
+                self._vc_accum[uid] = self._vc_accum.get(uid, 0) + VC_TICK_SECONDS
 
-        if time.time() - st.last_contrib_ts < MSG_COOLDOWN:
-            return
-        st.last_contrib_ts = time.time()
+                # toutes les 30 min → récompense
+                while self._vc_accum[uid] >= VC_AWARD_INTERVAL:
+                    self._vc_accum[uid] -= VC_AWARD_INTERVAL
+                    base = random.randint(VC_REWARD_MIN, VC_REWARD_MAX)
+                    reward = max(1, int(base * ECON_MULTIPLIER))
+                    await add_balance(uid, reward, "voice_reward")
 
-        st.count += 1
-        if st.count >= st.target:
-            amount = compute_msg_reward(len(content))
-            await add_balance(message.author.id, amount, "message_chunk")
-            st.count = 0
-            st.target = random.randint(MSG_TARGET_MIN, MSG_TARGET_MAX)
-
-    # -------- commandes wallet --------
-    @app_commands.command(name="wallet", description="Affiche ton solde.")
-    async def wallet(self, itx: Interaction, user: discord.User | None = None):
+    # ─────────────────────────────────────────────────────────
+    # Slash commands
+    # ─────────────────────────────────────────────────────────
+    @app_commands.command(name="wallet", description="Affiche ton solde de GoldValis.")
+    async def wallet(self, itx: Interaction, user: Optional[discord.User] = None):
         target = user or itx.user
         bal = await get_balance(target.id)
-        await itx.response.send_message(
-            f"💳 Solde de {target.mention} : **{bal}** GoldValis.",
-            ephemeral=(target.id == itx.user.id)
+        emb = Embed(
+            title="💰 Portefeuille",
+            description=f"{target.mention} possède **{bal}** GoldValis.",
+            colour=Colour.gold()
         )
+        await itx.response.send_message(embed=emb, ephemeral=(target.id == itx.user.id))
 
-    @app_commands.command(name="give", description="Envoyer des GoldValis à quelqu'un.")
-    async def give(self, itx: Interaction, member: discord.User, amount: app_commands.Range[int,1]):
-        if member.id == itx.user.id:
-            return await itx.response.send_message("🙃 Tu ne peux pas t'envoyer des GoldValis à toi-même.", ephemeral=True)
-        ok, err = await transfer(itx.user.id, member.id, amount)
-        if not ok:
-            return await itx.response.send_message(f"❌ {err}", ephemeral=True)
-        await itx.response.send_message(f"🤝 {itx.user.mention} → {member.mention} : **{amount}** GoldValis envoyés !")
+    @app_commands.command(name="give", description="Donne des GoldValis à quelqu'un.")
+    @app_commands.describe(user="Destinataire", amount="Montant à transférer (≥1)")
+    async def give(self, itx: Interaction, user: discord.User, amount: int):
+        if amount <= 0:
+            return await itx.response.send_message("❌ Le montant doit être ≥ 1.", ephemeral=True)
+        if user.id == itx.user.id:
+            return await itx.response.send_message("❌ Tu ne peux pas te donner à toi-même.", ephemeral=True)
 
-    @app_commands.command(name="top", description="Top des plus riches.")
-    async def top(self, itx: Interaction):
-        rows = await get_top_balances(10)
-        if not rows:
-            return await itx.response.send_message("Personne n’a encore de GoldValis.", ephemeral=True)
-        desc = [f"**#{i}** <@{uid}> — **{bal}**" for i,(uid,bal) in enumerate(rows,1)]
-        emb = Embed(title="🏆 Top Richesse — GoldValis", description="\n".join(desc), colour=Colour.gold())
+        sender_bal = await get_balance(itx.user.id)
+        if sender_bal < amount:
+            return await itx.response.send_message(
+                f"❌ Solde insuffisant. Tu as **{sender_bal}** GV.", ephemeral=True
+            )
+
+        # Effectue le transfert (on clampe à 0 côté add_balance, mais on a déjà vérifié l'avoir)
+        await add_balance(itx.user.id, -amount, "give_transfer_out")
+        await add_balance(user.id, amount, "give_transfer_in")
+
+        emb = Embed(
+            title="🤝 Transfert réussi",
+            description=f"{itx.user.mention} a donné **{amount}** GoldValis à {user.mention}.",
+            colour=Colour.green()
+        )
         await itx.response.send_message(embed=emb)
 
-    @app_commands.command(name="earnings", description="Tes derniers gains/pertes (journal).")
-    async def earnings(self, itx: Interaction):
-        rows = await get_recent_earnings(itx.user.id, 12)
+    @app_commands.command(name="top", description="Classement des plus riches (serveur entier).")
+    async def top(self, itx: Interaction, limit: Optional[int] = TOP_LIMIT):
+        limit = max(1, min(25, limit or TOP_LIMIT))
+        rows = await self._fetch_top(limit)
         if not rows:
-            return await itx.response.send_message("Aucun log pour le moment.", ephemeral=True)
+            return await itx.response.send_message("Aucun portefeuille trouvé.", ephemeral=True)
+
         lines = []
-        for ts, reason, amount in rows:
-            sign = "🟢" if amount >= 0 else "🔴"
-            lines.append(f"{sign} {amount:+} — `{reason}` <t:{ts}:R>")
-        await itx.response.send_message("\n".join(lines), ephemeral=True)
+        for i, (uid, bal) in enumerate(rows, start=1):
+            member = itx.guild.get_member(int(uid)) if itx.guild else None
+            name = member.mention if member else f"<@{uid}>"
+            lines.append(f"**{i}.** {name} — **{bal}** GV")
+
+        emb = Embed(title=f"🏆 Top {len(rows)} — GoldValis", colour=Colour.blurple(), description="\n".join(lines))
+        await itx.response.send_message(embed=emb)
+
+    @app_commands.command(name="earnings", description="Affiche tes 10 dernières entrées de journal économique.")
+    async def earnings(self, itx: Interaction, user: Optional[discord.User] = None):
+        target = user or itx.user
+        logs = await self._fetch_logs(target.id, limit=10)
+        if not logs:
+            return await itx.response.send_message("Aucune entrée de journal.", ephemeral=True)
+
+        lines = []
+        for ts, delta, reason in logs:
+            sign = "＋" if delta >= 0 else "－"
+            lines.append(f"`{time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))}` {sign}{abs(delta)} — {reason}")
+
+        emb = Embed(
+            title=f"📒 Journal — {target.display_name}",
+            description="\n".join(lines),
+            colour=Colour.dark_teal()
+        )
+        await itx.response.send_message(embed=emb, ephemeral=(target.id == itx.user.id))
+
+    # ─────────────────────────────────────────────────────────
+    # Helpers DB (lecture leaderboard & logs)
+    # ─────────────────────────────────────────────────────────
+    async def _fetch_top(self, limit: int) -> List[Tuple[str, int]]:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute(
+                "SELECT user_id, balance FROM wallets ORDER BY balance DESC LIMIT ?",
+                (limit,)
+            ) as cur:
+                rows = await cur.fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    async def _fetch_logs(self, user_id: int, limit: int = 10) -> List[Tuple[int, int, str]]:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute(
+                "SELECT ts, delta, reason FROM wallet_logs WHERE user_id = ? ORDER BY ts DESC LIMIT ?",
+                (str(user_id), limit)
+            ) as cur:
+                rows = await cur.fetchall()
+        return [(r[0], r[1], r[2]) for r in rows]
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Economie(bot))
