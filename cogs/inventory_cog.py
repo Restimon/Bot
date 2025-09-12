@@ -86,36 +86,41 @@ class InventoryCog(commands.Cog):
         await init_inventory_db()
 
     async def _send_inv(self, itx: Interaction, target: discord.User):
+        # Données
         items = await get_all_items(target.id)
         tickets = await get_tickets(target.id)
-        ok_ticket, rem_ticket = await can_claim_daily_ticket(target.id)
+        ok_daily, rem_daily = await can_claim_daily_ticket(target.id)  # daily = ticket+items+coins (CD commun)
         golds = await get_balance(target.id)
 
+        # Embed
         emb = Embed(
             title=f"📦 Inventaire GotValis de {target.display_name}",
             colour=Colour.blurple()
         )
 
-        # Tickets + état daily
-        ticket_line = f"**{tickets}**"
-        ticket_line += (
-            " — ✅ ticket quotidien **disponible** (`/daily_ticket`)"
-            if ok_ticket else f" — ⏳ prochain dans **{_fmt_cd(rem_ticket)}**"
-        )
+        # 🎟️ Tickets (juste le nombre)
         emb.add_field(
             name="🎟️ Tickets de tirage",
-            value=ticket_line,
+            value=f"**{tickets}**",
             inline=False
         )
 
-        # Objets
+        # 🗓️ Daily (dispo ou cooldown)
+        daily_line = "✅ **disponible** — lance `/daily`" if ok_daily else f"⏳ prochain dans **{_fmt_cd(rem_daily)}**"
+        emb.add_field(
+            name="🗓️ Daily",
+            value=daily_line,
+            inline=False
+        )
+
+        # 📦 Objets
         if items:
             lines = [_fmt_item_line(emoji, qty) for emoji, qty in items]
             block = "\n".join(lines)
             if len(block) <= 1024:
                 emb.add_field(name="Objets", value=block, inline=False)
             else:
-                # split en plusieurs fields si trop long
+                # split propre en plusieurs fields si trop long
                 chunk, total, idx = [], 0, 1
                 for line in lines:
                     if total + len(line) + 1 > 1024:
@@ -135,13 +140,13 @@ class InventoryCog(commands.Cog):
         else:
             emb.add_field(name="Objets", value="*(vide)*", inline=False)
 
-        # GoldValis
+        # 💰 GoldValis
         emb.add_field(name="💰 GoldValis", value=f"**{golds}**", inline=False)
 
         await itx.response.send_message(embed=emb, ephemeral=(target.id == itx.user.id))
 
     # /inv
-    @app_commands.command(name="inv", description="Affiche ton inventaire (tickets, objets, GoldValis).")
+    @app_commands.command(name="inv", description="Affiche ton inventaire (tickets, daily, objets, GoldValis).")
     async def inv(self, itx: Interaction, user: discord.User | None = None):
         await self._send_inv(itx, user or itx.user)
 
