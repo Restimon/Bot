@@ -1,555 +1,487 @@
-# cogs/combat.py
+# combat.py
 from __future__ import annotations
-import asyncio
+
 import random
-import time
-from typing import Dict, Optional, Tuple, List, Any
+import math
+import asyncio
+from typing import Dict, Any, Optional, Tuple, List
 
-import discord
-from discord import app_commands, Interaction, Embed, Colour
-from discord.ext import commands
-
-# Données & inventaire
-from data.items import OBJETS, GIFS
-from inventory import get_item_qty, remove_item, add_item, get_all_items
-
-# Stats & économie
+from inventory import remove_item, add_item, get_item_qty
 from stats_db import (
-    deal_damage, heal_user,
-    get_hp, get_shield, set_shield,
-    is_dead, revive_full,
+    deal_damage,
+    heal_user,
+    add_shield,
+    get_hp,
+    is_dead,
+    revive_full,
+    get_shield,
 )
-
-# Effets (DOT, buffs) + loop de ticks
 from effects_db import (
-    init_effects_db, set_broadcaster, effects_loop,
-    add_or_refresh_effect, remove_effect, purge_by_types, list_effects, has_effect,
-    get_outgoing_damage_penalty, transfer_virus_on_attack,
+    add_or_refresh_effect,
+    transfer_virus_on_attack,
+    _pack_meta,
+    has_effect as has_status,
+    remove_effect as remove_status,
+)
+from ravitaillement import OBJETS, GIFS  # tu m'as dit que le fichier s'appelle ravitaillement.py
+from passifs import (
+    get_equipped_code,
+    # ---- Hooks passifs (noms à adapter si besoin) ----
+    crit_multiplier_against_defender_code,    # e.g. Zeyra : 0.5
+    get_extra_dodge_chance,                   # bonus d’esquive côté défenseur (%, 0..1)
+    get_extra_reduction_percent,              # réduction supplémentaire côté défenseur (0..1)
+    maybe_preserve_consumable,                # True => ne consomme pas l’objet
+    king_execute_ready,                       # True si 'Le Roi' exécute à 10 PV
+    valen_reduction_bonus,                    # % de réduction dynamique quand <50% PV
+    undying_zeyra_check_and_mark,             # retourne True si “sauvegardée à 1 PV” (consomme le charge/jour)
+    on_attack_after,                          # triggers post-attaque (loot, heal on hit, etc.)
+    on_heal_after,                            # triggers post-heal (gain PB etc.)
+    on_use_after,                             # triggers post-use (si tu en as besoin)
+    bonus_damage_vs_infected,                 # e.g. Kevar Rin : +3 dmg vs infectés
 )
 
-# Passifs (hooks) — avec fallbacks no-op si le module n’est pas dispo
-try:
-    from passifs import (
-        before_damage, after_damage, on_heal, on_status_apply,
-        on_kill, on_death,
-        modify_shield_cap_async, can_be_stolen, maybe_preserve_consumable,
-    )
-except Exception:
-    async def before_damage(attacker_id: int, target_id: int, damage: int, ctx: Dict[str, Any]) -> Dict[str, Any]:
-        return {}
-    async def after_damage(attacker_id: int, target_id: int, summary: Dict[str, Any]) -> None:
-        return None
-    async def on_heal(healer_id: int, target_id: int, healed: int, ctx: Dict[str, Any]) -> Optional[int]:
-        return None
-    async def on_status_apply(source_id: int, target_id: int, eff_type: str, value: float, duration: int, ctx: Dict[str, Any]) -> Dict[str, Any]:
-        return {}
-    async def on_kill(attacker_id: int, target_id: int, ctx: Dict[str, Any]) -> None:
-        return None
-    async def on_death(target_id: int, attacker_id: int, ctx: Dict[str, Any]) -> None:
-        return None
-    async def modify_shield_cap_async(user_id: int, default_cap: int) -> int:
-        return default_cap
-    async def can_be_stolen(victim_id: int) -> bool:
-        return True
-    async def maybe_preserve_consumable(attacker_id: int) -> bool:
-        return False
-
-ATTACK_COOLDOWN = 5               # CD global sur /fight (en secondes)
-DEFAULT_SHIELD_CAP = 20           # Cap PB par défaut (Raya peut monter à 25 via passif)
-
-class Combat(commands.Cog):
-    """Système de combat : /fight /heal /use + DOTs, passifs, boucle de ticks & embeds."""
-
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-        self._last_attack_ts: Dict[int, float] = {}       # user_id -> ts (cooldown)
-        self._last_combat_channel: Dict[int, int] = {}    # guild_id -> channel_id (où poster les ticks)
-        self._effects_task: Optional[asyncio.Task] = None
-
-    # ------------------------- lifecycle ------------------------------------
-    async def cog_load(self):
-        await init_effects_db()
-
-        # Broadcaster pour les ticks : on transforme @<id> en mention <@id>
-        async def _bcast(guild_id: int, channel_id: int, payload: Dict):
-            guild = self.bot.get_guild(guild_id)
-            if not guild:
-                return
-            ch = guild.get_channel(channel_id)
-            if not isinstance(ch, discord.TextChannel):
-                return
-
-            def _mentionize(s: str) -> str:
-                return self._mentionize_ids(s)
-
-            title = payload.get("title", "")
-            lines = payload.get("lines", [])
-            colour = payload.get("color", 0x2ecc71)
-
-            emb = Embed(title=_mentionize(f" {title}"), colour=colour)
-            if lines:
-                emb.description = "\n".join(_mentionize(line) for line in lines)
-            await ch.send(embed=emb)
-
-        set_broadcaster(_bcast)
-        # 30s scan; les effets tickent à leur propre intervalle
-        self._effects_task = asyncio.create_task(
-            effects_loop(self._tick_targets, interval=30)
-        )
-
-    async def cog_unload(self):
-        if self._effects_task:
-            self._effects_task.cancel()
-
-    def _tick_targets(self) -> List[Tuple[int, int]]:
-        """Liste (guild_id, channel_id) pour poster les ticks DOT/regen."""
-        return [(gid, cid) for gid, cid in self._last_combat_channel.items() if cid]
-
-    # ------------------------- helpers --------------------------------------
-    def _can_attack(self, user_id: int) -> Tuple[bool, int]:
-        now = time.time()
-        last = self._last_attack_ts.get(user_id, 0.0)
-        remain = ATTACK_COOLDOWN - int(now - last)
-        return (remain <= 0, max(0, remain))
-
-    def _record_attack(self, user_id: int):
-        self._last_attack_ts[user_id] = time.time()
-
-    def _gif_for(self, emoji: str) -> Optional[str]:
-        return GIFS.get(emoji)
-
-    def _mentionize_ids(self, text: str) -> str:
-        # remplace @123456789 -> <@123456789>
-        out = []
-        i = 0
-        while i < len(text):
-            ch = text[i]
-            if ch == "@" and i + 1 < len(text) and text[i + 1].isdigit():
-                j = i + 1
-                while j < len(text) and text[j].isdigit():
-                    j += 1
-                uid = text[i + 1 : j]
-                out.append(f"<@{uid}>")
-                i = j
-                continue
-            out.append(ch)
-            i += 1
-        return "".join(out)
-
-    async def _has_immunite(self, user_id: int) -> bool:
-        return await has_effect(user_id, "immunite")
-
-    async def _get_reduction(self, user_id: int) -> float:
-        # renvoie 0..1 (ex: 0.5 pour -50%)
-        for et, val, *_ in await list_effects(user_id):
-            if et == "reduction":
-                try:
-                    return float(val)
-                except Exception:
-                    return 0.0
-        return 0.0
-
-    async def _roll_esquive(self, user_id: int) -> bool:
-        # chance d'esquiver les attaques (pas les ticks DOT, ni les buffs/heals)
-        for et, val, *_ in await list_effects(user_id):
-            if et == "esquive":
-                try:
-                    chance = float(val)
-                except Exception:
-                    chance = 0.0
-                return random.random() < max(0.0, min(1.0, chance))
-        return False
-
-    def _fmt_gain_loss_pv(self, before: int, delta: int, after: int, *, sign: str = "−") -> str:
-        return f"❤️ {before} PV {sign} ({abs(delta)} PV) = ❤️ {after} PV"
-
-    async def _shield_cap_for(self, user_id: int) -> int:
-        # Cap PB dynamique via passif (ex: 25)
-        return int(max(1, await modify_shield_cap_async(user_id, DEFAULT_SHIELD_CAP)))
-
-    # ------------------------- /fight ---------------------------------------
-    @app_commands.command(name="fight", description="Attaquer une cible avec un objet d’attaque (dégâts ou DOT).")
-    @app_commands.describe(cible="La cible", objet="Émoji de l’objet d’attaque (ex: ⚡, 🔥, 🧪, 🦠, 🧟, ☠️)")
-    async def fight(self, itx: Interaction, cible: discord.User, objet: str):
-        await itx.response.defer()
-
-        if not itx.guild:
-            return await itx.followup.send("❌ Cette commande ne peut être utilisée qu’en serveur.", ephemeral=True)
-        if cible.bot:
-            return await itx.followup.send("🤖 Pas sur les bots.", ephemeral=True)
-
-        # Mémorise le salon pour les ticks
-        self._last_combat_channel[itx.guild.id] = itx.channel_id
-
-        # Vérifs objet
-        data = OBJETS.get(objet)
-        if not data:
-            return await itx.followup.send("❌ Objet inconnu.", ephemeral=True)
-        if data.get("type") not in ("attaque", "attaque_chaine", "poison", "virus", "infection"):
-            return await itx.followup.send("❌ Cet objet n’est pas une attaque.", ephemeral=True)
-
-        # Cooldown
-        ok, remain = self._can_attack(itx.user.id)
-        if not ok:
-            return await itx.followup.send(f"⏳ Cooldown: **{remain}s**.", ephemeral=True)
-
-        # Stock
-        if await get_item_qty(itx.user.id, objet) <= 0:
-            return await itx.followup.send("❌ Tu n’en as pas.", ephemeral=True)
-
-        # Esquive (sur l'APPLICATION ; pas les ticks)
-        if await self._roll_esquive(cible.id):
-            # Consommation (avec passif éventuel de non-consommation)
-            preserved = await maybe_preserve_consumable(itx.user.id)
-            if not preserved:
-                await remove_item(itx.user.id, objet, 1)
-            self._record_attack(itx.user.id)
-            emb = Embed(title="🌀 Action de GotValis", colour=Colour.blue())
-            emb.description = f"{cible.mention} **esquive habilement** l’attaque de {itx.user.mention} !"
-            dodge_gif = self._gif_for("👟")
-            if dodge_gif:
-                emb.set_image(url=dodge_gif)
-            if preserved:
-                emb.add_field(name="♻️ Chance", value="L’objet n’a **pas** été consommé.")
-            return await itx.followup.send(embed=emb)
-
-        immu = await self._has_immunite(cible.id)  # bloque les dégâts directs (et ticks DOT), n’empêche pas l’application du statut
-
-        title_emoji = objet
-        lines: List[str] = []
-        killed = False
-
-        ctx_base = {"guild_id": itx.guild.id, "channel_id": itx.channel_id, "emoji": objet, "type": data["type"]}
-
-        # -------------------- attaques directes ------------------------------
-        if data["type"] in ("attaque", "attaque_chaine"):
-            # Base dégâts (coup principal)
-            deg = int(data.get("degats", 0))
-
-            # Hook passif avant : peut modifier damage/multiplicateur/flat_reduction
-            pre = await before_damage(itx.user.id, cible.id, deg, ctx_base)
-            if "damage" in pre:
-                deg = int(max(0, pre["damage"]))
-            mult = float(pre.get("multiplier", 1.0) or 1.0)
-            if mult != 1.0:
-                deg = max(0, int(round(deg * mult)))
-            flat_red = int(pre.get("flat_reduction", 0) or 0)
-            if flat_red > 0:
-                deg = max(0, deg - flat_red)
-
-            # Crit direct (x2) — sur le coup principal
-            if data.get("crit") and random.random() < float(data["crit"]):
-                deg *= 2
-                lines.append("🎯 **Coup critique !**")
-
-            # 🧪 Pénalité poison sur l'ATTAQUANT : −1 dégât (min 0)
-            poison_penalty = await get_outgoing_damage_penalty(itx.user.id)
-            if poison_penalty > 0:
-                before = deg
-                deg = max(0, deg - poison_penalty)
-                if before != deg:
-                    lines.append("🧪 **Poison** : −1 dégât appliqué à l’attaque.")
-
-            # Réduction % côté CIBLE (multiplicatif), puis PB, puis PV
-            reduc = await self._get_reduction(cible.id)
-            if reduc > 0:
-                deg = max(0, int(round(deg * (1 - reduc))))
-
-            # Immunité : annule les dégâts directs
-            if immu:
-                deg = 0
-
-            # Applique
-            hp_before, _ = await get_hp(cible.id)
-            res = await deal_damage(itx.user.id, cible.id, deg)
-            killed = killed or res["killed"]
-            hp_after, _ = await get_hp(cible.id)
-            # Récap
-            lines.append(self._fmt_gain_loss_pv(hp_before, deg, hp_after, sign="−"))
-            if res["absorbed"] > 0:
-                lines.append(f"🛡 **{res['absorbed']} PB** absorbés.")
-
-            # Hook passif après
-            await after_damage(itx.user.id, cible.id, {
-                "emoji": objet,
-                "type": data["type"],
-                "damage": deg,
-                "absorbed": res["absorbed"],
-                "target_hp": hp_after,
-                "target_shield": res["target_shield"],
-                "killed": killed
-            })
-
-            # Attaque en chaîne : dégâts secondaires (pas de crit additionnel)
-            if data["type"] == "attaque_chaine" and not immu:
-                sec = int(data.get("degats_secondaire", 0))
-                # Réduction s’applique aussi
-                if reduc > 0:
-                    sec = max(0, int(round(sec * (1 - reduc))))
-                if sec > 0:
-                    hp_before2, _ = await get_hp(cible.id)
-                    res2 = await deal_damage(itx.user.id, cible.id, sec)
-                    killed = killed or res2["killed"]
-                    hp_after2, _ = await get_hp(cible.id)
-                    lines.append(f"☠️ **Dégâts en chaîne** : {sec} PV.")
-                    lines.append(self._fmt_gain_loss_pv(hp_before2, sec, hp_after2, sign="−"))
-                    if res2["absorbed"] > 0:
-                        lines.append(f"🛡 +{res2['absorbed']} PB absorbés.")
-                    await after_damage(itx.user.id, cible.id, {
-                        "emoji": objet,
-                        "type": "attaque_chaine_sec",
-                        "damage": sec,
-                        "absorbed": res2["absorbed"],
-                        "target_hp": hp_after2,
-                        "target_shield": res2["target_shield"],
-                        "killed": res2["killed"]
-                    })
-
-            # Contagion si l'ATTAQUANT est infecté (25 %)
-            await self._maybe_spread_infection(itx, itx.user.id, cible.id)
-
-        # -------------------- DOTs (poison/virus/infection) ------------------
-        else:
-            dur = int(data.get("duree", 0))
-            intervalle = int(data.get("intervalle", 1800))
-            dmg = int(data.get("degats", 0))
-
-            # Hook passif sur application de statut (peut modifier value/duration)
-            overrides = await on_status_apply(itx.user.id, cible.id, data["type"], dmg, dur, ctx_base)
-            if "value" in overrides:
-                dmg = int(max(0, overrides["value"]))
-            if "duration" in overrides:
-                dur = int(max(0, overrides["duration"]))
-
-            await add_or_refresh_effect(
-                cible.id, data["type"], dmg, dur, interval=intervalle, source_id=itx.user.id
-            )
-            lines.append(f"{cible.mention} est affecté par **{data['type']}**.")
-
-            # Si l'attaquant est infecté, tente la contagion (25 %)
-            await self._maybe_spread_infection(itx, itx.user.id, cible.id)
-
-        # Consommation (avec passif éventuel de non-consommation)
-        preserved = await maybe_preserve_consumable(itx.user.id)
-        if not preserved:
-            await remove_item(itx.user.id, objet, 1)
-        self._record_attack(itx.user.id)
-
-        # Transfert du **virus** à l'attaque (2×5 dégâts + timer conservé)
-        transferred = await transfer_virus_on_attack(itx.user.id, cible.id)
-        if transferred:
-            lines.append("🦠 **Le virus se propage** : 5 PV à l’ancien porteur et 5 PV à la cible. Le timer continue.")
-
-        # KO ? (quelle que soit la source, direct ou via coups successifs)
-        if await is_dead(cible.id):
-            await revive_full(cible.id)       # 100 PV
-            await purge_by_types(cible.id, ["poison", "virus", "infection", "regen", "reduction", "esquive", "immunite"])
-            lines.append("☠️ **KO !** La cible est **réanimée à 100 PV** et **clean de tous les statuts**.")
-            # Hooks kill/death
-            await on_kill(itx.user.id, cible.id, ctx_base)
-            await on_death(cible.id, itx.user.id, ctx_base)
-
-        # Embed final
-        verb = {
-            "attaque": "inflige",
-            "attaque_chaine": "inflige",
-            "poison": "empoisonne",
-            "virus": "contamine",
-            "infection": "infecte",
-        }[data["type"]]
-        emb = Embed(
-            title=f"{title_emoji} Action de GotValis",
-            colour=Colour.orange() if data["type"] in ("attaque", "attaque_chaine") else Colour.blurple(),
-        )
-        extra = "\n♻️ **L’objet n’a pas été consommé.**" if preserved else ""
-        emb.description = f"{itx.user.mention} **{verb}** {cible.mention} avec {objet}.\n" + "\n".join(lines) + extra
-        gif = self._gif_for(objet)
-        if gif:
-            emb.set_image(url=gif)
-
-        await itx.followup.send(embed=emb)
-
-    # ------------------------- /heal (soins) --------------------------------
-    @app_commands.command(name="heal", description="Soigner (PV instantané) ou lancer une régénération.")
-    @app_commands.describe(objet="Émoji de soin (🍀, 🩸, 🩹, 💊, 💕)", cible="La cible (par défaut: toi)")
-    async def heal(self, itx: Interaction, objet: str, cible: Optional[discord.User] = None):
-        await itx.response.defer()
-
-        if not itx.guild:
-            return await itx.followup.send("❌ En serveur uniquement.", ephemeral=True)
-
-        target = cible or itx.user
-        self._last_combat_channel[itx.guild.id] = itx.channel_id
-
-        data = OBJETS.get(objet)
-        if not data:
-            return await itx.followup.send("❌ Objet inconnu.", ephemeral=True)
-
-        t = data.get("type")
-        if t not in ("soin", "regen"):
-            return await itx.followup.send("❌ Cet objet n’est pas un **soin**.", ephemeral=True)
-
-        if await get_item_qty(itx.user.id, objet) <= 0:
-            return await itx.followup.send("❌ Tu n’en as pas.", ephemeral=True)
-
-        lines: List[str] = []
-        ctx_base = {"guild_id": itx.guild.id, "channel_id": itx.channel_id, "emoji": objet, "type": t}
-
-        if t == "soin":
-            amount = int(data.get("soin", 0))
-            healed = await heal_user(itx.user.id, target.id, amount)
-            # Hook passif heal
-            adj = await on_heal(itx.user.id, target.id, healed, ctx_base)
-            if isinstance(adj, int):
-                healed = max(0, adj)
-            lines.append(f"{target.mention} récupère **{healed} PV**.")
-
-        elif t == "regen":
-            await add_or_refresh_effect(
-                target.id, "regen", float(data["valeur"]), int(data["duree"]), interval=int(data["intervalle"]), source_id=itx.user.id
-            )
-            lines.append(f"{target.mention} gagne une **régénération** sur la durée.")
-
-        # Consommation (avec passif éventuel)
-        preserved = await maybe_preserve_consumable(itx.user.id)
-        if not preserved:
-            await remove_item(itx.user.id, objet, 1)
-
-        emb = Embed(title="💖 Soin de GotValis", colour=Colour.green())
-        if preserved:
-            lines.append("♻️ **L’objet n’a pas été consommé.**")
-        emb.description = "\n".join(lines)
-        gif = self._gif_for(objet)
-        if gif:
-            emb.set_image(url=gif)
-        await itx.followup.send(embed=emb)
-
-    # ------------------------- /use (utilitaires) ----------------------------
-    @app_commands.command(name="use", description="Utiliser un objet de soutien/utilitaire.")
-    @app_commands.describe(objet="🛡 🪖 👟 ⭐️ 💉 🔍 📦", cible="Cible si nécessaire (ex: 💉, 🛡, 🪖, 👟, ⭐️ peuvent être sur autrui)")
-    async def use(self, itx: Interaction, objet: str, cible: Optional[discord.User] = None):
-        await itx.response.defer()
-
-        if not itx.guild:
-            return await itx.followup.send("❌ En serveur uniquement.", ephemeral=True)
-
-        target = cible or itx.user
-        self._last_combat_channel[itx.guild.id] = itx.channel_id
-
-        data = OBJETS.get(objet)
-        if not data:
-            return await itx.followup.send("❌ Objet inconnu.", ephemeral=True)
-
-        t = data.get("type")
-        if t not in ("bouclier", "reduction", "esquive+", "immunite", "vaccin", "vol", "mysterybox"):
-            return await itx.followup.send("❌ Cet objet n’est pas un **utilitaire**.", ephemeral=True)
-
-        if await get_item_qty(itx.user.id, objet) <= 0:
-            return await itx.followup.send("❌ Tu n’en as pas.", ephemeral=True)
-
-        lines: List[str] = []
-        ctx_base = {"guild_id": itx.guild.id, "channel_id": itx.channel_id, "emoji": objet, "type": t}
-
-        if t == "bouclier":
-            cur = await get_shield(target.id)
-            add = int(data.get("valeur", 0))
-            cap = await self._shield_cap_for(target.id)
-            new_val = min(cap, cur + add)
-            await set_shield(target.id, new_val)
-            lines.append(f"{target.mention} gagne un **bouclier** → 🛡 **{new_val} PB**.")
-
-        elif t == "reduction":
-            await add_or_refresh_effect(target.id, "reduction", float(data["valeur"]), int(data["duree"]))
-            lines.append(f"{target.mention} bénéficie d’une **réduction de dégâts**.")
-
-        elif t == "esquive+":
-            await add_or_refresh_effect(target.id, "esquive", float(data["valeur"]), int(data["duree"]))
-            lines.append(f"{target.mention} bénéficie d’une **chance d’esquive**.")
-
-        elif t == "immunite":
-            await add_or_refresh_effect(target.id, "immunite", 1.0, int(data["duree"]))
-            lines.append(f"{target.mention} est **immunisé** aux dégâts (directs & DOT).")
-
-        elif t == "vaccin":
-            await purge_by_types(target.id, ["poison", "virus", "infection"])
-            lines.append(f"{target.mention} est **vacciné** : poison, virus et infection retirés.")
-
-        elif t == "vol":
-            ok, txt = await self._vol_simple(itx, itx.user.id, target.id)
-            lines.append(txt)
-
-        elif t == "mysterybox":
-            # 15% ticket, sinon 1 objet pondéré (rarete inverse)
-            if random.random() < 0.15:
-                await add_item(itx.user.id, "🎟️", 1)
-                lines.append(f"{itx.user.mention} obtient **1 ticket** 🎟️ !")
+# ─────────────────────────────────────────────────────────────
+# Réglages globaux
+# ─────────────────────────────────────────────────────────────
+BASE_CRIT_MULT = 2.0             # crit x2
+ATTACK_DODGE_IMMUNE_LABEL = "👟 Esquive !"
+IMMUNITY_LABEL = "⭐ Immunité"
+COLOR_ATTACK = 0xED4245
+COLOR_HEAL = 0x57F287
+COLOR_USE = 0xFEE75C
+
+# Pour infection “contagion” lors d’une attaque
+INFECTION_PROPAGATE_CHANCE = 0.25
+
+# Poison : malus -1 dmg pour l’attaquant
+POISON_OUTGOING_PENALTY = 1
+
+# ─────────────────────────────────────────────────────────────
+# Utils locaux
+# ─────────────────────────────────────────────────────────────
+
+def _clamp(n: float, a: float, b: float) -> float:
+    return max(a, min(b, n))
+
+async def _current_esquive_chance(defender_id: int) -> float:
+    """
+    Esquive totale du défenseur :
+      - Bonus de statut 'esquive' (effects_db)
+      - Bonus passif (e.g. Nova Rell +5%)
+      - Stacks temporaires (e.g. Neyra) -> supposé stockés dans effects_db sous 'esquive'
+    """
+    base = 0.0
+    eff = await has_status(defender_id, "esquive")
+    if eff:
+        # on lit la valeur via get_effect si besoin ; ici on suppose get_extra_dodge_chance ajoute ce qui manque
+        pass
+    extra = await get_extra_dodge_chance(defender_id) or 0.0
+    return _clamp(base + extra, 0.0, 0.95)
+
+async def _current_reduction_percent(defender_id: int) -> float:
+    """
+    Réduction totale (ne s’applique PAS aux DOT — déjà géré dans effects_db).
+    Sources :
+      - effets: reduction / reduction_temp / reduction_valen (en %)
+      - passifs (e.g. bonus passif fixe, paliers Valen)
+    """
+    base = await get_extra_reduction_percent(defender_id) or 0.0
+    base += await valen_reduction_bonus(defender_id) or 0.0
+    # clamp prudent
+    return _clamp(base, 0.0, 0.90)
+
+async def _is_immune(defender_id: int) -> bool:
+    """Immunité bloque entièrement les dégâts directs (et les DOT côté effects_db)."""
+    return await has_status(defender_id, "immunite")
+
+async def _apply_direct_damage(attacker_id: int, defender_id: int, raw_damage: int) -> Dict[str, Any]:
+    """
+    Applique des dégâts **directs** avec règles :
+      - esquive (tout évite) — pas pour DOT
+      - immunité (tout bloque) — pas pour DOT (géré dans effects)
+      - réduction (%), puis deal_damage (qui gère PB -> PV)
+    Retourne un dict: {'dmg_in': raw, 'dmg_after_reduc': x, 'absorbed': y, 'lost': z, 'dodged': bool, 'immune': bool, 'ko': bool}
+    """
+    # Esquive ?
+    dodge_chance = await _current_esquive_chance(defender_id)
+    if random.random() < dodge_chance:
+        return {"dmg_in": raw_damage, "dmg_after_reduc": 0, "absorbed": 0, "lost": 0, "dodged": True, "immune": False, "ko": False}
+
+    # Immunité ?
+    if await _is_immune(defender_id):
+        return {"dmg_in": raw_damage, "dmg_after_reduc": 0, "absorbed": 0, "lost": 0, "dodged": False, "immune": True, "ko": False}
+
+    # Réduction (%)
+    reduc = await _current_reduction_percent(defender_id)
+    eff_damage = max(0, int(round(raw_damage * (1.0 - reduc))))
+
+    # Appliquer dégâts (deal_damage gère PB->PV + stats + coins)
+    res = await deal_damage(attacker_id, defender_id, eff_damage)  # res: {'absorbed': X, 'lost': Y}
+    ko = await is_dead(defender_id)
+
+    return {
+        "dmg_in": raw_damage,
+        "dmg_after_reduc": eff_damage,
+        "absorbed": res.get("absorbed", 0),
+        "lost": res.get("lost", 0),
+        "dodged": False,
+        "immune": False,
+        "ko": ko,
+    }
+
+def _roll_crit(base_chance: float, defender_code: Optional[str]) -> float:
+    """
+    Détermine crit: True/False. Puis retourne multiplicateur (1.0 ou 2.0 x modif Zeyra).
+    - Zeyra (Volonté de Fracture 💥) : crit divisés par 2 → on ajuste le multiplicateur via passif helper
+    """
+    if base_chance <= 0:
+        return 1.0
+    if random.random() >= base_chance:
+        return 1.0
+    mult = BASE_CRIT_MULT
+    # Ajustements côté défenseur (ex: Zeyra: *0.5)
+    if defender_code:
+        mult *= crit_multiplier_against_defender_code(defender_code) or 1.0
+    return mult
+
+async def _consume_item_if_needed(user_id: int, item_key: str) -> bool:
+    """Consomme l’objet à la fin de l’action, sauf si passif 'ne consomme pas' s’active."""
+    preserve = await maybe_preserve_consumable(user_id, item_key)
+    if preserve:
+        return False  # pas consommé
+    await remove_item(user_id, item_key, 1)
+    return True
+
+def _gif_for(item_key: str) -> Optional[str]:
+    return GIFS.get(item_key) or None
+
+# ─────────────────────────────────────────────────────────────
+# Résolution d’attaques / soins / use
+# ─────────────────────────────────────────────────────────────
+
+async def fight(attacker_id: int, target_id: int, item_key: str, guild_id: int, channel_id: int) -> Dict[str, Any]:
+    """
+    Attaque directe / DOT / attaque en chaîne, etc.
+    - Gère poison malus -1 dmg pour l’attaquant
+    - Applique crit (×2, mod Zeyra)
+    - Applique réduction → PB → PV (via deal_damage)
+    - Applique DOTs / infection contagion / virus transfert
+    - Exécution du Roi (ignore reduc/PB) — voir NOTE
+    - Zeyra Undying (1/j) si KO
+    """
+    it = OBJETS.get(item_key, {})
+    t = it.get("type")
+
+    result_lines: List[str] = []
+    title = "⚔️ Attaque"
+    color = COLOR_ATTACK
+    consumed = False
+
+    # Validation type
+    if t not in {"attaque", "attaque_chaine", "poison", "virus", "infection"}:
+        return {"title": "❌ Objet d'attaque invalide", "lines": [], "color": 0xFF0000}
+
+    # Vérifier stock (par sécurité)
+    if await get_item_qty(attacker_id, item_key) <= 0:
+        return {"title": "❌ Plus d’objet", "lines": ["Tu n’as plus cet objet."], "color": 0xFF0000}
+
+    # --- Préparation valeurs ---
+    base_dmg = int(it.get("degats", 0))
+    crit_chance = float(it.get("crit", 0.0))
+
+    # Poison : malus -1 sur dégâts directs
+    if await has_status(attacker_id, "poison"):
+        base_dmg = max(0, base_dmg - POISON_OUTGOING_PENALTY)
+
+    # Bonus passif vs infectés (Kevar Rin +3)
+    if await has_status(target_id, "infection"):
+        base_dmg += await bonus_damage_vs_infected(attacker_id) or 0
+
+    # Crit
+    defender_code = await get_equipped_code(target_id)
+    crit_mult = _roll_crit(crit_chance, defender_code)
+    dmg_after_crit = int(round(base_dmg * crit_mult))
+
+    # Exécution du Roi (si actif)
+    execute = await king_execute_ready(attacker_id, target_id)
+    if execute:
+        # NOTE: Idéalement, on doit **ignorer** PB et réduction.
+        # Selon ton stats_db, si on ne peut pas bypass proprement :
+        # on force un très gros dégât et on vide le PB préalablement si tu exposes une API.
+        # Ici on fait "brutal" : dégâts énormes -> devrait passer malgré réduction/PB.
+        hp, _ = await get_hp(target_id)
+        sh = await get_shield(target_id)
+        huge = hp + sh + 9999
+        apply_res = await deal_damage(attacker_id, target_id, huge)
+        result_lines.append("👑 **Exécution Royale !** (ignore défenses)")
+        # Heal +10 PV à l’attaquant
+        healed = await heal_user(attacker_id, attacker_id, 10)
+        if healed > 0:
+            result_lines.append(f"❤️ {healed} PV rendus à l’exécuteur.")
+        consumed = not await maybe_preserve_consumable(attacker_id, item_key)  # ne consomme pas ? (Marn)
+        if consumed:
+            await remove_item(attacker_id, item_key, 1)
+        # KO handling + Undying Zeyra
+        if await is_dead(target_id):
+            # Zeyra Undying ?
+            undy = await undying_zeyra_check_and_mark(target_id)
+            if undy:
+                # la laisser à 1 PV
+                await revive_full(target_id)  # set to 100, puis on remet 99 dégâts
+                await deal_damage(0, target_id, 99)
+                result_lines.append("💥 **Volonté de Fracture** : survit à 1 PV !")
             else:
-                em = self._pick_weighted_item()
-                await add_item(itx.user.id, em, 1)
-                lines.append(f"{itx.user.mention} obtient {em} × **1**.")
+                await revive_full(target_id)  # règle 14: revive & clear dans les DOT, ici on revive
+        return {
+            "title": title,
+            "lines": result_lines,
+            "color": color,
+            "gif": _gif_for(item_key),
+            "consumed": consumed,
+        }
 
-        # Consommation (avec passif éventuel)
-        preserved = await maybe_preserve_consumable(itx.user.id)
-        if not preserved:
-            await remove_item(itx.user.id, objet, 1)
+    # --- Cas spéciaux par type ---
+    meta = _pack_meta(guild_id, channel_id)
 
-        emb = Embed(title="🛠️ Utilitaire de GotValis", colour=Colour.dark_teal())
-        if preserved:
-            lines.append("♻️ **L’objet n’a pas été consommé.**")
-        emb.description = "\n".join(lines)
-        gif = self._gif_for(objet)
-        if gif:
-            emb.set_image(url=gif)
-        await itx.followup.send(embed=emb)
+    if t == "poison":
+        # DOT poison (ticks gérés par effects_db) — on applique aussi le petit direct ? (non, tu ne l’as pas demandé)
+        await add_or_refresh_effect(target_id, "poison", int(it.get("degats", 1)), int(it.get("duree", 3600)),
+                                    interval=int(it.get("intervalle", 1800)), source_id=attacker_id, meta_json=meta)
+        consumed = await _consume_item_if_needed(attacker_id, item_key)
+        result_lines.append(f"🧪 {base_dmg} / tick appliqué (poison).")
+    elif t == "virus":
+        # Applique un virus “neuf”
+        await add_or_refresh_effect(target_id, "virus", int(it.get("degats", 1)), int(it.get("duree", 3600)),
+                                    interval=int(it.get("intervalle", 1800)), source_id=attacker_id, meta_json=meta)
+        consumed = await _consume_item_if_needed(attacker_id, item_key)
+        result_lines.append("🦠 Virus appliqué.")
+    elif t == "infection":
+        await add_or_refresh_effect(target_id, "infection", int(it.get("degats", 1)), int(it.get("duree", 3600)),
+                                    interval=int(it.get("intervalle", 1800)), source_id=attacker_id, meta_json=meta)
+        consumed = await _consume_item_if_needed(attacker_id, item_key)
+        result_lines.append("🧟 Infection appliquée.")
+    elif t == "attaque_chaine":
+        # Dégâts directs sur la cible (principal)
+        dmg_main = int(it.get("degats_principal", 0))
+        # crit + malus poison déjà calculés via base_dmg si tu veux harmoniser,
+        # mais ici on applique crit sur le principal :
+        dmg_main = int(round(dmg_main * crit_mult))
 
-    # ------------------------- utils internes --------------------------------
-    async def _vol_simple(self, itx: Interaction, thief_id: int, target_id: int) -> Tuple[bool, str]:
-        """Vole 1 item aléatoire à la cible (sauf tickets 🎟️). Respecte l’anti-vol (Lyss)."""
-        # Anti-vol (passif)
-        if not await can_be_stolen(target_id):
-            return False, f"<@{target_id}> est **intouchable** (anti-vol)."
+        apply = await _apply_direct_damage(attacker_id, target_id, dmg_main)
+        consumed = await _consume_item_if_needed(attacker_id, item_key)
 
-        items = await get_all_items(target_id)
-        pool = [(k, q) for k, q in items if q > 0 and k != "🎟️"]
-        if not pool:
-            return False, f"{itx.user.mention} tente de voler… mais **rien** à prendre."
+        if apply.get("dodged"):
+            result_lines.append(ATTACK_DODGE_IMMUNE_LABEL)
+        elif apply.get("immune"):
+            result_lines.append(IMMUNITY_LABEL)
+        else:
+            if apply["absorbed"] > 0:
+                result_lines.append(f"🛡 {apply['absorbed']} PB absorbés.")
+            result_lines.append(f"💥 {apply['lost']} dégâts infligés (après réductions).")
 
-        item, _ = random.choice(pool)
-        ok = await remove_item(target_id, item, 1)
-        if not ok:
-            return False, f"Le vol a échoué."
-        await add_item(thief_id, item, 1)
-        return True, f"{itx.user.mention} **vole** {item} à <@{target_id}> !"
+        # NOTE: “attaque en chaîne” sur d'autres cibles → à implémenter plus tard si tu veux
+        result_lines.append("☠️ Attaque en chaîne (cible principale).")
+    else:
+        # t == "attaque" : dégâts directs
+        apply = await _apply_direct_damage(attacker_id, target_id, dmg_after_crit)
+        consumed = await _consume_item_if_needed(attacker_id, item_key)
 
-    def _pick_weighted_item(self) -> str:
-        # Pondération inverse par 'rarete' (plus rare = moins probable)
-        emojis, weights = [], []
-        for e, d in OBJETS.items():
-            if e == "🎟️":  # pas dans la mystery pondérée
-                continue
-            r = int(d.get("rarete", 1)) or 1
-            emojis.append(e)
-            weights.append(1.0 / r)
-        return random.choices(emojis, weights=weights, k=1)[0]
+        if apply.get("dodged"):
+            result_lines.append(ATTACK_DODGE_IMMUNE_LABEL)
+        elif apply.get("immune"):
+            result_lines.append(IMMUNITY_LABEL)
+        else:
+            if crit_mult > 1.0:
+                result_lines.append("💫 **Coup critique !**")
+            if apply["absorbed"] > 0:
+                result_lines.append(f"🛡 {apply['absorbed']} PB absorbés.")
+            result_lines.append(f"💥 {apply['lost']} dégâts infligés (après réductions).")
 
-    async def _maybe_spread_infection(self, itx: Interaction, attacker_id: int, target_id: int):
-        """
-        Si l'ATTAQUANT est infecté → 25% de chance de transmettre l'infection à la cible.
-        - Si la cible n'était pas infectée: applique infection (durée standard) + inflige **+5 dégâts directs** (attribués à l’attaquant).
-        - Si la cible était déjà infectée: pas de bonus, pas de refresh.
-        """
-        if not await has_effect(attacker_id, "infection"):
-            return
-        if random.random() >= 0.25:
-            return
-        if await has_effect(target_id, "infection"):
-            return  # rien à faire
+    # --- Effets secondaires liés au statut de l’ATTAQUANT ---
+    # Transfert de virus si l’attaquant était infecté par 'virus'
+    await transfer_virus_on_attack(attacker_id, target_id, guild_id=guild_id, channel_id=channel_id)
 
-        # Par défaut : 3h / tick 30 min à 2 dégâts (adapte si différent dans tes OBJETS)
-        await add_or_refresh_effect(target_id, "infection", 2, 3 * 3600, interval=1800, source_id=attacker_id)
-        await deal_damage(attacker_id, target_id, 5)  # +5 directs
+    # Propagation d'infection si l’attaquant est infecté (25%)
+    if await has_status(attacker_id, "infection"):
+        if random.random() < INFECTION_PROPAGATE_CHANCE:
+            # Applique une infection “copiée” à la cible (même gabarit que l’item ‘🧟’)
+            # Tu as défini 🧟 dans OBJETS : on s’en sert pour la valeur/interval/durée.
+            src = OBJETS.get("🧟", {"degats": 5, "intervalle": 1800, "duree": 3 * 3600})
+            await add_or_refresh_effect(target_id, "infection", int(src.get("degats", 5)),
+                                        int(src.get("duree", 10800)), interval=int(src.get("intervalle", 1800)),
+                                        source_id=attacker_id, meta_json=meta)
+            # Bonus 5 dmg à l’instant sur la cible si elle devient infectée (par ta règle)
+            await deal_damage(attacker_id, target_id, 5)
+            result_lines.append("🧟 Contagion : la cible devient infectée (+5 dmg).")
 
-# ---------------------------------------------------------------------------
+    # KO handling + Zeyra Undying
+    if await is_dead(target_id):
+        undy = await undying_zeyra_check_and_mark(target_id)
+        if undy:
+            await revive_full(target_id)
+            await deal_damage(0, target_id, 99)  # pour revenir à 1 PV
+            result_lines.append("💥 **Volonté de Fracture** : survit à 1 PV !")
+        else:
+            # Règle 14 : à la mort via ATTAQUE directe → on revive à 100 et clear statuts
+            await revive_full(target_id)
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(Combat(bot))
+    # Triggers post-attaque (loot, vampirisme 50%, etc.)
+    await on_attack_after(attacker_id, target_id, item_key)
+
+    return {
+        "title": title,
+        "lines": result_lines,
+        "color": color,
+        "gif": _gif_for(item_key),
+        "consumed": consumed,
+    }
+
+
+async def heal(healer_id: int, target_id: int, item_key: str, guild_id: int, channel_id: int) -> Dict[str, Any]:
+    """
+    Soins directs / régénération.
+    - Les soins ne dépassent pas PV max (géré côté stats_db)
+    - Régénération : effet 'regen' avec ticks (effects_db)
+    - Passifs de soins (Dr Vex +50% reçu, Tessa +1 donné, Seren → PB = soin reçu 2x/j, etc.) à appliquer via hooks on_heal_after
+    """
+    it = OBJETS.get(item_key, {})
+    t = it.get("type")
+    result_lines: List[str] = []
+    title = "💊 Soin"
+    color = COLOR_HEAL
+    consumed = False
+
+    if t not in {"soin", "regen"}:
+        return {"title": "❌ Objet de soin invalide", "lines": [], "color": 0xFF0000}
+
+    if await get_item_qty(healer_id, item_key) <= 0:
+        return {"title": "❌ Plus d’objet", "lines": ["Tu n’as plus cet objet."], "color": 0xFF0000}
+
+    if t == "soin":
+        amount = int(it.get("soin", 0))
+        healed = await heal_user(healer_id, target_id, amount)  # stats_db gère PV max + économie
+        consumed = await _consume_item_if_needed(healer_id, item_key)
+
+        if healed <= 0:
+            result_lines.append("ℹ️ Aucun PV soigné (déjà au max ?).")
+        else:
+            result_lines.append(f"❤️ +{healed} PV.")
+
+    else:  # regen
+        meta = _pack_meta(guild_id, channel_id)
+        await add_or_refresh_effect(
+            target_id,
+            "regen",
+            float(it.get("valeur", 1)),
+            int(it.get("duree", 3600)),
+            interval=int(it.get("intervalle", 1800)),
+            source_id=healer_id,
+            meta_json=meta
+        )
+        consumed = await _consume_item_if_needed(healer_id, item_key)
+        result_lines.append("💕 Régénération appliquée.")
+
+    # Triggers post-heal (Lysha PB+1, Seren PB=soin 2x/j, etc.)
+    await on_heal_after(healer_id, target_id, item_key)
+
+    return {
+        "title": title,
+        "lines": result_lines,
+        "color": color,
+        "gif": _gif_for(item_key),
+        "consumed": consumed,
+    }
+
+
+async def use_item(user_id: int, target_id: int, item_key: str, guild_id: int, channel_id: int) -> Dict[str, Any]:
+    """
+    Utilisation d’objets non offensifs :
+      - bouclier (cap 20 par défaut, 25 si passif Raya, géré côté stats_db si exposé)
+      - vaccin (retire poison + virus)
+      - vol (ne peut pas voler les tickets — à vérifier côté inventaire/clé)
+      - immunité, esquive+, réduction (temp), mysterybox (loot)
+    """
+    it = OBJETS.get(item_key, {})
+    t = it.get("type")
+    result_lines: List[str] = []
+    title = "🧰 Utilisation"
+    color = COLOR_USE
+    consumed = False
+
+    if t not in {"bouclier", "vaccin", "vol", "immunite", "esquive+", "reduction", "mysterybox"}:
+        return {"title": "❌ Objet non-utilisable invalide", "lines": [], "color": 0xFF0000}
+
+    if await get_item_qty(user_id, item_key) <= 0:
+        return {"title": "❌ Plus d’objet", "lines": ["Tu n’as plus cet objet."], "color": 0xFF0000}
+
+    meta = _pack_meta(guild_id, channel_id)
+
+    if t == "bouclier":
+        val = int(it.get("valeur", 0))
+        gained = await add_shield(target_id, val)  # stats_db doit plafonner à 20 (ou 25 si passif active le cap)
+        consumed = await _consume_item_if_needed(user_id, item_key)
+        result_lines.append(f"🛡 +{gained} PB appliqués.")
+
+    elif t == "vaccin":
+        # retire poison & virus (et, par ton update, **infection** aussi ? Tu as dit finalement “vaccin retire l’infection”)
+        await remove_status(target_id, "poison")
+        await remove_status(target_id, "virus")
+        await remove_status(target_id, "infection")
+        consumed = await _consume_item_if_needed(user_id, item_key)
+        result_lines.append("💉 Vaccination : statuts supprimés (poison, virus, infection).")
+
+    elif t == "vol":
+        # Vol d’un item aléatoire (sauf tickets) — simplifié
+        # On va essayer de voler dans une whitelist d’emojis d’OBJETS sans 🎟️
+        stealable = [k for k in OBJETS.keys() if k != "🎟️"]
+        if not stealable:
+            return {"title": "ℹ️ Rien à voler", "lines": [], "color": 0xAAAAAA}
+        choice = random.choice(stealable)
+        have = await get_item_qty(target_id, choice)
+        if have <= 0:
+            result_lines.append("🕵️ Rien d’utile n’a été trouvé.")
+        else:
+            await remove_item(target_id, choice, 1)
+            await add_item(user_id, choice, 1)
+            result_lines.append(f"🕵️ Vol réussi : {choice}")
+        consumed = await _consume_item_if_needed(user_id, item_key)
+
+    elif t == "immunite":
+        await add_or_refresh_effect(target_id, "immunite", 1.0, int(it.get("duree", 2*3600)), interval=0, source_id=user_id, meta_json=meta)
+        consumed = await _consume_item_if_needed(user_id, item_key)
+        result_lines.append("⭐ Immunité temporaire appliquée.")
+
+    elif t == "esquive+":
+        await add_or_refresh_effect(target_id, "esquive", float(it.get("valeur", 0.2)), int(it.get("duree", 3*3600)), interval=0, source_id=user_id, meta_json=meta)
+        consumed = await _consume_item_if_needed(user_id, item_key)
+        result_lines.append("👟 Esquive augmentée temporairement.")
+
+    elif t == "reduction":
+        await add_or_refresh_effect(target_id, "reduction_temp", float(it.get("valeur", 0.5)), int(it.get("duree", 4*3600)), interval=0, source_id=user_id, meta_json=meta)
+        consumed = await _consume_item_if_needed(user_id, item_key)
+        result_lines.append("🪖 Réduction des dégâts temporaire appliquée.")
+
+    elif t == "mysterybox":
+        # Simple exemple : donne 1–3 objets aléatoires (sauf 🎟️) OU des tickets
+        pulls = random.randint(1, 3)
+        pool = [k for k in OBJETS.keys() if k != "🎟️"]
+        won: Dict[str, int] = {}
+        for _ in range(pulls):
+            k = random.choice(pool)
+            won[k] = won.get(k, 0) + 1
+        for k, q in won.items():
+            await add_item(user_id, k, q)
+        consumed = await _consume_item_if_needed(user_id, item_key)
+        pretty = " ".join(f"{k} x{q}" for k, q in won.items())
+        result_lines.append(f"📦 {pretty}")
+
+    # Triggers post-use (si utiles)
+    await on_use_after(user_id, target_id, item_key)
+
+    return {
+        "title": title,
+        "lines": result_lines,
+        "color": color,
+        "gif": _gif_for(item_key),
+        "consumed": consumed,
+    }
