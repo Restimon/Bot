@@ -1,82 +1,115 @@
 # cogs/daily.py
+import random
+from typing import List
+
 import discord
 from discord import app_commands, Embed, Colour, Interaction
 from discord.ext import commands
 
-from gacha_db import init_gacha_db, can_draw_daily, stamp_daily, add_personnage
-import personnage as PERSO
+from data.items import OBJETS
+from gacha_db import init_gacha_db, add_tickets, get_tickets
+from inventory import init_inventory_db, add_item
+from economy_db import init_economy_db, add_balance
 
-def _fmt_cooldown(seconds: int) -> str:
-    h = seconds // 3600
-    m = (seconds % 3600) // 60
-    s = seconds % 60
-    parts = []
-    if h: parts.append(f"{h}h")
-    if m: parts.append(f"{m}m")
-    if s or not parts: parts.append(f"{s}s")
-    return " ".join(parts)
+# ------- utils -------
 
-def _embed_pull(user: discord.abc.User, rarete: str, p: dict) -> Embed:
-    desc = p.get("description", "")
-    faction = p.get("faction", "?")
-    passif = p.get("passif", {})
-    passif_nom = passif.get("nom", "—")
-    passif_effet = passif.get("effet", "")
-    image = p.get("image")
+RARITY_EXP = 1.0  # poids = 1 / (rarete ** RARITY_EXP)
 
-    emb = Embed(
-        title=f"🎁 Daily — {p.get('nom', 'Inconnu')}",
-        description=desc or "—",
-        colour={
-            "Commun": Colour.light_grey(),
-            "Rare": Colour.blue(),
-            "Épique": Colour.purple(),
-            "Légendaire": Colour.gold()
-        }.get(rarete, Colour.blurple())
-    )
-    emb.add_field(name="Rareté", value=rarete, inline=True)
-    emb.add_field(name="Faction", value=faction, inline=True)
-    emb.add_field(name="Passif", value=f"**{passif_nom}**\n{passif_effet}"[:1024], inline=False)
-    if image:
-        emb.set_thumbnail(url=f"attachment://card.png")
-    emb.set_footer(text=f"GotValis • Daily de {user.display_name}")
-    return emb
+def _weighted_pick(exclude: set[str] | None = None) -> str:
+    """Tire 1 emoji d'OBJETS pondéré à l'inverse de la 'rarete'."""
+    exclude = exclude or set()
+    emojis: List[str] = []
+    weights: List[float] = []
+    for e, data in OBJETS.items():
+        if e in exclude:
+            continue
+        r = max(1, int(data.get("rarete", 1)))
+        emojis.append(e)
+        weights.append(1.0 / (r ** RARITY_EXP))
+    return random.choices(emojis, weights=weights, k=1)[0]
+
+def _pick_items_pattern() -> list[tuple[str, int]]:
+    """
+    Retourne la liste [(emoji, qty), ...] selon l'un des 3 schémas :
+    A) 1 item ×3
+    B) 2 items (×1 et ×2)
+    C) 3 items ×1
+    Les items sont distincts quand il y en a plusieurs.
+    """
+    roll = random.choice(("A", "B", "C"))
+    taken: set[str] = set()
+
+    if roll == "A":
+        e = _weighted_pick()
+        return [(e, 3)]
+
+    if roll == "B":
+        e1 = _weighted_pick()
+        taken.add(e1)
+        e2 = _weighted_pick(exclude=taken)
+        # 50/50 pour savoir lequel a ×2
+        if random.random() < 0.5:
+            return [(e1, 2), (e2, 1)]
+        else:
+            return [(e1, 1), (e2, 2)]
+
+    # "C"
+    e1 = _weighted_pick()
+    taken.add(e1)
+    e2 = _weighted_pick(exclude=taken)
+    taken.add(e2)
+    e3 = _weighted_pick(exclude=taken)
+    return [(e1, 1), (e2, 1), (e3, 1)]
+
+def _fmt_items_lines(pairs: list[tuple[str, int]]) -> str:
+    return "\n".join(f"{e} ×{q}" for e, q in pairs)
+
+# ------- Cog -------
 
 class Daily(commands.Cog):
-    """Tirage quotidien (non cumulable, cooldown 24h)."""
+    """Daily: 1 ticket gratuit + items (pattern aléatoire) + GoldValis."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     async def cog_load(self):
+        # on s'assure que les DB sont prêtes
         await init_gacha_db()
+        await init_inventory_db()
+        await init_economy_db()
 
-    @app_commands.command(name="daily", description="Effectue ton tirage quotidien (gratuit, non cumulable).")
+    @app_commands.command(
+        name="daily",
+        description="Réclame ton daily : 1 ticket + items aléatoires + GoldValis."
+    )
     async def daily(self, itx: Interaction):
-        ok, remaining = await can_draw_daily(itx.user.id)
-        if not ok:
-            return await itx.response.send_message(
-                f"⏳ Ton daily n’est pas prêt. Reviens dans **{_fmt_cooldown(remaining)}**.",
-                ephemeral=True
+        user = itx.user
+
+        # 1) Donne 1 ticket
+        await add_tickets(user.id, 1)
+        total_tickets = await get_tickets(user.id)
+
+        # 2) Donne items selon un schéma
+        items = _pick_items_pattern()
+        for emoji, qty in items:
+            await add_item(user.id, emoji, qty)
+
+        # 3) Donne des coins
+        coins = random.randint(10, 100)
+        await add_balance(user.id, coins, "daily_reward")
+
+        # Embed récap
+        emb = Embed(
+            title="🎁 Daily récupéré",
+            colour=Colour.blurple(),
+            description=(
+                f"🎟️ Ticket : **+1** *(total {total_tickets})*\n"
+                f"📦 Objets :\n{_fmt_items_lines(items)}\n"
+                f"💰 GoldValis : **+{coins}**"
             )
-
-        rarete, p = PERSO.tirage_personnage()
-        if not p:
-            return await itx.response.send_message("❌ Aucun personnage disponible à tirer.", ephemeral=True)
-
-        await add_personnage(itx.user.id, p["nom"], 1)
-        await stamp_daily(itx.user.id)
-
-        files = []
-        image_path = p.get("image")
-        embed = _embed_pull(itx.user, rarete, p)
-        if image_path and isinstance(image_path, str):
-            try:
-                files.append(discord.File(image_path, filename="card.png"))
-            except Exception:
-                pass
-
-        await itx.response.send_message(embed=embed, files=files if files else None)
+        )
+        emb.set_footer(text="GotValis • Daily")
+        await itx.response.send_message(embed=emb)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Daily(bot))
