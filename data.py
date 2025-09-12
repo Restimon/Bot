@@ -1,12 +1,14 @@
-# data.py
-import json
+# data/storage.py
+from __future__ import annotations
+
 import os
+import io
+import json
 import time
 import shutil
+import asyncio
+from typing import Any, Dict, Optional, Callable, Tuple, List
 from datetime import datetime
-
-# ⚙️ États partagés côté stockage
-from storage import inventaire, hp, leaderboard
 
 # 📁 Emplacements de persistance
 PERSISTENT_PATH = "/persistent"
@@ -14,249 +16,167 @@ DATA_FILE = os.path.join(PERSISTENT_PATH, "data.json")
 BACKUP_DIR = os.path.join(PERSISTENT_PATH, "backups")
 AUTO_BACKUP_DIR = os.path.join(PERSISTENT_PATH, "auto_backups")  # backups RAM indépendantes
 
-# ============================
-# ✅ États & structures globales
-# ============================
+# Réglages de rotation
+MAX_BACKUPS = 20         # Manuels (backup_now)
+MAX_AUTO_BACKUPS = 30    # Automatiques (sauvegardes tournantes)
+AUTO_BACKUP_MIN_SPACING_SEC = 300  # évite de spammer l’auto-backup (5 min)
 
-# Cooldowns par action
-cooldowns = {
-    "attack": {},
-    "heal": {},
-}
+# Concurrence
+_lock = asyncio.Lock()
+_last_auto_backup_ts: float = 0.0
 
-# Statuts / effets
-virus_status = {}
-poison_status = {}
-infection_status = {}
-regeneration_status = {}
-immunite_status = {}
-burn_status = {}
+# -----------------------------------------------------------------------------
+# Utilitaires fichiers
+# -----------------------------------------------------------------------------
+def _ensure_dirs() -> None:
+    os.makedirs(PERSISTENT_PATH, exist_ok=True)
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    os.makedirs(AUTO_BACKUP_DIR, exist_ok=True)
 
-# Buffs / malus
-shields = {}
-esquive_status = {}
-esquive_bonus = {}
-casque_status = {}
-resistance_bonus = {}
-malus_degat = {}
+def _timestamp() -> str:
+    # 2025-09-05_13-06-44
+    return datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
 
-# Profiles & progression
-last_daily_claim = {}
-supply_data = {}
+def _rotate(dirpath: str, keep: int) -> None:
+    files = sorted(
+        [os.path.join(dirpath, f) for f in os.listdir(dirpath)],
+        key=lambda p: os.path.getmtime(os.path.join(dirpath, os.path.basename(p))),
+        reverse=True,
+    )
+    for f in files[keep:]:
+        try:
+            os.remove(f)
+        except Exception:
+            pass
 
-# Activité hebdo
-weekly_message_count = {}
-weekly_voice_time = {}
-weekly_message_log = {}
+def _atomic_write_json(path: str, data: Dict[str, Any]) -> None:
+    # écriture atomique via fichier temporaire
+    tmp = f"{path}.tmp"
+    with io.open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
-# Tirages / gacha
-tirages = {}
-
-# Personnages
-personnages_equipés = {}   # {guild_id: {user_id: "Nom du perso"}}
-derniere_equip = {}        # {guild_id: {user_id: timestamp}}
-
-# Légendaires / spécifiques
-zeyra_last_survive_time = {}  # {guild_id: {user_id: ts}}
-valen_seuils = {}             # {f"{gid}:{uid}": set([40,30,...])}
-
-# ============================
-# ✅ Sauvegarde disque
-# ============================
-
-def sauvegarder():
-    """
-    Sauvegarde l’intégralité de l’état en JSON.
-    Crée une backup horodatée de l’ancien fichier avant d’écrire.
-    """
-    try:
-        # Import paresseux pour éviter les imports circulaires
-        import economy
-
-        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-        os.makedirs(BACKUP_DIR, exist_ok=True)
-
-        # 🔁 Backup horodatée si un data.json existe déjà
-        if os.path.exists(DATA_FILE):
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            backup_name = f"data_backup_{timestamp}.json"
-            shutil.copy2(DATA_FILE, os.path.join(BACKUP_DIR, backup_name))
-
-        # 💾 Écriture de l’instantané courant
-        payload = {
-            "inventaire": inventaire,
-            "hp": hp,
-            "leaderboard": leaderboard,
-
-            # 💰 Économie (source de vérité dans economy)
-            "gotcoins_balance": economy.gotcoins_balance,
-            "gotcoins_stats": economy.gotcoins_stats,
-
-            # Cooldowns
-            "cooldowns": cooldowns,
-
-            # Statuts
-            "virus_status": virus_status,
-            "poison_status": poison_status,
-            "infection_status": infection_status,
-            "regeneration_status": regeneration_status,
-            "immunite_status": immunite_status,
-            "burn_status": burn_status,
-
-            # Buffs / malus
-            "shields": shields,
-            "esquive_status": esquive_status,
-            "esquive_bonus": esquive_bonus,
-            "casque_status": casque_status,
-            "resistance_bonus": resistance_bonus,
-            "malus_degat": malus_degat,
-
-            # Progression / divers
-            "last_daily_claim": last_daily_claim,
-            "supply_data": supply_data,
-
-            # Activité hebdo
-            "weekly_message_count": weekly_message_count,
-            "weekly_voice_time": weekly_voice_time,
-            "weekly_message_log": weekly_message_log,
-
-            # Tirages
-            "tirages": tirages,
-
-            # Personnages
-            "personnages_equipés": personnages_equipés,
-            "derniere_equip": derniere_equip,
-
-            # Légendaires
-            "zeyra_last_survive_time": zeyra_last_survive_time,
-            "valen_seuils": valen_seuils,
-        }
-
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=4, ensure_ascii=False)
-
-        print("💾 Données sauvegardées avec backup horodatée.")
-    except Exception as e:
-        print(f"❌ Erreur lors de la sauvegarde : {e}")
-
-# ============================
-# ✅ Chargement depuis le disque
-# ============================
-
-def charger():
-    """
-    Charge DATA_FILE si présent et hydrate toutes les structures en mémoire.
-    Met à jour les objets de l’économie directement dans le module `economy`.
-    """
+# -----------------------------------------------------------------------------
+# Core API
+# -----------------------------------------------------------------------------
+async def init_storage() -> None:
+    """À appeler au démarrage du bot (ex: dans on_ready/init db)."""
+    _ensure_dirs()
+    # si data.json absent, créer squelette
     if not os.path.exists(DATA_FILE):
-        print("ℹ️ Aucun fichier data.json trouvé — initialisation d'une nouvelle base.")
+        await save_data({})
+
+async def load_data() -> Dict[str, Any]:
+    """Charge tout le JSON. S’il est corrompu, tente un fallback depuis le dernier backup."""
+    async with _lock:
+        _ensure_dirs()
+        if not os.path.exists(DATA_FILE):
+            return {}
+
+        try:
+            with io.open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            # Essaye fallback depuis le backup le plus récent
+            backups = sorted(
+                [os.path.join(BACKUP_DIR, f) for f in os.listdir(BACKUP_DIR)],
+                key=lambda p: os.path.getmtime(p),
+                reverse=True,
+            )
+            for b in backups:
+                try:
+                    with io.open(b, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    # restaure
+                    _atomic_write_json(DATA_FILE, data)
+                    return data
+                except Exception:
+                    continue
+            # si aucun backup valide
+            return {}
+        except Exception:
+            return {}
+
+async def save_data(data: Dict[str, Any], *, do_auto_backup: bool = True) -> None:
+    """Sauvegarde **atomiquement** puis crée un auto-backup (rotatif)."""
+    async with _lock:
+        _ensure_dirs()
+        _atomic_write_json(DATA_FILE, data)
+
+        if do_auto_backup:
+            await _auto_backup(data)
+
+async def backup_now(tag: Optional[str] = None) -> str:
+    """Crée un backup manuel (nom horodaté). Retourne le chemin du backup."""
+    async with _lock:
+        _ensure_dirs()
+        data = await load_data()
+        stamp = _timestamp()
+        base = f"backup_{stamp}"
+        if tag:
+            safe_tag = "".join(ch for ch in tag if ch.isalnum() or ch in ("-", "_"))
+            if safe_tag:
+                base += f"_{safe_tag}"
+        path = os.path.join(BACKUP_DIR, base + ".json")
+        _atomic_write_json(path, data)
+        _rotate(BACKUP_DIR, MAX_BACKUPS)
+        return path
+
+async def restore_from_backup(backup_path: str) -> bool:
+    """Restaure data.json depuis un fichier de backup fourni."""
+    async with _lock:
+        if not os.path.isfile(backup_path):
+            return False
+        try:
+            with io.open(backup_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            _atomic_write_json(DATA_FILE, data)
+            return True
+        except Exception:
+            return False
+
+# -----------------------------------------------------------------------------
+# Sections pratiques (lecture/écriture partielle)
+# -----------------------------------------------------------------------------
+async def get_section(key: str, default: Any = None) -> Any:
+    data = await load_data()
+    return data.get(key, default)
+
+async def set_section(key: str, value: Any) -> None:
+    data = await load_data()
+    data[key] = value
+    await save_data(data)
+
+async def update_section(key: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge dict superficiel sur une section (dict)."""
+    data = await load_data()
+    cur = data.get(key, {})
+    if not isinstance(cur, dict):
+        cur = {}
+    cur.update(patch or {})
+    data[key] = cur
+    await save_data(data)
+    return cur
+
+# -----------------------------------------------------------------------------
+# Auto-backups
+# -----------------------------------------------------------------------------
+async def _auto_backup(current_data: Optional[Dict[str, Any]] = None) -> None:
+    """Sauvegarde tournante dans AUTO_BACKUP_DIR, bridée par un spacing de quelques minutes."""
+    global _last_auto_backup_ts
+    now = time.time()
+    if (now - _last_auto_backup_ts) < AUTO_BACKUP_MIN_SPACING_SEC:
         return
 
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        # Stockage principal
-        inventaire.clear(); inventaire.update(data.get("inventaire", {}))
-        hp.clear(); hp.update(data.get("hp", {}))
-        leaderboard.clear(); leaderboard.update(data.get("leaderboard", {}))
-
-        # 💰 Économie (import paresseux)
-        import economy
-        economy.gotcoins_balance.clear()
-        economy.gotcoins_balance.update(data.get("gotcoins_balance", {}))
-        economy.gotcoins_stats.clear()
-        economy.gotcoins_stats.update(data.get("gotcoins_stats", {}))
-
-        # Cooldowns
-        cd = data.get("cooldowns", {"attack": {}, "heal": {}})
-        cooldowns["attack"].clear(); cooldowns["attack"].update(cd.get("attack", {}))
-        cooldowns["heal"].clear(); cooldowns["heal"].update(cd.get("heal", {}))
-
-        # Statuts
-        virus_status.clear(); virus_status.update(data.get("virus_status", {}))
-        poison_status.clear(); poison_status.update(data.get("poison_status", {}))
-        infection_status.clear(); infection_status.update(data.get("infection_status", {}))
-        regeneration_status.clear(); regeneration_status.update(data.get("regeneration_status", {}))
-        immunite_status.clear(); immunite_status.update(data.get("immunite_status", {}))
-        burn_status.clear(); burn_status.update(data.get("burn_status", {}))
-
-        # Buffs / malus
-        shields.clear(); shields.update(data.get("shields", {}))
-        esquive_status.clear(); esquive_status.update(data.get("esquive_status", {}))
-        esquive_bonus.clear(); esquive_bonus.update(data.get("esquive_bonus", {}))
-        casque_status.clear(); casque_status.update(data.get("casque_status", {}))
-        resistance_bonus.clear(); resistance_bonus.update(data.get("resistance_bonus", {}))
-        malus_degat.clear(); malus_degat.update(data.get("malus_degat", {}))
-
-        # Divers progression
-        last_daily_claim.clear(); last_daily_claim.update(data.get("last_daily_claim", {}))
-        supply_data.clear(); supply_data.update(data.get("supply_data", {}))
-
-        # Activité hebdo
-        weekly_message_count.clear(); weekly_message_count.update(data.get("weekly_message_count", {}))
-        weekly_voice_time.clear(); weekly_voice_time.update(data.get("weekly_voice_time", {}))
-        weekly_message_log.clear(); weekly_message_log.update(data.get("weekly_message_log", {}))
-
-        # Tirages
-        tirages.clear(); tirages.update(data.get("tirages", {}))
-
-        # Personnages
-        personnages_equipés.clear(); personnages_equipés.update(data.get("personnages_equipés", {}))
-        derniere_equip.clear(); derniere_equip.update(data.get("derniere_equip", {}))
-
-        # Légendaires
-        zeyra_last_survive_time.clear(); zeyra_last_survive_time.update(data.get("zeyra_last_survive_time", {}))
-        valen_seuils.clear(); valen_seuils.update(data.get("valen_seuils", {}))
-
-        print(
-            f"✅ Données chargées depuis data.json : "
-            f"{len(inventaire)} serveurs | {sum(len(u) for u in inventaire.values())} joueurs."
-        )
-    except json.JSONDecodeError:
-        print("⚠️ Le fichier data.json est corrompu ou mal formé.")
-    except Exception as e:
-        print(f"❌ Erreur inattendue lors du chargement : {e}")
-
-# ============================
-# ✅ Import des personnages (optionnel)
-# ============================
-
-try:
-    from personnage import PERSONNAGES  # noqa: F401
-except Exception:
-    PERSONNAGES = {}
-    print("⚠️ Impossible d'importer les personnages depuis personnage.py")
-
-# ============================
-# ✅ Backups RAM indépendantes
-# ============================
-
-def backup_auto_independante():
-    """
-    Écrit un snapshot léger (RAM → fichier horodaté) dans AUTO_BACKUP_DIR,
-    sans toucher au fichier principal data.json.
-    """
-    try:
-        import economy
-        os.makedirs(AUTO_BACKUP_DIR, exist_ok=True)
-
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        path = os.path.join(AUTO_BACKUP_DIR, f"auto_backup_{timestamp}.json")
-
-        data = {
-            "inventaire": inventaire,
-            "hp": hp,
-            "leaderboard": leaderboard,
-            "gotcoins_balance": economy.gotcoins_balance,
-            "gotcoins_stats": economy.gotcoins_stats,
-            "weekly_voice_time": weekly_voice_time,
-            "weekly_message_log": weekly_message_log,
-        }
-
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-
-        print(f"✅ Backup auto indépendante créée : {os.path.basename(path)}")
-    except Exception as e:
-        print(f"❌ Erreur lors de la backup auto indépendante : {e}")
+        data = current_data if current_data is not None else await load_data()
+        stamp = _timestamp()
+        path = os.path.join(AUTO_BACKUP_DIR, f"auto_{stamp}.json")
+        _atomic_write_json(path, data)
+        _rotate(AUTO_BACKUP_DIR, MAX_AUTO_BACKUPS)
+        _last_auto_backup_ts = now
+    except Exception:
+        # On ne casse pas l’app si un auto-backup échoue
+        pass
