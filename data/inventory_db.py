@@ -1,11 +1,11 @@
-# inventory.py
+# inventory_db.py
 # Gestion des inventaires d'objets (par émoji) pour GotValis.
 # Base SQLite (asynchrone, via aiosqlite).
-# Fournit : add/remove/get/set, listing, transferts, bulk ops.
+# Fournit : add/remove/get/set, listing, transferts, bulk ops, clear.
 
 from __future__ import annotations
 import aiosqlite
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 DB_PATH = "gotvalis.sqlite3"
 
@@ -133,6 +133,13 @@ async def set_item_qty(user_id: int, item_key: str, qty: int) -> None:
             )
         await db.commit()
 
+async def clear_inventory(user_id: int) -> None:
+    """Supprime tout l’inventaire d’un joueur."""
+    uid = str(user_id)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM inventories WHERE user_id=?", (uid,))
+        await db.commit()
+
 async def transfer_item(user_from: int, user_to: int, item_key: str, qty: int = 1) -> bool:
     """Transfert direct d’un item de user_from vers user_to. Retourne True si ok."""
     if qty <= 0:
@@ -200,3 +207,8 @@ async def remove_items_bulk(user_id: int, items: Dict[str, int]) -> bool:
                 )
         await db.commit()
     return True
+
+async def get_inventory_map(user_id: int) -> Dict[str, int]:
+    """Retourne l’inventaire sous forme de dict {item_key: qty} (quantités > 0)."""
+    items = await get_all_items(user_id)
+    return {k: int(v) for k, v in items if int(v) > 0}
