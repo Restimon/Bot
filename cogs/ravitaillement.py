@@ -10,7 +10,7 @@ from discord.ext import commands
 
 # ← ADAPTE SI TON CHEMIN DIFFÈRE
 from data.items import OBJETS, GIFS
-from inventory import init_inventory_db, add_item, get_item_qty
+from inventory_db import init_inventory_db, add_item, get_item_qty
 
 # ---------------- Réglages gameplay ----------------
 MIN_MSGS = 10             # minimum de messages avant un drop
