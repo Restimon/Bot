@@ -5,7 +5,7 @@ import aiosqlite
 import discord
 from typing import List, Tuple, Optional
 
-from economie import get_balance
+from economy_db import get_balance
 from stats_db import get_hp
 
 DB_PATH = "gotvalis.sqlite3"
