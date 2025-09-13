@@ -6,7 +6,7 @@ from discord.ext import commands
 
 from data.shop_catalogue import ITEMS_CATALOGUE, RARETE_PRIX_VENTE
 from economy_db import get_balance, add_balance
-from inventory import add_item, remove_item, get_item_qty
+from inventory_db import add_item, remove_item, get_item_qty
 from gacha_db import add_tickets, get_tickets, get_personnage_qty, remove_personnage
 import personnage as PERSO
 
