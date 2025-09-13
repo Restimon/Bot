@@ -7,8 +7,8 @@ from discord.ext import commands
 from typing import Optional
 
 # Économie / inventaire / stats / effets / passifs
-from economie import add_coins, spend_coins, get_balance, set_balance
-from inventory import add_item, remove_item, get_item_qty
+from economy_db import add_coins, spend_coins, get_balance, set_balance
+from inventory_db import add_item, remove_item, get_item_qty
 from stats_db import set_hp, set_shield, revive_full, get_hp, get_shield
 from effects_db import clear_effects
 from passifs import set_equipped_name, get_equipped_name
