@@ -6,6 +6,7 @@ import sys
 import asyncio
 import logging
 import importlib.util
+import pathlib
 from typing import List
 
 import discord
@@ -22,18 +23,25 @@ logging.basicConfig(
 log = logging.getLogger("gotvalis.main")
 
 # ─────────────────────────────────────────────────────────────
-# 1) Token / Guild
+# 1) Sécuriser le PYTHONPATH (racine du projet)
+# ─────────────────────────────────────────────────────────────
+ROOT = pathlib.Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# ─────────────────────────────────────────────────────────────
+# 2) Token / Guild
 # ─────────────────────────────────────────────────────────────
 TOKEN = os.getenv("GOTVALIS_TOKEN") or os.getenv("DISCORD_TOKEN")
-GUILD_ID_ENV = os.getenv("GUILD_ID")  # facultatif: sync rapide par serveur
-GUILD_ID = int(GUILD_ID_ENV) if GUILD_ID_ENV and GUILD_ID_ENV.isdigit() else None
+GUILD_ID_ENV = os.getenv("GUILD_ID")
+GUILD_ID = int(GUILD_ID_ENV) if (GUILD_ID_ENV and GUILD_ID_ENV.isdigit()) else None
 
 if not TOKEN:
     log.error("Aucun token. Définis GOTVALIS_TOKEN (ou DISCORD_TOKEN) dans l'environnement.")
     sys.exit(1)
 
 # ─────────────────────────────────────────────────────────────
-# 2) Intents
+# 3) Intents
 # ─────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
@@ -43,17 +51,36 @@ intents.reactions = True
 intents.voice_states = True
 
 # ─────────────────────────────────────────────────────────────
-# 3) Utilitaires
+# 4) Helpers
 # ─────────────────────────────────────────────────────────────
-def _spec_exists(mod: str) -> bool:
-    """Vérifie si un module/extension Python existe avant load_extension."""
+def spec_exists(module_path: str) -> bool:
+    """True si l’extension/module Python existe."""
     try:
-        return importlib.util.find_spec(mod) is not None
+        return importlib.util.find_spec(module_path) is not None
     except Exception:
         return False
 
+async def try_init_db(mod_name: str, init_func: str) -> None:
+    """
+    Importe dynamiquement un module et appelle sa fonction d'init si dispo.
+    Ex: await try_init_db('economy_db', 'init_economy_db')
+    """
+    if not spec_exists(mod_name):
+        log.warning("SQLite KO: %s → module introuvable", mod_name)
+        return
+    try:
+        mod = importlib.import_module(mod_name)
+        fn = getattr(mod, init_func, None)
+        if fn is None:
+            log.warning("SQLite KO: %s → fonction %s absente", mod_name, init_func)
+            return
+        await fn()
+        log.info("SQLite OK: %s.%s", mod_name, init_func)
+    except Exception as e:
+        log.warning("SQLite KO: %s → %s", mod_name, e)
+
 # ─────────────────────────────────────────────────────────────
-# 4) Bot
+# 5) Bot
 # ─────────────────────────────────────────────────────────────
 class GotValisBot(commands.Bot):
     def __init__(self):
@@ -62,9 +89,9 @@ class GotValisBot(commands.Bot):
             intents=intents,
             help_command=None,
         )
-        # Liste d’extensions (charge seulement si présentes)
+        # Liste d’extensions à charger si elles existent
         self.initial_extensions: List[str] = [
-            # Core game
+            # Core
             "cogs.info_cog",
             "cogs.help_cog",
             "cogs.inventory_cog",
@@ -77,7 +104,7 @@ class GotValisBot(commands.Bot):
             "cogs.combat_cog",
             "cogs.leaderboard_cog",
             "cogs.admin_cog",
-            # Social (nécessitent un setup(interaction) dans chaque fichier)
+            # Social (chaque fichier doit avoir async def setup(bot): …)
             "cogs.social.love",
             "cogs.social.hug",
             "cogs.social.kiss",
@@ -88,49 +115,27 @@ class GotValisBot(commands.Bot):
             "cogs.social.bite",
         ]
 
-    # S'exécute APRÈS login/avant ready → parfait pour init DB + charger cogs + sync
     async def setup_hook(self) -> None:
-        # 4.1 Init du stockage JSON (tickets/CD/config) si tu l’utilises
+        # 5.1 Storage JSON (tickets/CD/config, si tu l’utilises)
         try:
-            from data import storage  # type: ignore
-            await storage.init_storage()
-            log.info("Storage initialisé (data.json prêt).")
+            if spec_exists("data.storage"):
+                from data import storage  # type: ignore
+                await storage.init_storage()
+                log.info("Storage initialisé (data.json prêt).")
+            else:
+                log.info("data/storage.py absent : skip storage JSON.")
         except Exception as e:
             log.warning("Storage JSON non initialisé: %s", e)
 
-        # 4.2 Init des bases SQLite (économie/inventaire/stats/effets)
-        try:
-            from economy_db import init_economy_db  # type: ignore
-            await init_economy_db()
-            log.info("SQLite OK: economy_db")
-        except Exception as e:
-            log.warning("SQLite KO: economy_db → %s", e)
+        # 5.2 SQLite (si présents à la racine du projet)
+        await try_init_db("economy_db", "init_economy_db")
+        await try_init_db("inventory_db", "init_inventory_db")
+        await try_init_db("stats_db", "init_stats_db")
+        await try_init_db("effects_db", "init_effects_db")
 
-        try:
-            from inventory_db import init_inventory_db  # type: ignore
-            await init_inventory_db()
-            log.info("SQLite OK: inventory_db")
-        except Exception as e:
-            log.warning("SQLite KO: inventory_db → %s", e)
-
-        # Optionnels selon ton projet
-        try:
-            from stats_db import init_stats_db  # type: ignore
-            await init_stats_db()
-            log.info("SQLite OK: stats_db")
-        except Exception as e:
-            log.warning("SQLite KO: stats_db → %s", e)
-
-        try:
-            from effects_db import init_effects_db  # type: ignore
-            await init_effects_db()
-            log.info("SQLite OK: effects_db")
-        except Exception as e:
-            log.warning("SQLite KO: effects_db → %s", e)
-
-        # 4.3 Charger les cogs existants (skip propre si absent/malspec)
+        # 5.3 Charger les cogs existants
         for ext in self.initial_extensions:
-            if not _spec_exists(ext):
+            if not spec_exists(ext):
                 log.error("Extension absente (skip): %s", ext)
                 continue
             try:
@@ -139,20 +144,16 @@ class GotValisBot(commands.Bot):
             except Exception as e:
                 log.error("Extension KO: %s → %s", ext, e)
 
-        # 4.4 Sync slash (guild ciblée si GUILD_ID fourni, sinon global)
-        await self._sync_app_commands()
+        # 5.4 Sync slash
+        await self.sync_slash()
 
-        # 4.5 (Optionnel) Présence initiale sécurisée après login/ws prêt
-        # On ne fait PAS de change_presence ici si le WS n’est pas prêt.
-        # on_ready s’en charge proprement.
-
-    async def _sync_app_commands(self):
+    async def sync_slash(self) -> None:
         try:
             if GUILD_ID:
                 guild = discord.Object(id=GUILD_ID)
                 self.tree.copy_global_to(guild=guild)
                 await self.tree.sync(guild=guild)
-                log.info("Slash synchronisées (guild: %s)", GUILD_ID)
+                log.info("Slash synchronisées (guild: %s).", GUILD_ID)
             else:
                 await self.tree.sync()
                 log.info("Slash synchronisées (globales).")
@@ -160,8 +161,8 @@ class GotValisBot(commands.Bot):
             log.exception("Erreur de sync: %s", e)
 
     async def on_ready(self):
-        # Appelé quand le WS est prêt → on peut changer la présence sans erreur.
         log.info("Connecté en tant que %s (%s)", self.user, getattr(self.user, "id", "?"))
+        # Change la présence quand le WS est prêt (évite l’AttributeError)
         try:
             await self.change_presence(
                 activity=discord.Activity(type=discord.ActivityType.watching, name="le réseau GotValis"),
@@ -173,7 +174,7 @@ class GotValisBot(commands.Bot):
 bot = GotValisBot()
 
 # ─────────────────────────────────────────────────────────────
-# 5) Petite commande admin: /resync pour resynchroniser
+# 6) /resync (admin)
 # ─────────────────────────────────────────────────────────────
 class DevCog(commands.Cog):
     def __init__(self, bot: GotValisBot):
@@ -184,7 +185,7 @@ class DevCog(commands.Cog):
     async def resync(self, inter: discord.Interaction):
         await inter.response.defer(ephemeral=True, thinking=True)
         try:
-            await self.bot._sync_app_commands()
+            await self.bot.sync_slash()
             await inter.followup.send("✅ Slash commands resynchronisées.", ephemeral=True)
         except Exception as e:
             await inter.followup.send(f"❌ Erreur: `{e}`", ephemeral=True)
@@ -196,10 +197,9 @@ async def _add_dev_cog():
         log.error("Impossible d’ajouter DevCog: %s", e)
 
 # ─────────────────────────────────────────────────────────────
-# 6) Entrée
+# 7) Entrée
 # ─────────────────────────────────────────────────────────────
 async def main():
-    # Ajoute DevCog avant le démarrage
     async with bot:
         await _add_dev_cog()
         await bot.start(TOKEN)
