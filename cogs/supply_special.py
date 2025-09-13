@@ -8,7 +8,7 @@ from discord import app_commands, Interaction, Embed, Colour
 from discord.ext import commands
 
 from data.items import OBJETS
-from inventory import add_item
+from inventory_db import add_item
 from economy_db import add_balance
 from gacha_db import add_tickets
 from stats_db import init_stats_db, heal_hp, damage_hp, get_hp
