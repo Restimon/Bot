@@ -8,7 +8,7 @@ from discord.ext import commands
 
 from data.items import OBJETS
 from gacha_db import init_gacha_db, add_tickets, get_tickets
-from inventory import init_inventory_db, add_item
+from inventory_db import init_inventory_db, add_item
 from economy_db import init_economy_db, add_balance
 
 # ------- utils -------
