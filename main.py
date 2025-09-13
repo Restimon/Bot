@@ -43,33 +43,30 @@ intents.voice_states = True           # pour l’économie vocale
 # ─────────────────────────────────────────────────────────────
 # 4) Bot
 # ─────────────────────────────────────────────────────────────
+# main.py (extrait) — remplace ta classe Bot par ceci:
+
 class GotValisBot(commands.Bot):
     def __init__(self):
         super().__init__(
-            command_prefix=commands.when_mentioned_or("!"),  # prefix legacy si besoin
+            command_prefix=commands.when_mentioned_or("!"),
             intents=intents,
-            help_command=None,  # on utilise ton /help RP
+            help_command=None,
         )
-        self.initial_extensions: List[str] = [
-            # ── COGS cœur du jeu
-            "cogs.combat_cog",
-            "cogs.inventory_cog",
-            "cogs.economy_cog",
-            "cogs.gacha_cog",
-            "cogs.daily_cog",
-            "cogs.shop_cog",
-            "cogs.ravitaillement",     # ravitaillement normal (10-30 msgs)
-            "cogs.supply_special",     # supply spécial (fenêtres 8–12 / 13–16 / 18–22)
-
-            # ── UX / Infos
+        self.initial_extensions = [
+            # charge uniquement ce qui existe chez toi; sinon commente la ligne
             "cogs.info_cog",
             "cogs.help_cog",
+            "cogs.inventory_cog",
+            "cogs.shop_cog",
+            "cogs.daily_cog",
+            "cogs.gacha_cog",
+            "cogs.economy_cog",
+            "cogs.ravitaillement",
+            "cogs.supply_special",
+            "cogs.combat_cog",
             "cogs.leaderboard_cog",
-
-            # ── Admin
             "cogs.admin_cog",
-
-            # ── Social (fichiers séparés, pas fusionnés)
+            # socials:
             "cogs.social.love",
             "cogs.social.hug",
             "cogs.social.kiss",
@@ -81,15 +78,10 @@ class GotValisBot(commands.Bot):
         ]
 
     async def setup_hook(self) -> None:
-        # 1) Persistance JSON (crée /persistent/data.json si absent)
-        try:
-            from data import storage
-            await storage.init_storage()
-            log.info("Storage initialisé (data.json prêt).")
-        except Exception as e:
-            log.exception("Erreur d'init storage: %s", e)
+        from data import storage
+        await storage.init_storage()  # crée /persistent/data.json si absent
 
-        # 2) Charger les extensions
+        # charger les cogs
         for ext in self.initial_extensions:
             try:
                 await self.load_extension(ext)
@@ -97,17 +89,8 @@ class GotValisBot(commands.Bot):
             except Exception as e:
                 log.error("Extension KO: %s → %s", ext, e)
 
-        # 3) Sync des slash commands
+        # sync slash
         await self._sync_app_commands()
-
-        # 4) Présence
-        await self.change_presence(
-            activity=discord.Activity(
-                type=discord.ActivityType.watching,
-                name="le réseau GotValis"
-            ),
-            status=discord.Status.online
-        )
 
     async def _sync_app_commands(self):
         try:
@@ -120,12 +103,14 @@ class GotValisBot(commands.Bot):
                 await self.tree.sync()
                 log.info("Slash commands synchronisées (globales).")
         except Exception as e:
-            log.exception("Erreur de sync app commands: %s", e)
+            log.exception("Erreur de sync: %s", e)
 
     async def on_ready(self):
         log.info("Connecté en tant que %s (%s)", self.user, self.user.id)
-        log.info("Latence WebSocket: %.0f ms", self.latency * 1000)
-
+        await self.change_presence(
+            activity=discord.Activity(type=discord.ActivityType.watching, name="le réseau GotValis"),
+            status=discord.Status.online
+        )
 
 bot = GotValisBot()
 
