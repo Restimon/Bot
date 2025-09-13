@@ -11,8 +11,8 @@ from discord.ext import commands, tasks
 from inventory_db import add_item
 from economy_db import add_balance
 
-BOX_EMOJI = "📦"
-CLAIM_EMOJI = "✅"
+BOX_EMOJI = "📦"   # sert aussi pour claim
+CLAIM_EMOJI = BOX_EMOJI
 
 BASIC_ITEMS = ["🍀", "❄️", "🧪", "🩹", "💊"]  # petit pool simple
 
