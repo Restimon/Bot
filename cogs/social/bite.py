@@ -1,8 +1,9 @@
+# cogs/social/bite.py
 import discord
 import random
 from discord import app_commands
+from discord.ext import commands
 
-# Liste de GIFs pour la morsure (tu peux en rajouter)
 BITE_GIFS = [
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMWI4emVzaGJpd3FkbnA4cmZhNDBuOXBqcHM1OWtoZGZpeXY5ZDB6cSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/lrMUMn9lnpaJDsvP0u/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMWI4emVzaGJpd3FkbnA4cmZhNDBuOXBqcHM1OWtoZGZpeXY5ZDB6cSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/YW3obh7zZ4Rj2/giphy.gif",
@@ -16,27 +17,24 @@ BITE_GIFS = [
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3Y25ycjU2b3dicWo2OW42NjN3b2JxYXFodGgzdGtlcW84eXAxaTZkciZlcD12MV9naWZzX3NlYXJjaCZjdD1n/idNoM77zIzcWP4Lbmz/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNmFodzNlMzlpc3ppYXp1Z25kM3QzeDBheHhjOHc0OGY5MjhnZ213eCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/sXR1Lyui5SEmI/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNmFodzNlMzlpc3ppYXp1Z25kM3QzeDBheHhjOHc0OGY5MjhnZ213eCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/LO9Y9hKLupIwko9IVd/giphy.gif",
-    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3YTk5cXVqbXczYzh2dzBuanFmaDM1a21xb3Y1YWN2a2VtZmxocnQzcSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/q8TEi7UTxas92/giphy.gif"
+    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3YTk5cXVqbXczYzh2dzBuanFmaDM1a21xb3Y1YWN2a2VtZmxocnQzcSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/q8TEi7UTxas92/giphy.gif",
 ]
 
-def register_bite_command(bot):
-    @bot.tree.command(name="bite", description="Mord un membre.")
+class BiteCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @app_commands.command(name="bite", description="Mord un membre.")
     @app_commands.describe(user="Le membre que vous voulez mordre.")
-    async def bite_slash(interaction: discord.Interaction, user: discord.Member):
-
+    async def bite_slash(self, interaction: discord.Interaction, user: discord.Member):
         await interaction.response.defer(thinking=True)
-
-        author_mention = interaction.user.mention
-        target_mention = user.mention
-
-        gif_url = random.choice(BITE_GIFS)
-
-        # Prépare l'embed
         embed = discord.Embed(
-            title="GotValis : morsure détecté 👄 ",
-            description=f"{author_mention} mord tendrement {target_mention} ! 👄",
-            color=discord.Color.red()
+            title="GotValis : morsure détectée 👄",
+            description=f"{interaction.user.mention} mord tendrement {user.mention} ! 👄",
+            color=discord.Color.red(),
         )
-        embed.set_image(url=gif_url)
-
+        embed.set_image(url=random.choice(BITE_GIFS))
         await interaction.followup.send(embed=embed)
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(BiteCog(bot))
