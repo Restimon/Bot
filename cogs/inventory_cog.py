@@ -3,7 +3,7 @@ import discord
 from discord import app_commands, Interaction, Embed, Colour
 from discord.ext import commands
 
-from inventory import get_all_items, init_inventory_db
+from inventory_db import get_all_items, init_inventory_db
 from gacha_db import get_tickets, can_claim_daily_ticket
 from economy_db import get_balance
 from data.items import OBJETS  # ton dictionnaire des objets
