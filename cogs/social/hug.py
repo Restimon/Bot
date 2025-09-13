@@ -1,8 +1,9 @@
+# cogs/social/hug.py
 import discord
 import random
 from discord import app_commands
+from discord.ext import commands
 
-# Liste des GIFs de câlins
 HUG_GIFS = [
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbzFrZmNjOTd6bWRnOGQ5bjUzMHZibGpvbnV0Z2NwNTBsbGhrN2pidiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/9d3LQ6TdV2Flo8ODTU/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbzFrZmNjOTd6bWRnOGQ5bjUzMHZibGpvbnV0Z2NwNTBsbGhrN2pidiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/xT39CXg70nNS0MFNLy/giphy.gif",
@@ -18,22 +19,26 @@ HUG_GIFS = [
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NzIwNXF5dXF1YXNhNjlrdHA5ZWFpMGVxeWdmeDEyYjgwdGhvNTBjcCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3bqtLDeiDtwhq/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NzIwNXF5dXF1YXNhNjlrdHA5ZWFpMGVxeWdmeDEyYjgwdGhvNTBjcCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/u9BxQbM5bxvwY/giphy.gif",
     "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3NzIwNXF5dXF1YXNhNjlrdHA5ZWFpMGVxeWdmeDEyYjgwdGhvNTBjcCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/LIqFOpO9Qh0uA/giphy.gif",
-    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExb2xlMnlubXBpbDdmcjZpNmNtN2cwNjQxb3llZGpwOWc1MnN4YWk5dyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kvKFM3UWg2P04/giphy.gif"
+    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExb2xlMnlubXBpbDdmcjZpNmNtN2cwNjQxb3llZGpwOWc1MnN4YWk5dyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/kvKFM3UWg2P04/giphy.gif",
 ]
 
-def register_hug_command(bot):
-    @bot.tree.command(name="hug", description="Fais un câlin à quelqu’un")
+class HugCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @app_commands.command(name="hug", description="Fais un câlin à quelqu’un")
     @app_commands.describe(target="La personne que tu veux câliner")
-    async def hug(interaction: discord.Interaction, target: discord.Member):
+    async def hug(self, interaction: discord.Interaction, target: discord.Member):
         if target.bot:
             await interaction.response.send_message("🤖 Les bots n’ont pas besoin de câlins... sauf si ?", ephemeral=True)
             return
-
-        gif_url = random.choice(HUG_GIFS)
         embed = discord.Embed(
             title="GotValis : transfert d’affection détecté 💞",
             description=f"{interaction.user.mention} fait un câlin à {target.mention} !",
-            color=discord.Color.pink()
+            color=discord.Color.pink(),
         )
-        embed.set_image(url=gif_url)
+        embed.set_image(url=random.choice(HUG_GIFS))
         await interaction.response.send_message(embed=embed)
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(HugCog(bot))
