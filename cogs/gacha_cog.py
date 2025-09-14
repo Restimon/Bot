@@ -1,104 +1,203 @@
-# cogs/tirage.py
+# cogs/gacha_cog.py
+from __future__ import annotations
+
+import random
+from collections import Counter
+from typing import Dict, Tuple, List, Optional
+
 import discord
-from discord import app_commands, Embed, Colour, Interaction
+from discord import app_commands
 from discord.ext import commands
 
-from gacha_db import init_gacha_db, consume_ticket, get_tickets, add_personnage, get_collection
-import personnage as PERSO
+# --- Dépendances souples (pas de gacha_db !) ---
+try:
+    from data import storage  # doit fournir get_user_data(gid, uid) et save_data()
+except Exception:
+    storage = None
 
-def _embed_pull(user: discord.abc.User, rarete: str, p: dict) -> Embed:
-    desc = p.get("description", "")
-    faction = p.get("faction", "?")
-    passif = p.get("passif", {})
-    passif_nom = passif.get("nom", "—")
-    passif_effet = passif.get("effet", "")
-    image = p.get("image")
+try:
+    from economy_db import add_balance, get_balance  # SQLite
+except Exception:
+    # Fallback no-op si pas dispo
+    async def add_balance(user_id: int, delta: int, reason: str = "") -> int:
+        return 0
+    async def get_balance(user_id: int) -> int:
+        return 0
 
-    emb = Embed(
-        title=f"🎰 Tirage — {p.get('nom', 'Inconnu')}",
-        description=desc or "—",
-        colour={
-            "Commun": Colour.light_grey(),
-            "Rare": Colour.blue(),
-            "Épique": Colour.purple(),
-            "Légendaire": Colour.gold()
-        }.get(rarete, Colour.blurple())
-    )
-    emb.add_field(name="Rareté", value=rarete, inline=True)
-    emb.add_field(name="Faction", value=faction, inline=True)
-    emb.add_field(name="Passif", value=f"**{passif_nom}**\n{passif_effet}"[:1024], inline=False)
-    if image:
-        emb.set_thumbnail(url=f"attachment://card.png")
-    emb.set_footer(text=f"GotValis • Collection de {user.display_name}")
-    return emb
+try:
+    from utils import get_random_item, OBJETS
+except Exception:
+    # Fallback simpliste
+    def get_random_item(debug: bool = False):
+        return random.choice(["🍀", "❄️", "🧪", "🩹", "💊", "💰"])
+    OBJETS = {}
 
-class Tirage(commands.Cog):
-    """Tirage via tickets + gestion tickets/collection."""
+# -------------------- Réglages --------------------
+MAX_ROLLS = 10
+GOLD_COST_PER_ROLL = 100  # coût d’1 tirage en or
+TICKET_COST_PER_ROLL = 1  # coût d’1 tirage en tickets
+COIN_REWARD_RANGE = (100, 150)  # si le tirage donne "💰"
+EMBED_COLOR = discord.Color.gold()
 
+# -------------------- Tickets helpers --------------------
+def _ensure_ticket_buckets():
+    """Crée les seaux de tickets si absents dans storage."""
+    if storage is None:
+        return
+    data = storage.data
+    data.setdefault("tickets", {})
+
+def _get_tickets(guild_id: str, user_id: str) -> int:
+    if storage is None:
+        return 0
+    _ensure_ticket_buckets()
+    gid = str(guild_id); uid = str(user_id)
+    return int(storage.data["tickets"].get(gid, {}).get(uid, 0))
+
+def _add_tickets(guild_id: str, user_id: str, delta: int) -> int:
+    if storage is None:
+        return 0
+    _ensure_ticket_buckets()
+    gid = str(guild_id); uid = str(user_id)
+    bucket = storage.data["tickets"].setdefault(gid, {})
+    bucket[uid] = int(bucket.get(uid, 0)) + int(delta)
+    if bucket[uid] < 0:
+        bucket[uid] = 0
+    return bucket[uid]
+
+# -------------------- Inventaire helper --------------------
+def _give_item_to_inventory(guild_id: str, user_id: str, emoji: str, qty: int = 1):
+    """Ajoute l’item (emoji) dans l’inventaire listé par storage.get_user_data."""
+    if storage is None:
+        return
+    inv, _, _ = storage.get_user_data(str(guild_id), str(user_id))
+    for _ in range(max(1, qty)):
+        inv.append(emoji)
+
+# -------------------- Résolution d’un tirage --------------------
+async def _resolve_single_roll(guild_id: int, user_id: int) -> Tuple[str, Optional[int]]:
+    """
+    Renvoie (emoji, gold_gain).
+    - Si l’emoji == '💰' → gold_gain ∈ [COIN_REWARD_RANGE].
+    - Sinon gold_gain = None et l’emoji est ajouté à l’inventaire par le caller.
+    """
+    emoji = get_random_item(debug=False)
+    if emoji == "💰":
+        gain = random.randint(*COIN_REWARD_RANGE)
+        await add_balance(user_id, gain, reason="Gacha: pièce")
+        return emoji, gain
+    else:
+        _give_item_to_inventory(guild_id, user_id, emoji, qty=1)
+        return emoji, None
+
+# -------------------- Cog --------------------
+class Gacha(commands.Cog):
+    """Tirage Gacha GotValis™ — tickets ou or. 1 récompense par tirage, pondérée par la rareté (utils.OBJETS)."""
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def cog_load(self):
-        await init_gacha_db()
+    @app_commands.command(name="gacha", description="Effectue des tirages (tickets ou or).")
+    @app_commands.describe(
+        quantite="Nombre de tirages (1-10).",
+        mode="auto (par défaut), ticket, ou gold."
+    )
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name="auto", value="auto"),
+            app_commands.Choice(name="ticket", value="ticket"),
+            app_commands.Choice(name="gold", value="gold"),
+        ]
+    )
+    async def gacha_slash(self, interaction: discord.Interaction, quantite: int = 1, mode: Optional[app_commands.Choice[str]] = None):
+        if not interaction.guild:
+            return await interaction.response.send_message("Utilise cette commande dans un serveur.", ephemeral=True)
 
-    @app_commands.command(name="tirage", description="Utilise un ticket de tirage pour tirer un personnage.")
-    async def tirage(self, itx: Interaction):
-        has = await consume_ticket(itx.user.id)
-        if not has:
-            return await itx.response.send_message(
-                "🎟️ Tu n’as pas de **ticket**. (Tu pourras en acheter plus tard dans le shop.)",
-                ephemeral=True
-            )
+        quantite = max(1, min(MAX_ROLLS, int(quantite)))
+        mode_val = (mode.value if mode else "auto").lower()
 
-        rarete, p = PERSO.tirage_personnage()
-        if not p:
-            return await itx.response.send_message("❌ Aucun personnage disponible à tirer.", ephemeral=True)
+        gid = interaction.guild.id
+        uid = interaction.user.id
 
-        await add_personnage(itx.user.id, p["nom"], 1)
+        # Détermination du paiement
+        tickets_avail = _get_tickets(gid, uid)
+        use_tickets = False
+        if mode_val == "ticket":
+            use_tickets = True
+        elif mode_val == "gold":
+            use_tickets = False
+        else:  # auto
+            use_tickets = tickets_avail >= quantite
 
-        files = []
-        image_path = p.get("image")
-        embed = _embed_pull(itx.user, rarete, p)
-        if image_path and isinstance(image_path, str):
-            try:
-                files.append(discord.File(image_path, filename="card.png"))
-            except Exception:
-                pass
+        # Vérifs des ressources
+        if use_tickets:
+            if tickets_avail < quantite:
+                return await interaction.response.send_message(
+                    f"🎟️ Tu n’as pas assez de tickets ({tickets_avail}/{quantite}).", ephemeral=True
+                )
+        else:
+            # paiement en or
+            bal = await get_balance(uid)
+            need = quantite * GOLD_COST_PER_ROLL
+            if bal < need:
+                return await interaction.response.send_message(
+                    f"💰 Solde insuffisant ({bal}/{need}). Utilise des tickets ou gagne de l’or.", ephemeral=True
+                )
 
-        await itx.response.send_message(embed=embed, files=files if files else None)
+        # Débit
+        if use_tickets:
+            _add_tickets(gid, uid, -quantite)
+        else:
+            await add_balance(uid, -quantite * GOLD_COST_PER_ROLL, reason="Gacha: achat tirage")
 
-    @app_commands.command(name="tickets", description="Affiche combien de tickets de tirage tu possèdes.")
-    async def tickets(self, itx: Interaction, user: discord.User | None = None):
-        target = user or itx.user
-        n = await get_tickets(target.id)
-        await itx.response.send_message(
-            f"🎟️ Tickets de {target.mention} : **{n}**.",
-            ephemeral=(target.id == itx.user.id)
+        await interaction.response.defer(thinking=True)
+
+        # Tirages
+        results: List[Tuple[str, Optional[int]]] = []
+        coins_total = 0
+        for _ in range(quantite):
+            emoji, gold_gain = await _resolve_single_roll(gid, uid)
+            results.append((emoji, gold_gain))
+            if gold_gain:
+                coins_total += gold_gain
+
+        # Persist
+        if storage is not None:
+            storage.save_data()
+
+        # Résumé
+        # Compte les items (hors 💰)
+        item_counts = Counter([e for e, g in results if e != "💰"])
+        coin_hits = [g for e, g in results if e == "💰" and g]
+
+        # Texte de loot
+        lines = []
+        if item_counts:
+            for emoji, cnt in item_counts.most_common():
+                suffix = f" ×{cnt}" if cnt > 1 else ""
+                lines.append(f"{emoji}{suffix}")
+        if coin_hits:
+            # on détaille un total + mention si plusieurs hits
+            hits = len(coin_hits)
+            total = sum(coin_hits)
+            if hits == 1:
+                lines.append(f"💰 +{total} or")
+            else:
+                lines.append(f"💰 +{total} or (x{hits})")
+
+        if not lines:
+            lines = ["(rien ?) étrange…"]
+
+        mode_label = "🎟️ Tickets" if use_tickets else "💰 Or"
+        paid = f"{quantite}× {('ticket' if use_tickets else f'{GOLD_COST_PER_ROLL} or')}"
+        embed = discord.Embed(
+            title="🎰 Tirage Gacha — GotValis™",
+            description=f"Paiement: **{mode_label}** — coût: **{paid}**",
+            color=EMBED_COLOR
         )
+        embed.add_field(name="Récompenses", value="\n".join(f"• {l}" for l in lines), inline=False)
 
-    @app_commands.command(name="collection", description="Affiche ta collection de personnages.")
-    async def collection(self, itx: Interaction, user: discord.User | None = None):
-        target = user or itx.user
-        rows = await get_collection(target.id)
-        if not rows:
-            return await itx.response.send_message(f"{target.mention} n’a encore **aucun** personnage.", ephemeral=True)
+        await interaction.followup.send(embed=embed)
 
-        by_rarity: dict[str, list[str]] = {r: [] for r in PERSO.RARETES}
-        for nom, qty in rows:
-            p = PERSO.get_par_nom(nom)
-            rarete = p.get("rarete") if p else "Commun"
-            by_rarity.setdefault(rarete, []).append(f"{nom} × **{qty}**")
-
-        emb = Embed(
-            title=f"🗂️ Collection de {target.display_name}",
-            colour=Colour.blurple()
-        )
-        for rarete in PERSO.RARETES:
-            lst = by_rarity.get(rarete) or []
-            if lst:
-                emb.add_field(name=rarete, value="\n".join(lst)[:1024], inline=False)
-
-        await itx.response.send_message(embed=emb, ephemeral=(target.id == itx.user.id))
-
+# --- setup() pour extensions ---
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Tirage(bot))
+    await bot.add_cog(Gacha(bot))
