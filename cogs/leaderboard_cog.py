@@ -1,52 +1,61 @@
-# cogs/leaderboard_watcher_cog.py
+# cogs/leaderboard_cog.py
 from __future__ import annotations
-
-import asyncio
-from typing import Set
-
 import discord
+from discord import app_commands
 from discord.ext import commands
 
-from leaderboard import init_leaderboard_db, ensure_and_update_message
+try:
+    from data import storage
+except Exception:
+    storage = None
 
-# files externes peuvent appeler ceci pour rafraîchir "à la volée"
-_DIRTY_GUILDS: Set[int] = set()
-
-def mark_leaderboard_dirty(guild_id: int) -> None:
-    _DIRTY_GUILDS.add(int(guild_id))
-
-class LeaderboardWatcher(commands.Cog):
-    def __init__(self, bot: commands.Bot, interval: int = 60):
+class LeaderboardCog(commands.Cog):
+    """Classement simple (points / kills / deaths), basé sur data.storage.leaderboard."""
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.interval = interval
-        self._task: asyncio.Task | None = None
 
-    async def cog_load(self):
-        await init_leaderboard_db()
-        self._task = asyncio.create_task(self._loop())
+    @app_commands.command(name="leaderboard", description="Affiche le classement GotValis du serveur.")
+    @app_commands.describe(critere="points | kills | deaths", limite="Combien afficher (1-25)")
+    async def leaderboard(
+        self,
+        inter: discord.Interaction,
+        critere: str = "points",
+        limite: int = 10
+    ):
+        await inter.response.defer(thinking=True)
 
-    async def cog_unload(self):
-        if self._task:
-            self._task.cancel()
+        if storage is None:
+            return await inter.followup.send("Classement indisponible (storage non initialisé).")
 
-    async def _loop(self):
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            try:
-                # 1) guilds marqués "dirty" -> update immédiat
-                dirty = list(_DIRTY_GUILDS)
-                _DIRTY_GUILDS.clear()
-                for gid in dirty:
-                    guild = self.bot.get_guild(gid)
-                    if guild:
-                        await ensure_and_update_message(guild)
+        gid = str(inter.guild_id)
+        data = storage.leaderboard.get(gid, {})
+        if not data:
+            return await inter.followup.send("Aucun classement pour l’instant.")
 
-                # 2) scan périodique
-                for guild in self.bot.guilds:
-                    await ensure_and_update_message(guild)
-            except Exception:
-                pass
-            await asyncio.sleep(self.interval)
+        critere = critere.lower()
+        key = {"points": "points", "kills": "kills", "deaths": "deaths"}.get(critere, "points")
+
+        limite = max(1, min(25, int(limite)))
+        items = sorted(
+            data.items(),
+            key=lambda kv: int(kv[1].get(key, 0)),
+            reverse=True
+        )[:limite]
+
+        lines = []
+        for rank, (uid, stats) in enumerate(items, start=1):
+            p = int(stats.get("points", 0))
+            k = int(stats.get("kills", 0))
+            d = int(stats.get("deaths", 0))
+            lines.append(f"**#{rank}** <@{uid}> — **{p}** pts | 🗡 {k} | ☠️ {d}")
+
+        embed = discord.Embed(
+            title=f"🏆 Leaderboard — {inter.guild.name}",
+            description="\n".join(lines),
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text=f"Critère: {key} • Top {limite}")
+        await inter.followup.send(embed=embed)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(LeaderboardWatcher(bot))
+    await bot.add_cog(LeaderboardCog(bot))
