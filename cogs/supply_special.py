@@ -1,6 +1,5 @@
-# cogs/supply_special.py
+# cogs/supply_special.py (extrait: imports)
 from __future__ import annotations
-
 import asyncio
 import random
 from dataclasses import dataclass, field
@@ -10,11 +9,27 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 
-# ── Dépendances projet
-from utils import get_random_item as _get_random_item, OBJETS
-from inventory_db import add_item
-from economy_db import add_balance
-from stats_db import get_hp, heal_user, deal_damage
+# Imports robustes
+try:
+    from utils import get_random_item as _get_random_item, OBJETS
+except ImportError:
+    from ..utils import get_random_item as _get_random_item, OBJETS
+
+try:
+    from inventory_db import add_item
+except ImportError:
+    from ..inventory_db import add_item
+
+try:
+    from economy_db import add_balance
+except ImportError:
+    from ..economy_db import add_balance
+
+try:
+    from stats_db import get_hp, heal_user, deal_damage
+except ImportError:
+    from ..stats_db import get_hp, heal_user, deal_damage
+
 
 # ─────────────────────────────────────────────────────────────
 # Réglages
