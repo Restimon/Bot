@@ -9,8 +9,24 @@ from economy_db import get_balance, add_balance
 from inventory_db import add_item, remove_item, get_item_qty
 from gacha_db import add_tickets, get_tickets, get_personnage_qty, remove_personnage
 import personnage as PERSO
+from __future__ import annotations
 
-TICKET = "🎟️"
+# Monnaie du bot : GoldValis (coins)
+CURRENCY_NAME = "GoldValis"
+TICKET_EMOJI = "🎟️"
+
+# Catalogue minimal : on ne vend que des tickets
+SHOP_ITEMS = {
+    "ticket": {
+        "emoji": TICKET_EMOJI,
+        "label": "Ticket d’invocation",
+        "price": 250,          # ajuste le prix ici
+        "max_per_buy": 10,     # limite par achat
+        "desc": "Nécessaire pour les invocations du gacha.",
+        "type": "ticket",
+    },
+}
+
 
 def _norm(s: str) -> str:
     s = unicodedata.normalize("NFKD", s)
