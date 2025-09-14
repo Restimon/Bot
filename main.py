@@ -13,6 +13,11 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
+import os, sys
+ROOT = os.path.dirname(os.path.abspath(__file__))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 # ─────────────────────────────────────────────────────────────
 # 0) Logging
 # ─────────────────────────────────────────────────────────────
