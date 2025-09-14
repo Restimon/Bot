@@ -1,19 +1,29 @@
-# cogs/ravitaillement.py
+# cogs/ravitaillement.py (extrait: imports)
 from __future__ import annotations
-
 import asyncio
 import random
-from dataclasses import dataclass, field
-from typing import Dict, Set, Optional
+from typing import Optional
 
 import discord
 from discord.ext import commands
 from discord import app_commands
 
-# Récompenses & inventaire/économie
-from utils import get_random_item as _get_random_item, OBJETS
-from economy_db import add_balance
-from inventory_db import add_item
+# Imports robustes
+try:
+    from utils import get_random_item, OBJETS
+except ImportError:
+    from ..utils import get_random_item, OBJETS
+
+try:
+    from inventory_db import add_item
+except ImportError:
+    from ..inventory_db import add_item
+
+try:
+    from economy_db import add_balance
+except ImportError:
+    from ..economy_db import add_balance
+
 
 BOX_EMOJI = "📦"  # unique émoji pour claim
 
