@@ -39,3 +39,6 @@ RARETE_SELL_VALUES = {
     "Épique": 200,
     "Légendaire": 400,
 }
+
+# --- Back-compat pour l'ancien cog ---
+SHOP_ITEMS = ITEMS_CATALOGUE
