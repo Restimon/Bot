@@ -3,263 +3,274 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from dataclasses import dataclass, field
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, Tuple, List
 
 import discord
 from discord.ext import commands
 
-# ─────────────────────────────────────────────────────────────
-# Imports utilitaires (inventaire + économie)
-# ─────────────────────────────────────────────────────────────
-try:
-    from utils import get_random_item, give_random_item
-except Exception as e:
-    raise RuntimeError("utils.py doit fournir get_random_item() et give_random_item().") from e
+# === Dépendances projet ===
+# utils.get_random_item() tire un emoji d'objet selon ta rareté.
+from utils import get_random_item
 
+# Inventaire persistant (data.json) : on ajoute les loots à la fin
 try:
-    from economy_db import add_balance
+    from data.storage import get_user_data, save_data  # type: ignore
 except Exception:
-    # économie facultative : si absente, on ignore les récompenses 💰
-    async def add_balance(user_id: int, delta: int, reason: str = "") -> int:  # type: ignore
-        return 0
-
+    # Fallback doux si storage n’est pas prêt dans l’environnement
+    def get_user_data(guild_id: str, user_id: str):
+        # Retourne (inventory_list, hp, personnage_dict_or_None)
+        return ([], 100, None)
+    def save_data():
+        return
 
 BOX_EMOJI = "📦"
 
-# Fenêtre de réaction en secondes
-CLAIM_WINDOW = 30
-
-# Nombre de messages aléatoire entre deux drops
+# Bornes du compteur automatique (inclusives)
 MIN_MSG = 12
 MAX_MSG = 30
 
+# Fenêtre de récupération en secondes
+CLAIM_WINDOW = 30
 
+# ------------------------------------------------------------
+# État interne par serveur
+# ------------------------------------------------------------
 @dataclass
-class ChannelDropState:
-    """État d’un canal pour le ravitaillement auto."""
-    # compteur de messages depuis le dernier drop complété
-    message_count: int = 0
-    # prochain palier aléatoire (12..30)
-    next_threshold: int = field(default_factory=lambda: random.randint(MIN_MSG, MAX_MSG))
+class GuildRavitailState:
+    # comptage auto (seulement si le bot PEUT réagir dans le salon)
+    msg_target: Optional[int] = None      # seuil de messages pour le prochain drop
+    msg_count: int = 0                    # compteur courant
+    last_channel_id: Optional[int] = None # dernier salon éligible où on a compté
 
-    # drop actif
+    # drop en cours
     active: bool = False
-    drop_message_id: Optional[int] = None
     drop_channel_id: Optional[int] = None
-    claimers: Set[int] = field(default_factory=set)
-    timer_task: Optional[asyncio.Task] = None
+    drop_message_id: Optional[int] = None
+    drop_starter_msg_id: Optional[int] = None  # l'ID du message SOUS lequel on a posé 📦
+    participants: Set[int] = field(default_factory=set)
+    started_at: float = 0.0
 
+# guild_id (int) -> state
+_STATES: Dict[int, GuildRavitailState] = {}
 
+# ------------------------------------------------------------
+# Helpers de permissions
+# ------------------------------------------------------------
+def _can_react(channel: discord.abc.GuildChannel, me: discord.Member) -> bool:
+    """
+    True si le bot peut compter ET poser 📦 dans ce salon :
+    - Voir messages (read_messages)
+    - Envoyer (send_messages) (pour le récap)
+    - Ajouter des réactions (add_reactions)
+    - Lire l'historique (read_message_history) (souvent requis pour réagir sur un msg)
+    """
+    try:
+        perms = channel.permissions_for(me)
+        return (
+            perms.read_messages
+            and perms.send_messages
+            and perms.add_reactions
+            and perms.read_message_history
+        )
+    except Exception:
+        return False
+
+def _is_text_like(channel: discord.abc.GuildChannel) -> bool:
+    """Autorise TextChannel, Thread, ForumChannel (post)."""
+    return isinstance(channel, (discord.TextChannel, discord.Thread, discord.ForumChannel))
+
+# ------------------------------------------------------------
+# Le Cog
+# ------------------------------------------------------------
 class RavitaillementCog(commands.Cog):
     """
-    Système de ravitaillement automatique :
-    - Ajoute 📦 sur un message utilisateur quand le seuil est atteint.
-    - 30s de fenêtre → récap en embed (récupéré / détruit).
-    - Récompenses données uniquement à la fin.
+    Auto-drop après 12 à 30 messages (aléatoire), mais
+    - On compte UNIQUEMENT les messages dans les salons où le bot peut poser une réaction.
+    - Une seule boîte active à la fois par serveur.
+    - 30s pour cliquer 📦 ; sinon “Ravitaillement détruit”.
+    - Les loots sont attribués à la fin (et sauvegardés).
     """
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # par-guild → par-channel
-        self.states: Dict[int, Dict[int, ChannelDropState]] = {}
 
-    # ─────────────────────────────────────────────────────────
-    # Helper: accès/creation d’état
-    # ─────────────────────────────────────────────────────────
-    def _state_for(self, guild_id: int, channel_id: int) -> ChannelDropState:
-        gdict = self.states.setdefault(guild_id, {})
-        return gdict.setdefault(channel_id, ChannelDropState())
-
-    # ─────────────────────────────────────────────────────────
-    # Core: messages
-    # ─────────────────────────────────────────────────────────
+    # ---------------------------
+    # Listener messages
+    # ---------------------------
     @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        # Ignore DMs / bots / messages sans guilde
-        if not message.guild or message.author.bot:
+    async def on_message(self, msg: discord.Message):
+        # ignorer les bots
+        if msg.author.bot:
+            return
+        # pas de serveur (DM)
+        if not msg.guild:
+            return
+        # on ne compte que dans des salons textuels
+        channel = msg.channel
+        if not _is_text_like(channel):
             return
 
-        # On n'auto-drop que dans les salons textuels
-        if not isinstance(message.channel, (discord.TextChannel, discord.Thread, discord.ForumChannel)):
+        # vérifier les permissions de réaction dans CE salon
+        me = msg.guild.me
+        if not me or not _can_react(channel, me):
+            # 🔴 Pas les perms → ne pas compter dans ce salon
             return
 
-        st = self._state_for(message.guild.id, message.channel.id)
+        gid = msg.guild.id
+        state = _STATES.setdefault(gid, GuildRavitailState())
 
-        # Si un drop est déjà actif, on ne compte pas (on attend la fin)
-        if st.active:
+        # si drop actif → on ne lance pas un autre ; on ignore le comptage tant que c'est actif
+        if state.active:
             return
 
-        # Incrémente le compteur, et déclenche si palier atteint
-        st.message_count += 1
-        if st.message_count >= st.next_threshold:
-            await self._start_drop_on_message(message)
+        # initialiser la cible si besoin
+        if state.msg_target is None:
+            state.msg_target = random.randint(MIN_MSG, MAX_MSG)
+            state.msg_count = 0
+            state.last_channel_id = channel.id
 
-    # ─────────────────────────────────────────────────────────
-    # Début d’un drop : on réagit 📦 au message
-    # ─────────────────────────────────────────────────────────
-    async def _start_drop_on_message(self, message: discord.Message):
-        guild_id = message.guild.id
-        channel_id = message.channel.id
-        st = self._state_for(guild_id, channel_id)
+        # si on change de salon, on met quand même à jour last_channel_id (on compte cross-channels
+        # tant que le bot a les perms — mais seulement dans les salons réactifs)
+        state.last_channel_id = channel.id
 
-        # Sécurité : si déjà actif, on annule
-        if st.active:
+        # incrémenter
+        state.msg_count += 1
+
+        # seuil atteint ? → on drop SOUS CE message
+        if state.msg_count >= int(state.msg_target or MAX_MSG):
+            await self._spawn_box_under_message(msg)
+            # reset du compteur pour le prochain cycle (après fin du drop on re-choisira une cible)
+            state.msg_target = None
+            state.msg_count = 0
+
+    # ---------------------------
+    # Spawn + collecte
+    # ---------------------------
+    async def _spawn_box_under_message(self, msg: discord.Message):
+        guild = msg.guild
+        channel = msg.channel
+        if not guild:
             return
 
-        # Tente d'ajouter la réaction 📦 directement sous le message utilisateur
+        me = guild.me
+        if not me or not _can_react(channel, me):
+            # sécurité supplémentaire
+            return
+
+        state = _STATES.setdefault(guild.id, GuildRavitailState())
+        if state.active:
+            return  # une boîte est déjà active
+
+        # Marquer l'état comme actif
+        state.active = True
+        state.drop_channel_id = channel.id
+        state.drop_starter_msg_id = msg.id
+        state.participants.clear()
+        state.started_at = time.time()
+
+        # Poser la réaction 📦 sous le message de l’utilisateur
         try:
-            await message.add_reaction(BOX_EMOJI)
-        except discord.Forbidden:
-            # Pas la permission d’ajouter des réactions
-            return
-        except discord.HTTPException:
-            # Autre erreur HTTP → on abandonne ce drop
-            return
-
-        # Armement de l’état actif
-        st.active = True
-        st.drop_message_id = message.id
-        st.drop_channel_id = channel_id
-        st.claimers.clear()
-
-        # Lance le timer de 30 secondes pour finaliser
-        st.timer_task = asyncio.create_task(self._finalize_after_delay(guild_id, channel_id, CLAIM_WINDOW))
-
-    # ─────────────────────────────────────────────────────────
-    # Récolte des réactions pendant la fenêtre
-    # ─────────────────────────────────────────────────────────
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        if payload.guild_id is None:
-            return
-        if str(payload.emoji) != BOX_EMOJI:
-            return
-
-        st = self._state_for(payload.guild_id, payload.channel_id)
-        if not st.active:
-            return
-        if st.drop_message_id != payload.message_id:
-            return
-
-        # Ignore les bots
-        if payload.user_id == (self.bot.user.id if self.bot.user else 0):
-            return
-
-        st.claimers.add(int(payload.user_id))
-
-    # ─────────────────────────────────────────────────────────
-    # Finalisation du drop
-    # ─────────────────────────────────────────────────────────
-    async def _finalize_after_delay(self, guild_id: int, channel_id: int, delay: int):
-        try:
-            await asyncio.sleep(delay)
-
-            st = self._state_for(guild_id, channel_id)
-            # re-check actif
-            if not st.active or not st.drop_message_id:
-                return
-
-            # On prépare l’embed de récap
-            channel = self.bot.get_channel(channel_id)
-            if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-                # Reset état même si on ne peut pas poster
-                self._reset_state(st)
-                return
-
-            # Filtre final des claimers : ignorer les membres sortis/bots
-            valid_claimers: list[discord.Member] = []
-            try:
-                for uid in st.claimers:
-                    m = channel.guild.get_member(uid)
-                    if m and not m.bot:
-                        valid_claimers.append(m)
-            except Exception:
-                pass
-
-            if not valid_claimers:
-                # Personne n'a cliqué → détruit
-                embed = discord.Embed(
-                    title="📦 Ravitaillement détruit",
-                    color=discord.Color.red(),
-                )
-                embed.add_field(
-                    name="Statut",
-                    value="Personne n’a réagi à temps.",
-                    inline=False,
-                )
-                await channel.send(embed=embed)
-                # Reset et replanification
-                self._reset_state(st)
-                return
-
-            # Sinon : distribution des loots maintenant
-            lines: list[str] = []
-            for member in valid_claimers:
-                loot = get_random_item()
-                if not loot:
-                    continue
-
-                if loot == "💰":
-                    # Récompense coins
-                    amount = random.randint(5, 15)
-                    try:
-                        await add_balance(member.id, amount, reason="Ravitaillement")
-                        lines.append(f"• {member.mention} → {loot} **+{amount}**")
-                    except Exception:
-                        # Si économie indispo, on n’affiche que l’emoji
-                        lines.append(f"• {member.mention} → {loot}")
-                else:
-                    # Récompense objet
-                    try:
-                        give_random_item(str(guild_id), str(member.id), loot)
-                        lines.append(f"• {member.mention} → {loot}")
-                    except Exception:
-                        # Si stockage indispo, on liste quand même
-                        lines.append(f"• {member.mention} → {loot}")
-
-            # Envoi du récap (sans description, uniquement un field)
-            title = f"📦 Ravitaillement récupéré — {len(valid_claimers)} participant(s)"
-            embed = discord.Embed(
-                title=title,
-                color=discord.Color.green(),
-            )
-            if lines:
-                embed.add_field(
-                    name="Récompenses",
-                    value="\n".join(lines),
-                    inline=False,
-                )
-            else:
-                embed.add_field(
-                    name="Récompenses",
-                    value="Aucune récompense valide n’a pu être attribuée.",
-                    inline=False,
-                )
-
-            await channel.send(embed=embed)
-
-            # Reset et replanification
-            self._reset_state(st)
-
+            await msg.add_reaction(BOX_EMOJI)
         except Exception:
-            # En cas d’exception, on tente de ne pas bloquer le cycle
-            st = self._state_for(guild_id, channel_id)
-            self._reset_state(st)
+            # si on ne peut finalement pas réagir → on annule ce drop
+            state.active = False
+            return
 
-    def _reset_state(self, st: ChannelDropState):
-        """Réinitialise l’état du salon et tire un nouveau seuil."""
-        st.active = False
-        st.drop_message_id = None
-        st.drop_channel_id = None
-        st.claimers.clear()
-        st.timer_task = None
-        st.message_count = 0
-        st.next_threshold = random.randint(MIN_MSG, MAX_MSG)
+        # Attendre la fenêtre de récup
+        await asyncio.sleep(CLAIM_WINDOW)
 
+        # Récupérer la liste des participants (utilisateurs ayant réagi)
+        try:
+            # on refetch pour lire les réactions actuelles
+            fresh_msg = await channel.fetch_message(msg.id)
+            users: List[discord.User] = []
+            for reaction in fresh_msg.reactions:
+                if str(reaction.emoji) == BOX_EMOJI:
+                    # limit=None pour récupérer tous les réacteurs
+                    async for u in reaction.users():
+                        if not u.bot:
+                            users.append(u)
+                    break
+            unique_ids = {u.id for u in users}
+        except Exception:
+            unique_ids = set()
 
-# ─────────────────────────────────────────────────────────────
-# Hook extension
-# ─────────────────────────────────────────────────────────────
+        # Nettoyage immédiat de l'état d’activité (avant l’envoi du récap)
+        state.active = False
+        state.drop_channel_id = None
+        state.drop_message_id = None
+        state.drop_starter_msg_id = None
+        state.started_at = 0.0
+
+        if not unique_ids:
+            # Personne n’a cliqué → “Ravitaillement détruit”
+            await self._send_destroyed_embed(channel)
+            return
+
+        # Attribuer les loots à la fin puis récap
+        allocations: List[Tuple[discord.Member, str]] = []
+        for uid in unique_ids:
+            member = guild.get_member(uid)
+            if not member:
+                # essayer un fetch si pas en cache
+                try:
+                    member = await guild.fetch_member(uid)
+                except Exception:
+                    member = None
+            if not member:
+                continue
+
+            item = get_random_item()
+            if not item:
+                continue
+
+            # On ajoute l’objet à l’inventaire persistant (data.storage)
+            inv, _, _ = get_user_data(str(guild.id), str(member.id))
+            # on stocke uniquement les emojis d'items
+            inv.append(item)
+            allocations.append((member, item))
+
+        # Sauvegarde physique
+        try:
+            save_data()
+        except Exception:
+            pass
+
+        # Récap “Ravitaillement récupéré”
+        await self._send_recap_embed(channel, allocations)
+
+    # ---------------------------
+    # Embeds
+    # ---------------------------
+    async def _send_recap_embed(self, channel: discord.abc.Messageable, allocations: List[Tuple[discord.Member, str]]):
+        # S'il n’y a finalement personne (edge case)
+        if not allocations:
+            await self._send_destroyed_embed(channel)
+            return
+
+        # Grouper par utilisateur au cas où quelqu’un a cliqué plusieurs fois
+        lines = []
+        for member, item in allocations:
+            lines.append(f"• {member.mention} ─ **{item}**")
+
+        embed = discord.Embed(
+            title="📦 Ravitaillement récupéré",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="Butin distribué", value="\n".join(lines), inline=False)
+        await channel.send(embed=embed)
+
+    async def _send_destroyed_embed(self, channel: discord.abc.Messageable):
+        embed = discord.Embed(
+            title="📦 Ravitaillement détruit",
+            color=discord.Color.red(),
+        )
+        await channel.send(embed=embed)
+
+# ------------------------------------------------------------
+# Setup extension
+# ------------------------------------------------------------
 async def setup(bot: commands.Bot):
     await bot.add_cog(RavitaillementCog(bot))
