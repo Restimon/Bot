@@ -11,7 +11,7 @@ except Exception:
     storage = None
 
 # catalogue
-from data.shop_catalogue import SHOP_ITEMS, CURRENCY_NAME
+from data.shop_catalogue import ITEMS_CATALOGUE, RARETE_SELL_VALUES, CURRENCY_NAME
 
 # gestion des GoldValis (SQLite)
 try:
