@@ -1,209 +1,219 @@
-# cogs/supply_special.py
+# cogs/ravitaillement.py
 from __future__ import annotations
 
 import asyncio
 import random
-import time
-from typing import Dict, List, Tuple
+from dataclasses import dataclass
+from typing import Dict, Optional, Set, List, Tuple
 
 import discord
 from discord.ext import commands
 
-# ---- Dépendances projet (avec fallback sûrs) ----
-from utils import get_random_item, OBJETS  # raretés/objets
-
-# économie (GoldValis)
-try:
-    from economy_db import add_balance  # type: ignore
-    _HAVE_ECO = True
-except Exception:
-    _HAVE_ECO = False
-    async def add_balance(user_id: int, delta: int, reason: str = "") -> int:  # type: ignore
-        return 0
-
-# inventaire (tickets + objets)
-try:
-    from inventory_db import add_item  # type: ignore
-    _HAVE_INV = True
-except Exception:
-    _HAVE_INV = False
-    async def add_item(user_id: int, item_key: str, qty: int = 1) -> None:  # type: ignore
-        return
-
-# dégâts (piège)
-try:
-    from stats_db import deal_damage, get_hp  # type: ignore
-    _HAVE_STATS = True
-except Exception:
-    _HAVE_STATS = False
-    async def deal_damage(attacker_id: int, user_id: int, amount: int) -> Dict[str, int]:
-        return {"lost": amount, "absorbed": 0}
-    async def get_hp(user_id: int) -> Tuple[int, int]:
-        return (100, 100)
-
-# ------------------------------------------------------------
-# Réglages
-# ------------------------------------------------------------
 BOX_EMOJI = "📦"
-TICKET_EMOJI = "🎟️"
+DROP_AFTER_MIN = 12
+DROP_AFTER_MAX = 30
+CLAIM_SECONDS = 30
 
-WINDOW_SECONDS = 5 * 60         # 5 minutes
-MAX_CLAIMERS = 5                # max 5 personnes
+try:
+    from data import storage
+except Exception:
+    storage = None
 
-# Probabilités (tu peux ajuster)
-TRAP_CHANCE   = 0.15   # 15% piège
-HEAL_CHANCE   = 0.15   # 15% item soin/regen
-GOLD_CHANCE   = 0.20   # 20% gold 100-150
-TICKET_CHANCE = 0.10   # 10% tickets 🎟️ (1-2)
-# le reste → loot normal via utils.get_random_item (40%)
+try:
+    from utils import get_random_item, OBJETS
+except Exception:
+    def get_random_item(debug: bool = False):
+        return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
+    OBJETS = {}
 
-TRAP_DMG_RANGE = (6, 12)        # dégâts du piège si déclenché
-GOLD_RANGE     = (100, 150)
-TICKET_RANGE   = (1, 2)
+@dataclass
+class PendingDrop:
+    message_id: int
+    channel_id: int
+    guild_id: int
+    expires_at: float
+    claimers: Set[int]
 
-# ------------------------------------------------------------
-class SpecialSupply(commands.Cog):
+class Ravitaillement(commands.Cog):
+    """
+    Auto-drop toutes les 12 à 30 interactions 'éligibles' (messages dans les salons où le bot
+    peut réagir). Un seul drop actif à la fois par serveur.
+    À la fin : on attribue les objets et on poste un récap. Si personne : 'Ravitaillement détruit'.
+    """
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._active_by_channel: Dict[int, bool] = {}
+        self._armed_after: Dict[int, int] = {}   # guild_id -> compteur cible (12..30)
+        self._count: Dict[int, int] = {}         # guild_id -> compte courant
+        self._active: Dict[int, PendingDrop] = {}  # guild_id -> drop actif
 
-    @commands.has_permissions(manage_guild=True)
-    @commands.hybrid_command(
-        name="supply_special",
-        description="(Admin) Lancer un ravitaillement spécial (5 min, max 5 personnes).",
-    )
-    async def supply_special_cmd(self, ctx: commands.Context):
-        if not ctx.guild or not isinstance(ctx.channel, (discord.TextChannel, discord.Thread)):
-            return await ctx.reply("❌ Utilise cette commande dans un salon texte du serveur.")
-        await self._launch_event(ctx.channel)
+    def _roll_next_threshold(self, guild_id: int):
+        self._armed_after[guild_id] = random.randint(DROP_AFTER_MIN, DROP_AFTER_MAX)
+        self._count[guild_id] = 0
 
-    async def _launch_event(self, channel: discord.abc.Messageable):
-        ch_id = getattr(channel, "id", None)
-        if ch_id and self._active_by_channel.get(ch_id):
-            await channel.send("⏳ Un ravitaillement spécial est déjà en cours ici.")
-            return
-        if ch_id:
-            self._active_by_channel[ch_id] = True
+    def _stack_quantity_for_item(self, emoji: str) -> int:
+        """Quantité selon rareté (OBJETS[emoji]['rarete'])."""
+        info = OBJETS.get(emoji, {})
+        rarete = int(info.get("rarete", 25))
+        if rarete <= 3:
+            return random.randint(3, 4)
+        elif rarete <= 6:
+            return random.randint(2, 3)
+        elif rarete <= 10:
+            return random.randint(1, 2)
+        elif rarete <= 16:
+            return 1
+        elif rarete <= 20:
+            return 1
+        else:
+            return 1
 
-        # Annonce
+    async def _spawn_drop(self, channel: discord.TextChannel):
         embed = discord.Embed(
-            title="📦 Ravitaillement spécial GotValis",
-            description="Réagissez avec 📦 pour récupérer une récompense surprise !\n"
-                        "⌛ Disponible pendant **5 minutes**, **maximum 5 personnes**.",
-            color=discord.Color.orange()
+            title="📦 Ravitaillement GotValis",
+            color=discord.Color.blurple(),
         )
         msg = await channel.send(embed=embed)
         try:
             await msg.add_reaction(BOX_EMOJI)
         except Exception:
-            if ch_id:
-                self._active_by_channel[ch_id] = False
+            pass
+
+        expires_at = self.bot.loop.time() + CLAIM_SECONDS
+        self._active[channel.guild.id] = PendingDrop(
+            message_id=msg.id,
+            channel_id=channel.id,
+            guild_id=channel.guild.id,
+            expires_at=expires_at,
+            claimers=set()
+        )
+
+        # timer de fin
+        async def _end():
+            await asyncio.sleep(CLAIM_SECONDS)
+            await self._finalize_drop(channel.guild.id)
+
+        self.bot.loop.create_task(_end())
+
+    async def _finalize_drop(self, guild_id: int):
+        pend = self._active.get(guild_id)
+        if not pend:
             return
 
-        # Collecte des participants
-        claimers: List[int] = []
-        claimed_set: set[int] = set()
+        guild = self.bot.get_guild(guild_id)
+        channel = guild.get_channel(pend.channel_id) if guild else None
+        if not isinstance(channel, discord.TextChannel):
+            self._active.pop(guild_id, None)
+            self._roll_next_threshold(guild_id)
+            return
 
-        def _is_valid_reaction(reaction: discord.Reaction, user: discord.User) -> bool:
-            return reaction.message.id == msg.id and str(reaction.emoji) == BOX_EMOJI and not user.bot
-
-        end_at = time.time() + WINDOW_SECONDS
-        while time.time() < end_at and len(claimers) < MAX_CLAIMERS:
-            timeout = max(0.0, end_at - time.time())
-            try:
-                reaction, user = await self.bot.wait_for("reaction_add", timeout=timeout, check=_is_valid_reaction)
-            except asyncio.TimeoutError:
-                break
-            if user.id not in claimed_set:
-                claimed_set.add(user.id)
-                claimers.append(user.id)
-
-        # Attribution des récompenses (après la fenêtre)
-        results: List[str] = []
-        guild = msg.guild
-
-        for uid in claimers:
-            member = guild.get_member(uid) if guild else None
-            mention = member.mention if member else f"<@{uid}>"
-            roll = random.random()
-
-            # 1) Piège
-            if roll < TRAP_CHANCE:
-                dmg = random.randint(*TRAP_DMG_RANGE)
-                lost = dmg
-                pv_after = None
-                try:
-                    if _HAVE_STATS and member:
-                        _res = await deal_damage(0, member.id, dmg)
-                        lost = int(_res.get("lost", dmg))
-                        hp_now, _ = await get_hp(member.id)
-                        pv_after = hp_now
-                except Exception:
-                    pass
-                pv_after = pv_after if pv_after is not None else max(0, 100 - lost)
-                results.append(f"💥 {mention} a subi **{lost} dégâts** (PV: **{pv_after}**).")
-                continue
-
-            # 2) Soin / régénération (item de soin)
-            if roll < TRAP_CHANCE + HEAL_CHANCE:
-                heals = [e for e, d in OBJETS.items() if d.get("type") in ("soin", "regen")]
-                item = random.choice(heals) if heals else (get_random_item() or "💰")
-                meta = OBJETS.get(item, {})
-                # On donne l'objet au joueur (si inventaire dispo)
-                if _HAVE_INV and member:
-                    await add_item(member.id, item, 1)
-                val = meta.get("soin", meta.get("valeur", "?"))
-                results.append(f"🎁 {mention} a obtenu **{item}** — 💚 Restaure {val} PV.")
-                continue
-
-            # 3) GoldValis
-            if roll < TRAP_CHANCE + HEAL_CHANCE + GOLD_CHANCE:
-                amount = random.randint(*GOLD_RANGE)
-                if _HAVE_ECO and member:
-                    await add_balance(member.id, amount, reason="Ravitaillement spécial")
-                results.append(f"💰 {mention} a reçu **{amount} GoldValis**.")
-                continue
-
-            # 4) Tickets
-            if roll < TRAP_CHANCE + HEAL_CHANCE + GOLD_CHANCE + TICKET_CHANCE:
-                qty = random.randint(*TICKET_RANGE)
-                if _HAVE_INV and member:
-                    await add_item(member.id, TICKET_EMOJI, qty)
-                results.append(f"🎟️ {mention} a reçu **{qty} ticket(s)**.")
-                continue
-
-            # 5) Loot normal (rareté via utils.get_random_item)
-            item = get_random_item() or "💰"
-            meta = OBJETS.get(item, {})
-            if _HAVE_INV and member:
-                await add_item(member.id, item, 1)
-            if meta.get("type") == "attaque":
-                val = meta.get("degats", 0)
-                results.append(f"🎁 {mention} a obtenu **{item}** — ⚔️ Dégâts {val}.")
-            elif meta.get("type") in ("poison", "virus", "infection", "regen"):
-                results.append(f"🎁 {mention} a obtenu **{item}** — effet spécial.")
-            else:
-                results.append(f"🎁 {mention} a obtenu **{item}** !")
-
-        # Récapitulatif (succès/échec)
-        if results:
-            recap = discord.Embed(
-                title="📦 Récapitulatif du ravitaillement spécial",
-                color=discord.Color.green()
+        if not pend.claimers:
+            # personne n’a réagi
+            embed = discord.Embed(
+                title="🗑️ Ravitaillement détruit",
+                color=discord.Color.dark_grey()
             )
-            recap.add_field(name="\u200b", value="\n".join(results), inline=False)
+            await channel.send(embed=embed)
+            self._active.pop(guild_id, None)
+            self._roll_next_threshold(guild_id)
+            return
+
+        # distribue maintenant (quantité selon rareté)
+        recaps: List[str] = []
+        for uid in pend.claimers:
+            emoji = get_random_item(debug=False)
+            qty = self._stack_quantity_for_item(emoji)
+            if storage is not None:
+                inv, _, _ = storage.get_user_data(str(guild_id), str(uid))
+                for _ in range(max(1, qty)):
+                    inv.append(emoji)
+            suffix = f" ×{qty}" if qty > 1 else ""
+            recaps.append(f"• <@{uid}> — {emoji}{suffix}")
+
+        if storage is not None:
+            storage.save_data()
+
+        # envoi récapitulatif
+        embed = discord.Embed(
+            title="✅ Ravitaillement récupéré",
+            color=discord.Color.green()
+        )
+        text = "\n".join(recaps)
+        if len(text) <= 1000:
+            embed.add_field(name="Récapitulatif", value=text, inline=False)
         else:
-            recap = discord.Embed(
-                title="📦 Ravitaillement spécial détruit",
-                color=discord.Color.red()
-            )
-            recap.add_field(name="\u200b", value="Personne n’a réagi à temps.", inline=False)
+            # découpe si très long
+            lines = recaps
+            chunk, buf, size = [], [], 0
+            for line in lines:
+                if size + len(line) + 1 > 1000:
+                    chunk.append("\n".join(buf)); buf, size = [line], len(line) + 1
+                else:
+                    buf.append(line); size += len(line) + 1
+            if buf:
+                chunk.append("\n".join(buf))
+            for i, part in enumerate(chunk, 1):
+                embed.add_field(name=f"Récap (p.{i})", value=part, inline=False)
 
-        await channel.send(embed=recap)
+        await channel.send(embed=embed)
 
-        if ch_id:
-            self._active_by_channel[ch_id] = False
+        # reset état pour un prochain drop (nouveau tirage 12–30)
+        self._active.pop(guild_id, None)
+        self._roll_next_threshold(guild_id)
 
+    # ─────────────────────────────────────────────────────────
+    # Listeners
+    # ─────────────────────────────────────────────────────────
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # init seuils pour tous les serveurs
+        for g in self.bot.guilds:
+            self._roll_next_threshold(g.id)
+
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild):
+        self._roll_next_threshold(guild.id)
+
+    @commands.Cog.listener()
+    async def on_message(self, msg: discord.Message):
+        if msg.author.bot or not msg.guild:
+            return
+        perms = msg.channel.permissions_for(msg.guild.me)
+        if not (perms.send_messages and perms.add_reactions):
+            return
+
+        gid = msg.guild.id
+        # pas de double drop
+        if gid in self._active:
+            return
+
+        if gid not in self._armed_after:
+            self._roll_next_threshold(gid)
+
+        self._count[gid] = self._count.get(gid, 0) + 1
+        target = self._armed_after.get(gid, random.randint(DROP_AFTER_MIN, DROP_AFTER_MAX))
+
+        if self._count[gid] >= target:
+            # spawn sous CE message (même salon)
+            if isinstance(msg.channel, discord.TextChannel):
+                await self._spawn_drop(msg.channel)
+            else:
+                # fallback : rien
+                pass
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if str(payload.emoji) != BOX_EMOJI:
+            return
+        if payload.user_id == self.bot.user.id:
+            return
+        guild_id = payload.guild_id
+        pend = self._active.get(guild_id)
+        if not pend or pend.message_id != payload.message_id:
+            return
+        # encore dans le temps ?
+        if self.bot.loop.time() > pend.expires_at:
+            return
+        pend.claimers.add(payload.user_id)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(SpecialSupply(bot))
+    await bot.add_cog(Ravitaillement(bot))
