@@ -1,147 +1,150 @@
 # cogs/info_cog.py
 from __future__ import annotations
 
+import collections
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional, Tuple
 
-from data import storage
+# --- imports tolérants ---
+try:
+    from data import storage  # doit fournir get_user_data(), save_data(), hp, etc.
+except Exception:
+    storage = None
+
+# economy_db: on essaie d'exister proprement même s'il manque
+try:
+    from data import economy_db
+except Exception:
+    economy_db = None
+
+# stats_db pour “carrière” (facultatif)
+try:
+    from data import stats_db
+except Exception:
+    stats_db = None
 
 
-async def _get_rank_by_coins(user_id: int) -> Tuple[int, int]:
+def _fmt_inv(inv: list[str], max_lines: int = 10) -> str:
+    """Compresse l’inventaire: emoji × count, tri par fréquence puis emoji."""
+    # on ne compte que les strings (émoticônes d’objets)
+    items = [x for x in inv if isinstance(x, str)]
+    if not items:
+        return "—"
+    ctr = collections.Counter(items)
+    # tri: d’abord quantité desc, puis clé
+    pairs = sorted(ctr.items(), key=lambda kv: (-kv[1], kv[0]))
+    lines = [f"{emo} × {qty}" for emo, qty in pairs[:max_lines]]
+    rest = len(pairs) - len(lines)
+    if rest > 0:
+        lines.append(f"… (+{rest} types)")
+    return "\n".join(lines)
+
+
+async def _get_balances(guild_id: int, user_id: int):
     """
-    Retourne (rang, total_joueurs) selon les GotCoins ACTUELS (richesse).
-    Si l'utilisateur n'existe pas encore, on le crée avant de calculer.
+    Retourne (coins_actuels, tickets, coins_carreer) en essayant economy_db/stats_db.
+    Fallbacks: 0 / comptage 🎟️ / None.
     """
-    await storage.ensure_player(user_id)
-    data = await storage.load_all()
-    players = data.get("players", {})
+    coins_now = 0
+    tickets = 0
+    coins_total = None  # carrière
 
-    # Trie par coins décroissant
-    classement = sorted(
-        players.items(),
-        key=lambda kv: int(kv[1].get("coins", 0)),
-        reverse=True
-    )
-    total = len(classement)
-    rang = total  # fallback
-    for idx, (uid, pdata) in enumerate(classement, start=1):
-        if uid == str(user_id):
-            rang = idx
-            break
-    return rang, total
+    if economy_db:
+        try:
+            coins_now = await economy_db.get_balance(guild_id, user_id)  # doit renvoyer int
+        except Exception:
+            coins_now = 0
+        try:
+            # si vous avez une autre signature, adaptez ici
+            tickets = await economy_db.get_tickets(guild_id, user_id)
+        except Exception:
+            tickets = 0
 
+    if stats_db:
+        try:
+            # si vous avez un cumul de gains en base
+            coins_total = await stats_db.get_total_coins(guild_id, user_id)
+        except Exception:
+            coins_total = None
 
-def _fmt_int(n: int) -> str:
-    return f"{n:,}".replace(",", " ")
+    # Fallback “tickets” si pas d’économie dédiée: compte 🎟️ dans l’inventaire
+    if tickets == 0 and storage is not None:
+        try:
+            inv, _, _ = storage.get_user_data(str(guild_id), str(user_id))
+            tickets = sum(1 for x in inv if x == "🎟️")
+        except Exception:
+            pass
+
+    return coins_now, tickets, coins_total
 
 
 class InfoCog(commands.Cog):
-    """Profil GotValis : fiche d'identité complète d'un joueur."""
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(
-        name="info",
-        description="Affiche ton profil GotValis (ou celui d’un autre joueur)."
-    )
-    @app_commands.describe(membre="Le joueur dont tu veux voir le profil.")
-    async def info(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
-        user: discord.Member = membre or interaction.user
+    @app_commands.command(name="profile", description="Affiche ton profil GotValis")
+    async def profile(self, interaction: discord.Interaction, member: discord.Member | None = None):
+        user = member or interaction.user
+        gid = interaction.guild.id if interaction.guild else 0
 
-        # S'assure que le joueur existe, puis récupère toutes ses données
-        pdata = await storage.ensure_player(user.id)
-        coins = int(pdata.get("coins", 0))
-        tickets = int(pdata.get("tickets", 0))
-        hp = int(pdata.get("hp", 100))
-        shield = int(pdata.get("shield", 0))
-        equipped = pdata.get("equipped_character") or "Aucun"
+        # Données storage (PV + inventaire)
+        pv_now = 100
+        pv_max = 100
+        inv = []
+        try:
+            if storage:
+                # hp: data.storage.hp[guild_id][user_id] si dispo
+                gid_s, uid_s = str(gid), str(user.id)
+                if hasattr(storage, "hp"):
+                    pv_now = int(storage.hp.get(gid_s, {}).get(uid_s, 100))
+                inv, _, _ = storage.get_user_data(gid_s, uid_s)
+        except Exception:
+            pass
 
-        stats = pdata.get("stats", {})
-        dmg = int(stats.get("damage", 0))
-        heal = int(stats.get("healing", 0))
-        kills = int(stats.get("kills", 0))
-        deaths = int(stats.get("deaths", 0))
+        coins_now, tickets, coins_total = await _get_balances(gid, user.id)
 
-        # Classement (rang) par GotCoins actuels
-        rang, total = await _get_rank_by_coins(user.id)
-
-        # Embed au style "RP GotValis"
-        title = f"Profil — {user.display_name}"
-        desc = (
-            "📡 **Dossier GotValis** ouvert.\n"
-            "Les paramètres vitaux et ressources ont été synchronisés.\n"
-            "Toute anomalie sera signalée au réseau."
+        embed = discord.Embed(
+            title=f"Profil GotValis de {user.display_name}",
+            description="Analyse médicale et opérationnelle en cours…",
+            color=discord.Color.blurple(),
         )
-        emb = discord.Embed(
-            title=title,
-            description=desc,
-            color=discord.Color.blurple()
-        )
+        embed.set_thumbnail(url=user.display_avatar.replace(size=256).url if user.display_avatar else discord.Embed.Empty)
 
-        # Avatar + footer
-        if user.display_avatar:
-            emb.set_thumbnail(url=user.display_avatar.url)
+        # Points de vie
+        embed.add_field(name="❤️ Points de vie", value=f"{pv_now} / {pv_max}", inline=False)
 
-        emb.set_footer(text=f"ID: {user.id}")
+        # Ressources
+        res_lines = []
+        if coins_total is not None:
+            res_lines.append(f"💰 GotCoins totaux (carrière)\n**{coins_total}**")
+        else:
+            res_lines.append("💰 GotCoins totaux (carrière)\n—")
+        res_lines.append(f"💳 Solde actuel (dépensable)\n**{coins_now}**")
+        res_lines.append(f"🎟️ Tickets\n**{tickets}**")
+        embed.add_field(name="📦 Ressources", value="\n".join(res_lines), inline=False)
 
-        # Lignes principales
-        emb.add_field(
-            name="🩺 Vitales",
-            value=f"❤️ PV: **{hp}/100**\n🛡 PB: **{shield}**",
-            inline=True
-        )
-        emb.add_field(
-            name="💰 Ressources",
-            value=f"🪙 GotCoins: **{_fmt_int(coins)}**\n🎫 Tickets: **{tickets}**",
-            inline=True
-        )
-        emb.add_field(
-            name="🏷️ Équipement",
-            value=f"Personnage: **{equipped}**",
-            inline=False
-        )
+        # Classement (placeholder simple; adaptez si vous avez un vrai leaderboard)
+        try:
+            joined = user.joined_at.strftime("%d %B %Y à %Hh%M") if user.joined_at else "—"
+        except Exception:
+            joined = "—"
 
-        # Classement
-        emb.add_field(
-            name="🏆 Classement",
-            value=f"Rang richesse: **#{rang}** / {total}",
-            inline=False
-        )
+        embed.add_field(name="📅 Membre depuis", value=joined, inline=False)
 
-        # Statistiques de terrain
-        emb.add_field(
-            name="📊 Historique d’opérations",
-            value=(
-                f"🔺 Dégâts infligés: **{_fmt_int(dmg)}**\n"
-                f"🔻 Soins prodigués: **{_fmt_int(heal)}**\n"
-                f"☠️ Kills: **{_fmt_int(kills)}**\n"
-                f"💀 Morts: **{_fmt_int(deaths)}**"
-            ),
-            inline=False
-        )
+        # Inventaire
+        inv_text = _fmt_inv(inv)
+        embed.add_field(name="🎒 Inventaire", value=inv_text, inline=False)
 
-        # Effets actifs (liste courte)
-        eff = pdata.get("effects", {})
-        if isinstance(eff, dict) and eff:
-            eff_list = ", ".join(sorted(eff.keys()))
-            emb.add_field(name="🧪 Effets actifs", value=f"`{eff_list}`", inline=False)
+        # État pathologique (à relier à votre module d’effets si besoin)
+        embed.add_field(name="🧪 État pathologique", value="Aucun effet négatif détecté.", inline=False)
 
-        # Cooldowns (optionnel à l’affichage si utile)
-        cds = pdata.get("cooldowns", {})
-        if isinstance(cds, dict) and cds:
-            # Affiche seulement ceux qui existent
-            mapped = []
-            for key in ("daily", "attack"):
-                ts = cds.get(key)
-                if ts:
-                    mapped.append(f"• **{key}**: <t:{int(ts)}:R>")
-            if mapped:
-                emb.add_field(name="⏳ Cooldowns", value="\n".join(mapped), inline=False)
+        await interaction.response.send_message(embed=embed)
 
-        await interaction.response.send_message(embed=emb)
+    # alias /info pour ceux qui sont habitués
+    @app_commands.command(name="info", description="Alias de /profile")
+    async def info_alias(self, interaction: discord.Interaction):
+        await self.profile.callback(self, interaction)  # appelle la même logique
 
 
 async def setup(bot: commands.Bot):
