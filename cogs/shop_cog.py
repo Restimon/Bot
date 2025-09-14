@@ -1,153 +1,95 @@
-# cogs/shop.py
-import unicodedata
+# cogs/shop_cog.py
+from __future__ import annotations
 import discord
-from discord import app_commands, Interaction, Embed, Colour
+from discord import app_commands
 from discord.ext import commands
 
-from data.shop_catalogue import ITEMS_CATALOGUE, RARETE_PRIX_VENTE
-from economy_db import get_balance, add_balance
-from inventory_db import add_item, remove_item, get_item_qty
-from gacha_db import add_tickets, get_tickets, get_personnage_qty, remove_personnage
-import personnage as PERSO
-from __future__ import annotations
+# stockage inventaire (data.json)
+try:
+    from data import storage
+except Exception:
+    storage = None
 
-# Monnaie du bot : GoldValis (coins)
-CURRENCY_NAME = "GoldValis"
-TICKET_EMOJI = "🎟️"
+# catalogue
+from data.shop_catalogue import SHOP_ITEMS, CURRENCY_NAME
 
-# Catalogue minimal : on ne vend que des tickets
-SHOP_ITEMS = {
-    "ticket": {
-        "emoji": TICKET_EMOJI,
-        "label": "Ticket d’invocation",
-        "price": 250,          # ajuste le prix ici
-        "max_per_buy": 10,     # limite par achat
-        "desc": "Nécessaire pour les invocations du gacha.",
-        "type": "ticket",
-    },
-}
+# gestion des GoldValis (SQLite)
+try:
+    from economy_db import get_balance, add_balance
+except Exception:
+    async def get_balance(user_id: int) -> int: return 0
+    async def add_balance(user_id: int, delta: int, reason: str = "") -> int: return 0
 
 
-def _norm(s: str) -> str:
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    return s.lower().strip()
-
-class Shop(commands.Cog):
-    """Boutique: achat/vente objets, achat tickets, vente personnages."""
+class ShopCog(commands.Cog):
+    """Boutique GotValis — achat d’objets (ex: tickets)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ---------- OBJETS ----------
-    @app_commands.command(name="buy", description="Acheter un objet du shop (par emoji).")
-    @app_commands.describe(emoji="Emoji de l'objet", quantity="Quantité (min 1)")
-    async def buy(self, itx: Interaction, emoji: str, quantity: app_commands.Range[int,1,999]=1):
-        if emoji not in ITEMS_CATALOGUE:
-            return await itx.response.send_message("❌ Objet inconnu dans le shop.", ephemeral=True)
-        price = int(ITEMS_CATALOGUE[emoji].get("achat", 0))
-        cost = price * quantity
+    # ──────────────────────────────────────────────
+    # /shop → affiche la boutique
+    # ──────────────────────────────────────────────
+    @app_commands.command(name="shop", description="Affiche la boutique GotValis.")
+    async def shop(self, inter: discord.Interaction):
+        await inter.response.defer(thinking=True)
 
-        bal = await get_balance(itx.user.id)
-        if bal < cost:
-            return await itx.response.send_message(
-                f"❌ Solde insuffisant. Prix unitaire **{price}** • Total **{cost}** • Solde **{bal}**.",
-                ephemeral=True
+        embed = discord.Embed(
+            title="🛒 Boutique GotValis",
+            description=f"Monnaie utilisée : **{CURRENCY_NAME}**",
+            color=discord.Color.blurple(),
+        )
+
+        for key, it in SHOP_ITEMS.items():
+            price = it["price"]
+            label = it["label"]
+            emoji = it["emoji"]
+            desc = it.get("desc", "")
+            embed.add_field(
+                name=f"{emoji} {label} — {price} {CURRENCY_NAME}",
+                value=desc or key,
+                inline=False,
             )
 
-        await add_balance(itx.user.id, -cost, "shop_buy_item")
-        await add_item(itx.user.id, emoji, quantity)
+        embed.set_footer(text="Utilise /buy <item> <quantité> pour acheter.")
+        await inter.followup.send(embed=embed)
 
-        emb = Embed(
-            title="🛒 Achat confirmé",
-            description=f"Tu as acheté **{quantity}× {emoji}** pour **{cost}** GoldValis.",
-            colour=Colour.green()
-        ).set_footer(text="GotValis • Boutique")
-        await itx.response.send_message(embed=emb)
+    # ──────────────────────────────────────────────
+    # /buy → achète un item
+    # ──────────────────────────────────────────────
+    @app_commands.command(name="buy", description="Achète un item de la boutique.")
+    @app_commands.describe(item="Nom interne (ex: ticket)", quantite="Quantité (max selon l’item)")
+    async def buy(self, inter: discord.Interaction, item: str, quantite: int = 1):
+        await inter.response.defer(thinking=True, ephemeral=True)
 
-    @app_commands.command(name="sell", description="Vendre un objet de ton inventaire (par emoji).")
-    @app_commands.describe(emoji="Emoji de l'objet", quantity="Quantité (min 1)")
-    async def sell(self, itx: Interaction, emoji: str, quantity: app_commands.Range[int,1,999]=1):
-        if emoji not in ITEMS_CATALOGUE:
-            return await itx.response.send_message("❌ Objet inconnu dans le shop.", ephemeral=True)
-        have = await get_item_qty(itx.user.id, emoji)
-        if have < quantity:
-            return await itx.response.send_message(
-                f"❌ Tu n’as pas assez de **{emoji}**. (stock: {have})", ephemeral=True
-            )
-        price = int(ITEMS_CATALOGUE[emoji].get("vente", 0))
-        gain = price * quantity
+        key = item.lower().strip()
+        if key not in SHOP_ITEMS:
+            return await inter.followup.send("❌ Cet item n’existe pas dans la boutique.")
 
-        ok = await remove_item(itx.user.id, emoji, quantity)
-        if not ok:
-            return await itx.response.send_message("❌ Erreur de stock lors de la vente.", ephemeral=True)
-        await add_balance(itx.user.id, gain, "shop_sell_item")
+        it = SHOP_ITEMS[key]
+        q = max(1, min(int(quantite), it.get("max_per_buy", 10)))
+        price_total = it["price"] * q
 
-        emb = Embed(
-            title="💰 Vente effectuée",
-            description=f"Tu as vendu **{quantity}× {emoji}** pour **{gain}** GoldValis.",
-            colour=Colour.gold()
-        ).set_footer(text="GotValis • Boutique")
-        await itx.response.send_message(embed=emb)
-
-    # ---------- TICKETS ----------
-    @app_commands.command(name="buy_ticket", description="Acheter un ou plusieurs tickets de tirage.")
-    @app_commands.describe(quantity="Nombre de tickets (min 1)")
-    async def buy_ticket(self, itx: Interaction, quantity: app_commands.Range[int,1,100]=1):
-        price = int(ITEMS_CATALOGUE.get(TICKET, {}).get("achat", 200))
-        total_cost = price * quantity
-
-        bal = await get_balance(itx.user.id)
-        if bal < total_cost:
-            return await itx.response.send_message(
-                f"❌ Solde insuffisant. Ticket={price} • Total **{total_cost}** • Solde **{bal}**.",
-                ephemeral=True
+        bal = await get_balance(inter.user.id)
+        if bal < price_total:
+            return await inter.followup.send(
+                f"❌ Fonds insuffisants. Il te manque **{price_total - bal} {CURRENCY_NAME}**."
             )
 
-        await add_balance(itx.user.id, -total_cost, "shop_buy_ticket")
-        await add_tickets(itx.user.id, quantity)
-        new_t = await get_tickets(itx.user.id)
+        # Débit
+        await add_balance(inter.user.id, -price_total, reason=f"shop:{key}x{q}")
 
-        emb = Embed(
-            title="🎟️ Achat de tickets",
-            description=f"Tu as acheté **{quantity}** ticket(s). Tickets maintenant : **{new_t}**.",
-            colour=Colour.green()
-        ).set_footer(text="GotValis • Boutique")
-        await itx.response.send_message(embed=emb)
+        # Ajout inventaire dans data.json
+        if storage is not None:
+            inv, _, _ = storage.get_user_data(str(inter.guild_id), str(inter.user.id))
+            inv.extend([it["emoji"]] * q)
+            storage.save_data()
 
-    # ---------- PERSONNAGES (vente uniquement) ----------
-    @app_commands.command(name="sell_character", description="Vendre un personnage gacha de ta collection.")
-    @app_commands.describe(nom="Nom (ou slug) du personnage", quantity="Quantité à vendre (min 1)")
-    async def sell_character(self, itx: Interaction, nom: str, quantity: app_commands.Range[int,1,50]=1):
-        p = PERSO.trouver(nom)
-        if not p:
-            return await itx.response.send_message("❌ Personnage introuvable.", ephemeral=True)
+        await inter.followup.send(
+            f"✅ Achat confirmé : **{it['emoji']} {it['label']} ×{q}** "
+            f"pour **{price_total} {CURRENCY_NAME}**."
+        )
 
-        rarete = p.get("rarete","Commun")
-        key = _norm(rarete)  # commun/rare/epique/legendaire
-        unit = int(RARETE_PRIX_VENTE.get(key, 0))
-        if unit <= 0:
-            return await itx.response.send_message("❌ Ce personnage ne peut pas être vendu.", ephemeral=True)
-
-        have = await get_personnage_qty(itx.user.id, p["nom"])
-        if have < quantity:
-            return await itx.response.send_message(
-                f"❌ Tu possèdes seulement **{have}× {p['nom']}**.", ephemeral=True
-            )
-
-        ok = await remove_personnage(itx.user.id, p["nom"], quantity)
-        if not ok:
-            return await itx.response.send_message("❌ Erreur lors de la vente.", ephemeral=True)
-
-        gain = unit * quantity
-        await add_balance(itx.user.id, gain, "shop_sell_character")
-
-        emb = Embed(
-            title="📤 Vente de personnage",
-            description=f"Tu as vendu **{quantity}× {p['nom']}** ({rarete}) pour **{gain}** GoldValis.",
-            colour=Colour.gold()
-        ).set_footer(text="GotValis • Boutique")
-        await itx.response.send_message(embed=emb)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Shop(bot))
+    await bot.add_cog(ShopCog(bot))
