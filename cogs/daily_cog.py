@@ -9,290 +9,181 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-# -----------------------
-# Constantes du DAILY
-# -----------------------
-DAILY_COOLDOWN = 24 * 3600           # 24h
-STREAK_GRACE = 48 * 3600             # 48h pour conserver le streak
-BASE_COINS_MIN = 20
-BASE_COINS_MAX = 40
-STREAK_BONUS_CAP = 25                # +max 25 coins
-
-TICKET_EMOJI = "🎟️"
-
-# -----------------------
-# Dépendances souples
-# -----------------------
-# On essaye d'importer des fonctions précises depuis data.storage
-_storage_get_user_data = None
-_storage_set_user_coins = None
-_storage_save_data = None
-_storage_daily_container = None  # on stockera la réf vers le module pour y mettre .daily
+# ─────────────────────────────────────────────
+# Imports souples vers data.storage & utils
+# ─────────────────────────────────────────────
+_storage = None
+_get_user_data = None
+_save_data = None
 
 try:
-    from data import storage as _storage_daily_container  # type: ignore
-    _storage_daily_container = _storage_daily_container
+    from data import storage as _storage  # type: ignore
 except Exception:
-    _storage_daily_container = None
+    _storage = None
 
 try:
-    from data.storage import get_user_data as _storage_get_user_data  # type: ignore
+    from data.storage import get_user_data as _get_user_data  # type: ignore
 except Exception:
-    _storage_get_user_data = None
+    _get_user_data = None
 
 try:
-    from data.storage import set_user_coins as _storage_set_user_coins  # type: ignore
+    from data.storage import save_data as _save_data  # type: ignore
 except Exception:
-    _storage_set_user_coins = None
+    _save_data = None
 
-try:
-    from data.storage import save_data as _storage_save_data  # type: ignore
-except Exception:
-    _storage_save_data = None
-
-# utilitaires de loot pondérés par rareté
+# loot via utils (pondéré par rareté)
 try:
     from utils import get_random_item
 except Exception:
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
 
-# économie (optionnelle)
-_add_coins_fn = None
-try:
-    # si tu as un module d’économie avec add_coins(gid, uid, delta)
-    from economy_db import add_coins as _add_coins_fn  # type: ignore
-except Exception:
-    pass
+DAILY_COOLDOWN = 24 * 3600  # 24h
+TICKET_EMOJI = "🎟️"
+
+# coins de base
+BASE_COINS_RANGE = (20, 40)
+# bonus de streak : +3 par jour consécutif, plafonné à +25
+STREAK_BONUS_PER_DAY = 3
+STREAK_BONUS_MAX = 25
 
 
-def _get_daily_state() -> Dict:
-    """
-    Accède au conteneur daily persistant si possible, sinon garde en RAM.
-    Structure attendue: daily[guild_id][user_id] = {"last": int, "streak": int}
-    """
-    # Persistance via data.storage si dispo
-    if _storage_daily_container is not None:
-        if not hasattr(_storage_daily_container, "daily") or not isinstance(getattr(_storage_daily_container, "daily"), dict):
-            setattr(_storage_daily_container, "daily", {})
-        return getattr(_storage_daily_container, "daily")
-
-    # Fallback RAM non persistant
-    if not hasattr(_get_daily_state, "_mem"):
-        _get_daily_state._mem: Dict[str, Dict[str, Dict[str, int]]] = {}
-    return _get_daily_state._mem  # type: ignore
+def _ensure_stats_root():
+    if _storage is None:
+        return
+    if not hasattr(_storage, "stats") or not isinstance(_storage.stats, dict):
+        _storage.stats = {}
+    _storage.stats.setdefault("daily", {})
 
 
-def _get_user_data(gid: int, uid: int) -> Tuple[List[str], int, Optional[dict]]:
-    """Toujours renvoyer (inventaire, coins, personnage)."""
-    if callable(_storage_get_user_data):
+def _get_daily_entry(gid: int, uid: int) -> Dict:
+    _ensure_stats_root()
+    if _storage is None:
+        if not hasattr(_get_daily_entry, "_mem"):
+            _get_daily_entry._mem = {}
+        mem = _get_daily_entry._mem  # type: ignore
+        mem.setdefault(str(gid), {}).setdefault(str(uid), {"last": 0.0, "streak": 0})
+        return mem[str(gid)][str(uid)]
+
+    daily = _storage.stats["daily"]
+    daily.setdefault(str(gid), {}).setdefault(str(uid), {"last": 0.0, "streak": 0})
+    return daily[str(gid)][str(uid)]
+
+
+def _set_daily_entry(gid: int, uid: int, last_ts: float, streak: int):
+    entry = _get_daily_entry(gid, uid)
+    entry["last"] = float(last_ts)
+    entry["streak"] = int(streak)
+
+
+def _cooldown_left(last_ts: float) -> float:
+    if last_ts <= 0:
+        return 0.0
+    passed = time.time() - float(last_ts)
+    left = DAILY_COOLDOWN - passed
+    return max(0.0, left)
+
+
+def _format_timedelta(seconds: float) -> str:
+    seconds = int(seconds)
+    h, r = divmod(seconds, 3600)
+    m, s = divmod(r, 60)
+    parts: List[str] = []
+    if h: parts.append(f"{h}h")
+    if m: parts.append(f"{m}m")
+    if s or not parts: parts.append(f"{s}s")
+    return " ".join(parts)
+
+
+def _get_user_data_safe(gid: int, uid: int) -> Tuple[List, int, Optional[Dict]]:
+    if callable(_get_user_data):
         try:
-            inv, coins, perso = _storage_get_user_data(str(gid), str(uid))  # type: ignore
-            return inv, int(coins or 0), perso
+            inv, coins, perso = _get_user_data(str(gid), str(uid))  # type: ignore
+            return inv or [], int(coins or 0), perso
         except Exception:
             pass
-    # Fallback mémoire
-    # On émule une structure minimale par serveur
-    state = _get_daily_state()
-    gkey, ukey = str(gid), str(uid)
-    inv_key = f"_inv_{ukey}"
-    coins_key = f"_coins_{ukey}"
-    perso_key = f"_perso_{ukey}"
-    state.setdefault(gkey, {})
-    gspace = state[gkey]
-    inv = gspace.get(inv_key, [])
-    coins = int(gspace.get(coins_key, 0) or 0)
-    perso = gspace.get(perso_key, None)
-    return inv, coins, perso
+    return [], 0, None
 
 
-def _persist_user_data(gid: int, uid: int, inv: Optional[List[str]] = None, coins: Optional[int] = None):
-    """Écrit dans storage si possible, sinon dans le fallback RAM."""
-    if coins is not None and callable(_storage_set_user_coins):
+def _save_safe():
+    if callable(_save_data):
         try:
-            _storage_set_user_coins(str(gid), str(uid), int(coins))  # type: ignore
-        except Exception:
-            # si set_user_coins échoue, on passera par RAM ci-dessous
-            pass
-
-    # Si on est en mode RAM (ou si on veut aussi y refléter)
-    if _storage_daily_container is None or not callable(_storage_set_user_coins):
-        state = _get_daily_state()
-        gkey, ukey = str(gid), str(uid)
-        inv_key = f"_inv_{ukey}"
-        coins_key = f"_coins_{ukey}"
-        state.setdefault(gkey, {})
-        gspace = state[gkey]
-        if inv is not None:
-            gspace[inv_key] = inv
-        if coins is not None:
-            gspace[coins_key] = int(coins)
-
-    _save()
-
-
-def _save():
-    """Sauvegarde si possible via data.storage.save_data()."""
-    if callable(_storage_save_data):
-        try:
-            _storage_save_data()  # type: ignore
+            _save_data()  # type: ignore
         except Exception:
             pass
-
-
-def _add_coins(gid: int, uid: int, amount: int) -> int:
-    """
-    Ajoute des coins de façon robuste.
-    - economy_db.add_coins si dispo
-    - sinon via storage.set_user_coins si dispo
-    - sinon fallback RAM
-    Retourne le solde final estimé.
-    """
-    inv, coins_before, _ = _get_user_data(gid, uid)
-    if amount == 0:
-        return coins_before
-
-    # chemin économie dédié si dispo
-    if callable(_add_coins_fn):
-        try:
-            _add_coins_fn(str(gid), str(uid), int(amount))  # type: ignore
-            _, coins_after, _ = _get_user_data(gid, uid)
-            _save()
-            return coins_after
-        except Exception:
-            pass
-
-    coins_after = max(0, int(coins_before) + int(amount))
-    _persist_user_data(gid, uid, inv=None, coins=coins_after)
-    return coins_after
-
-
-def _format_inventory_line(inv: List[str], limit: int = 20) -> str:
-    """Petit format sympa pour un aperçu d’inventaire (utilisé dans l’embed)."""
-    if not inv:
-        return "_Inventaire vide_"
-    counts: Dict[str, int] = {}
-    for e in inv:
-        if not isinstance(e, str):
-            continue
-        counts[e] = counts.get(e, 0) + 1
-    parts = [f"{k} ×{v}" if v > 1 else f"{k}" for k, v in counts.items()]
-    if len(parts) > limit:
-        shown = ", ".join(parts[:limit])
-        return shown + f" … (+{len(parts) - limit})"
-    return ", ".join(parts)
 
 
 class DailyCog(commands.Cog):
-    """Récompense quotidienne avec streak."""
+    """Récompenses quotidiennes : 2 objets + 1 ticket + coins (streak cap 25)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ─────────────────────────────────────────────────────────
-    # /daily
-    # ─────────────────────────────────────────────────────────
     @app_commands.command(name="daily", description="Récupère ta récompense quotidienne.")
     async def daily(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not interaction.guild:
+            return await interaction.response.send_message("Commande serveur uniquement.")
 
-        if not interaction.user or not interaction.guild:
-            return await interaction.followup.send(
-                "Commande indisponible en DM.", ephemeral=True
-            )
+        # pas éphémère → visible pour tout le monde
+        await interaction.response.defer()
 
         gid = interaction.guild.id
         uid = interaction.user.id
-        now = int(time.time())
 
-        daily_state = _get_daily_state()
-        gkey, ukey = str(gid), str(uid)
-        daily_state.setdefault(gkey, {})
-        user_daily = daily_state[gkey].get(ukey, {"last": 0, "streak": 0})
+        entry = _get_daily_entry(gid, uid)
+        last = float(entry.get("last", 0.0))
+        streak = int(entry.get("streak", 0))
 
-        last = int(user_daily.get("last", 0) or 0)
-        streak = int(user_daily.get("streak", 0) or 0)
-
-        # Cooldown strict 24h
-        if last and (now - last) < DAILY_COOLDOWN:
-            reste = DAILY_COOLDOWN - (now - last)
-            hh = reste // 3600
-            mm = (reste % 3600) // 60
-            ss = reste % 60
+        left = _cooldown_left(last)
+        if left > 0:
             return await interaction.followup.send(
-                f"⏳ Tu as déjà pris ton daily. Reviens dans **{hh:02d}h {mm:02d}m {ss:02d}s**.",
-                ephemeral=True,
+                f"⏳ Tu as déjà pris ton daily. Reviens dans **{_format_timedelta(left)}**."
             )
 
-        # Gestion du streak : si on revient dans les 48h, on continue, sinon on repart à 1
-        if last and (now - last) <= STREAK_GRACE:
+        now = time.time()
+        if last > 0 and now - last <= (DAILY_COOLDOWN + 60):
             streak += 1
         else:
             streak = 1
 
-        # Tirage récompenses
-        base_coins = random.randint(BASE_COINS_MIN, BASE_COINS_MAX)
-        bonus_coins = min(streak, STREAK_BONUS_CAP)  # +1 par jour de streak, cap 25
-        total_coins = base_coins + bonus_coins
+        base_coins = random.randint(*BASE_COINS_RANGE)
+        bonus = min(STREAK_BONUS_MAX, streak * STREAK_BONUS_PER_DAY)
+        total_coins = base_coins + bonus
 
-        # 2 objets selon rareté
+        inv, coins_before, _ = _get_user_data_safe(gid, uid)
+        coins_after = coins_before + total_coins
+
+        # 2 objets
         item1 = get_random_item()
         item2 = get_random_item()
-        inv, coins_before, _ = _get_user_data(gid, uid)
-
-        # ajout items & ticket
         inv.append(item1)
         inv.append(item2)
+
+        # ticket
         inv.append(TICKET_EMOJI)
 
-        # ajout coins
-        coins_after = _add_coins(gid, uid, total_coins)
+        if _storage is not None:
+            try:
+                data_root = getattr(_storage, "data", None)
+                if isinstance(data_root, dict):
+                    data_root.setdefault(str(gid), {}).setdefault(str(uid), {})
+                    data_root[str(gid)][str(uid)]["coins"] = coins_after
+            except Exception:
+                pass
 
-        # persiste last / streak
-        daily_state[gkey][ukey] = {"last": now, "streak": streak}
+        _set_daily_entry(gid, uid, now, streak)
+        _save_safe()
 
-        # persiste inventaire si on est en fallback RAM
-        _persist_user_data(gid, uid, inv=inv, coins=None)
-        _save()
-
-        # Embed résultat
         e = discord.Embed(
-            title="✅ Récompense quotidienne",
-            color=discord.Color.green(),
+            title="🎁 Récompense quotidienne",
+            color=discord.Color.green()
         )
-        e.set_author(name=f"{interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+        e.add_field(name="GotCoins", value=f"+{total_coins} (base {base_coins} + bonus {bonus})", inline=False)
+        e.add_field(name="Objets reçus", value=f"{item1}  {item2}", inline=True)
+        e.add_field(name="Ticket", value=TICKET_EMOJI, inline=True)
+        e.add_field(name="Solde", value=f"{coins_before} → **{coins_after}**", inline=False)
 
-        e.add_field(
-            name="GotCoins",
-            value=f"**+{total_coins}** (base {base_coins}  •  bonus streak {bonus_coins})\n"
-                  f"Solde actuel : **{coins_after}**",
-            inline=False,
-        )
-        e.add_field(
-            name="Tickets",
-            value=f"{TICKET_EMOJI} ×1",
-            inline=True,
-        )
-        e.add_field(
-            name="Objets",
-            value=f"{item1}  {item2}",
-            inline=True,
-        )
-        e.add_field(
-            name="Streak",
-            value=f"🔥 **{streak}** jour(s) consécutif(s)  •  bonus max = {STREAK_BONUS_CAP}",
-            inline=False,
-        )
-
-        # petit aperçu inventaire (optionnel)
-        preview = _format_inventory_line(inv, limit=12)
-        e.add_field(
-            name="Inventaire (aperçu)",
-            value=preview,
-            inline=False,
-        )
-
-        await interaction.followup.send(embed=e, ephemeral=True)
+        await interaction.followup.send(embed=e)
 
 
 async def setup(bot: commands.Bot):
