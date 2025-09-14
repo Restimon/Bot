@@ -109,6 +109,7 @@ class GotValisBot(commands.Bot):
             "cogs.combat_cog",
             "cogs.leaderboard_cog",
             "cogs.admin_cog",
+            "cogs.chat_ai",
             # Social (chaque fichier doit avoir async def setup(bot): …)
             "cogs.social.love",
             "cogs.social.hug",
