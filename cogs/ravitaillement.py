@@ -126,7 +126,7 @@ class Ravitaillement(commands.Cog):
         # Personne ?
         if not pend.claimers:
             embed = discord.Embed(
-                title="🗑️ Ravitaillement détruit",
+                title="💣 Ravitaillement détruit",
                 color=discord.Color.dark_grey(),
             )
             await channel.send(embed=embed)
