@@ -23,11 +23,32 @@ TICKET_EMOJI = "🎟️"
 # -----------------------
 # Dépendances souples
 # -----------------------
-# storage: inventaire + persistance JSON (déjà utilisé partout dans ton projet)
+# On essaye d'importer des fonctions précises depuis data.storage
+_storage_get_user_data = None
+_storage_set_user_coins = None
+_storage_save_data = None
+_storage_daily_container = None  # on stockera la réf vers le module pour y mettre .daily
+
 try:
-    from data import storage
+    from data import storage as _storage_daily_container  # type: ignore
+    _storage_daily_container = _storage_daily_container
 except Exception:
-    storage = None
+    _storage_daily_container = None
+
+try:
+    from data.storage import get_user_data as _storage_get_user_data  # type: ignore
+except Exception:
+    _storage_get_user_data = None
+
+try:
+    from data.storage import set_user_coins as _storage_set_user_coins  # type: ignore
+except Exception:
+    _storage_set_user_coins = None
+
+try:
+    from data.storage import save_data as _storage_save_data  # type: ignore
+except Exception:
+    _storage_save_data = None
 
 # utilitaires de loot pondérés par rareté
 try:
@@ -36,43 +57,85 @@ except Exception:
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
 
-# économie (facultatif) – on essaie d’appeler une API dédiée si elle existe
+# économie (optionnelle)
 _add_coins_fn = None
 try:
-    # si tu as un module d’économie avec une fonction "add_coins(gid, uid, delta)"
+    # si tu as un module d’économie avec add_coins(gid, uid, delta)
     from economy_db import add_coins as _add_coins_fn  # type: ignore
 except Exception:
     pass
 
 
-def _get_daily_state():
+def _get_daily_state() -> Dict:
     """
-    Accès sûr au conteneur de daily dans storage.
-    On garde tout sur storage.daily[guild_id][user_id] = {"last": int, "streak": int}
+    Accède au conteneur daily persistant si possible, sinon garde en RAM.
+    Structure attendue: daily[guild_id][user_id] = {"last": int, "streak": int}
     """
-    if storage is None:
-        # fallback minimaliste en mémoire (non persistant)
-        if not hasattr(_get_daily_state, "_mem"):
-            _get_daily_state._mem = {}
-        return _get_daily_state._mem  # type: ignore
-    if not hasattr(storage, "daily") or not isinstance(getattr(storage, "daily"), dict):
-        storage.daily = {}
-    return storage.daily
+    # Persistance via data.storage si dispo
+    if _storage_daily_container is not None:
+        if not hasattr(_storage_daily_container, "daily") or not isinstance(getattr(_storage_daily_container, "daily"), dict):
+            setattr(_storage_daily_container, "daily", {})
+        return getattr(_storage_daily_container, "daily")
+
+    # Fallback RAM non persistant
+    if not hasattr(_get_daily_state, "_mem"):
+        _get_daily_state._mem: Dict[str, Dict[str, Dict[str, int]]] = {}
+    return _get_daily_state._mem  # type: ignore
 
 
 def _get_user_data(gid: int, uid: int) -> Tuple[List[str], int, Optional[dict]]:
     """Toujours renvoyer (inventaire, coins, personnage)."""
-    if storage is None:
-        return [], 0, None
-    inv, coins, perso = storage.get_user_data(str(gid), str(uid))
+    if callable(_storage_get_user_data):
+        try:
+            inv, coins, perso = _storage_get_user_data(str(gid), str(uid))  # type: ignore
+            return inv, int(coins or 0), perso
+        except Exception:
+            pass
+    # Fallback mémoire
+    # On émule une structure minimale par serveur
+    state = _get_daily_state()
+    gkey, ukey = str(gid), str(uid)
+    inv_key = f"_inv_{ukey}"
+    coins_key = f"_coins_{ukey}"
+    perso_key = f"_perso_{ukey}"
+    state.setdefault(gkey, {})
+    gspace = state[gkey]
+    inv = gspace.get(inv_key, [])
+    coins = int(gspace.get(coins_key, 0) or 0)
+    perso = gspace.get(perso_key, None)
     return inv, coins, perso
 
 
-def _save():
-    """Sauvegarde si possible."""
-    if storage is not None and hasattr(storage, "save_data"):
+def _persist_user_data(gid: int, uid: int, inv: Optional[List[str]] = None, coins: Optional[int] = None):
+    """Écrit dans storage si possible, sinon dans le fallback RAM."""
+    if coins is not None and callable(_storage_set_user_coins):
         try:
-            storage.save_data()
+            _storage_set_user_coins(str(gid), str(uid), int(coins))  # type: ignore
+        except Exception:
+            # si set_user_coins échoue, on passera par RAM ci-dessous
+            pass
+
+    # Si on est en mode RAM (ou si on veut aussi y refléter)
+    if _storage_daily_container is None or not callable(_storage_set_user_coins):
+        state = _get_daily_state()
+        gkey, ukey = str(gid), str(uid)
+        inv_key = f"_inv_{ukey}"
+        coins_key = f"_coins_{ukey}"
+        state.setdefault(gkey, {})
+        gspace = state[gkey]
+        if inv is not None:
+            gspace[inv_key] = inv
+        if coins is not None:
+            gspace[coins_key] = int(coins)
+
+    _save()
+
+
+def _save():
+    """Sauvegarde si possible via data.storage.save_data()."""
+    if callable(_storage_save_data):
+        try:
+            _storage_save_data()  # type: ignore
         except Exception:
             pass
 
@@ -80,55 +143,32 @@ def _save():
 def _add_coins(gid: int, uid: int, amount: int) -> int:
     """
     Ajoute des coins de façon robuste.
-    - Si economy_db.add_coins existe → on l'utilise
-    - Sinon on écrit directement dans storage.get_user_data(...)
+    - economy_db.add_coins si dispo
+    - sinon via storage.set_user_coins si dispo
+    - sinon fallback RAM
     Retourne le solde final estimé.
     """
+    inv, coins_before, _ = _get_user_data(gid, uid)
     if amount == 0:
-        inv, coins, _ = _get_user_data(gid, uid)
-        return coins
+        return coins_before
 
     # chemin économie dédié si dispo
     if callable(_add_coins_fn):
         try:
-            _add_coins_fn(str(gid), str(uid), int(amount))
-            inv, coins, _ = _get_user_data(gid, uid)
+            _add_coins_fn(str(gid), str(uid), int(amount))  # type: ignore
+            _, coins_after, _ = _get_user_data(gid, uid)
             _save()
-            return coins
+            return coins_after
         except Exception:
             pass
 
-    # fallback: modifier directement le solde dans storage
-    inv, coins, perso = _get_user_data(gid, uid)
-    coins = int(coins) + int(amount)
-    coins = max(0, coins)
-    # on pousse la valeur dans le storage si possible
-    if storage is not None and hasattr(storage, "set_user_coins"):
-        try:
-            storage.set_user_coins(str(gid), str(uid), coins)  # type: ignore
-        except Exception:
-            # dernier fallback: si set_user_coins n’existe pas, on essaie d'écrire directement
-            try:
-                # beaucoup de projets stockent ça sous storage.wallet[gid][uid]
-                if hasattr(storage, "wallet"):
-                    storage.wallet.setdefault(str(gid), {})[str(uid)] = coins  # type: ignore
-            except Exception:
-                pass
-    else:
-        try:
-            if hasattr(storage, "wallet"):
-                storage.wallet.setdefault(str(gid), {})[str(uid)] = coins  # type: ignore
-        except Exception:
-            pass
-
-    _save()
-    return coins
+    coins_after = max(0, int(coins_before) + int(amount))
+    _persist_user_data(gid, uid, inv=None, coins=coins_after)
+    return coins_after
 
 
 def _format_inventory_line(inv: List[str], limit: int = 20) -> str:
-    """
-    Petit format sympa pour un aperçu d’inventaire (utilisé dans l’embed).
-    """
+    """Petit format sympa pour un aperçu d’inventaire (utilisé dans l’embed)."""
     if not inv:
         return "_Inventaire vide_"
     counts: Dict[str, int] = {}
@@ -210,6 +250,9 @@ class DailyCog(commands.Cog):
 
         # persiste last / streak
         daily_state[gkey][ukey] = {"last": now, "streak": streak}
+
+        # persiste inventaire si on est en fallback RAM
+        _persist_user_data(gid, uid, inv=inv, coins=None)
         _save()
 
         # Embed résultat
