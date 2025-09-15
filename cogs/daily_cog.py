@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 # ─────────────────────────────────────────────
-# Imports souples vers data.storage & utils
+# Imports "souples" vers data.storage & utils
 # ─────────────────────────────────────────────
 _storage = None
 _get_user_data = None
@@ -114,7 +114,7 @@ def _save_safe():
 
 
 class DailyCog(commands.Cog):
-    """Récompenses quotidiennes : 2 objets + 1 ticket + coins (streak cap 25)."""
+    """Récompenses quotidiennes : 2 objets + 1 ticket + coins (bonus streak cap 25)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -124,7 +124,7 @@ class DailyCog(commands.Cog):
         if not interaction.guild:
             return await interaction.response.send_message("Commande serveur uniquement.")
 
-        # pas éphémère → visible pour tout le monde
+        # message PUBLIC (non-éphémère)
         await interaction.response.defer()
 
         gid = interaction.guild.id
@@ -141,6 +141,7 @@ class DailyCog(commands.Cog):
             )
 
         now = time.time()
+        # streak si pris “à peu près” tous les jours (tolérance 60s)
         if last > 0 and now - last <= (DAILY_COOLDOWN + 60):
             streak += 1
         else:
@@ -159,29 +160,44 @@ class DailyCog(commands.Cog):
         inv.append(item1)
         inv.append(item2)
 
-        # ticket
+        # 1 ticket
         inv.append(TICKET_EMOJI)
 
+        # maj coins dans storage si dispo
         if _storage is not None:
             try:
-                data_root = getattr(_storage, "data", None)
-                if isinstance(data_root, dict):
-                    data_root.setdefault(str(gid), {}).setdefault(str(uid), {})
-                    data_root[str(gid)][str(uid)]["coins"] = coins_after
+                root = getattr(_storage, "data", None)
+                if isinstance(root, dict):
+                    root.setdefault(str(gid), {}).setdefault(str(uid), {})
+                    root[str(gid)][str(uid)]["coins"] = coins_after
             except Exception:
                 pass
 
         _set_daily_entry(gid, uid, now, streak)
         _save_safe()
 
+        # ── Embed format “comme la capture” ───────────────────────────
         e = discord.Embed(
-            title="🎁 Récompense quotidienne",
+            title="✅ Récompense quotidienne",
             color=discord.Color.green()
         )
-        e.add_field(name="GotCoins", value=f"+{total_coins} (base {base_coins} + bonus {bonus})", inline=False)
-        e.add_field(name="Objets reçus", value=f"{item1}  {item2}", inline=True)
-        e.add_field(name="Ticket", value=TICKET_EMOJI, inline=True)
-        e.add_field(name="Solde", value=f"{coins_before} → **{coins_after}**", inline=False)
+        # auteur = pseudo + avatar
+        try:
+            avatar = interaction.user.display_avatar.url  # type: ignore
+        except Exception:
+            avatar = discord.Embed.Empty
+        e.set_author(name=interaction.user.display_name, icon_url=avatar)
+
+        # Bloc GotCoins
+        coins_text = (
+            f"+{total_coins} (base {base_coins} + bonus streak {bonus})\n"
+            f"Solde actuel : {coins_after}"
+        )
+        e.add_field(name="GotCoins", value=coins_text, inline=False)
+
+        # Deux colonnes : Tickets / Objets
+        e.add_field(name="Tickets", value=f"{TICKET_EMOJI}×1", inline=True)
+        e.add_field(name="Objets", value=f"{item1}  {item2}", inline=True)
 
         await interaction.followup.send(embed=e)
 
