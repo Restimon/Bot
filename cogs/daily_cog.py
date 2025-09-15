@@ -3,203 +3,234 @@ from __future__ import annotations
 
 import time
 import random
-from typing import Dict, Tuple, Optional, List
+import math
+from typing import Dict, Tuple, List, Any, Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# ─────────────────────────────────────────────
-# Imports "souples" vers data.storage & utils
-# ─────────────────────────────────────────────
-_storage = None
-_get_user_data = None
-_save_data = None
-
+# ----- Imports tolérants -----
 try:
-    from data import storage as _storage  # type: ignore
-except Exception:
-    _storage = None
+    from data import storage  # ton module de persistance
+except Exception:  # fallback léger
+    storage = None
 
-try:
-    from data.storage import get_user_data as _get_user_data  # type: ignore
-except Exception:
-    _get_user_data = None
-
-try:
-    from data.storage import save_data as _save_data  # type: ignore
-except Exception:
-    _save_data = None
-
-# loot via utils (pondéré par rareté)
 try:
     from utils import get_random_item
 except Exception:
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
 
-DAILY_COOLDOWN = 24 * 3600  # 24h
 TICKET_EMOJI = "🎟️"
+DAILY_COOLDOWN = 24 * 3600          # 24h
+STREAK_WINDOW = 48 * 3600           # on garde le streak si on reclame < 48h
+STREAK_BONUS_CAP = 25               # bonus max appliqué
 
-# coins de base
-BASE_COINS_RANGE = (20, 40)
-# bonus de streak : +3 par jour consécutif, plafonné à +25
-STREAK_BONUS_PER_DAY = 3
-STREAK_BONUS_MAX = 25
+# ---------------------------------------------------------------------------
+# Helpers de compatibilité avec ton storage
+# ---------------------------------------------------------------------------
 
+def _now() -> float:
+    return time.time()
 
-def _ensure_stats_root():
-    if _storage is None:
+def _ensure_daily_slot() -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """
+    Crée un magasin daily si absent.
+    Structure: storage.daily[guild_id][user_id] = {"last": ts, "streak": int}
+    """
+    if storage is None:
+        # fallback mémoire très minimal si storage pas dispo
+        if not hasattr(_ensure_daily_slot, "_mem"):
+            _ensure_daily_slot._mem = {}
+        return _ensure_daily_slot._mem  # type: ignore[attr-defined]
+
+    if not hasattr(storage, "daily") or not isinstance(getattr(storage, "daily"), dict):
+        storage.daily = {}
+    return storage.daily
+
+def _get_user_data(gid: int | str, uid: int | str) -> Tuple[List[Any], int, Any]:
+    """
+    Essaie d'utiliser storage.get_user_data(gid, uid) -> (inv, coins, personnage)
+    Fallback si tu as une autre forme de stockage.
+    """
+    gid = str(gid); uid = str(uid)
+    if storage is None:
+        # fallback mémoire
+        d = getattr(_get_user_data, "_mem", {})
+        if not d:
+            _get_user_data._mem = d = {}
+        d.setdefault(gid, {}).setdefault(uid, {"inv": [], "coins": 0, "perso": None})
+        rec = d[gid][uid]
+        return rec["inv"], rec["coins"], rec["perso"]
+
+    # cas standard (ton utils.py s’attend à cette signature)
+    if hasattr(storage, "get_user_data"):
+        inv, coins, perso = storage.get_user_data(gid, uid)
+        return inv, int(coins or 0), perso
+
+    # autre API éventuelle : get_or_create_user -> dict
+    if hasattr(storage, "get_or_create_user"):
+        u = storage.get_or_create_user(gid, uid)
+        u.setdefault("inventory", [])
+        u.setdefault("coins", 0)
+        return u["inventory"], int(u["coins"]), u.get("personnage")
+
+    # dernier filet
+    raise RuntimeError("Aucune API compatible trouvée dans data.storage pour lire l'utilisateur.")
+
+def _set_user_coins(gid: int | str, uid: int | str, new_amount: int) -> None:
+    gid = str(gid); uid = str(uid)
+    if storage is None:
+        d = getattr(_get_user_data, "_mem", {})
+        d.setdefault(gid, {}).setdefault(uid, {"inv": [], "coins": 0, "perso": None})
+        d[gid][uid]["coins"] = int(new_amount)
         return
-    if not hasattr(_storage, "stats") or not isinstance(_storage.stats, dict):
-        _storage.stats = {}
-    _storage.stats.setdefault("daily", {})
 
+    if hasattr(storage, "set_user_coins"):
+        storage.set_user_coins(gid, uid, int(new_amount))
+        return
 
-def _get_daily_entry(gid: int, uid: int) -> Dict:
-    _ensure_stats_root()
-    if _storage is None:
-        if not hasattr(_get_daily_entry, "_mem"):
-            _get_daily_entry._mem = {}
-        mem = _get_daily_entry._mem  # type: ignore
-        mem.setdefault(str(gid), {}).setdefault(str(uid), {"last": 0.0, "streak": 0})
-        return mem[str(gid)][str(uid)]
+    # si get_user_data renvoie une structure modifiable, on l'écrase puis save
+    if hasattr(storage, "get_user_data"):
+        inv, _, perso = storage.get_user_data(gid, uid)
+        # petite astuce: certaines implémentations mettent coins par référence
+        # si non, on essaye une API générique
+        if hasattr(storage, "set_user_data"):
+            storage.set_user_data(gid, uid, inv, int(new_amount), perso)
+        else:
+            # tente d'accéder à un dict sous-jacent
+            if hasattr(storage, "data") and isinstance(storage.data, dict):
+                storage.data.setdefault(gid, {}).setdefault(uid, {})
+                storage.data[gid][uid]["coins"] = int(new_amount)
 
-    daily = _storage.stats["daily"]
-    daily.setdefault(str(gid), {}).setdefault(str(uid), {"last": 0.0, "streak": 0})
-    return daily[str(gid)][str(uid)]
-
-
-def _set_daily_entry(gid: int, uid: int, last_ts: float, streak: int):
-    entry = _get_daily_entry(gid, uid)
-    entry["last"] = float(last_ts)
-    entry["streak"] = int(streak)
-
-
-def _cooldown_left(last_ts: float) -> float:
-    if last_ts <= 0:
-        return 0.0
-    passed = time.time() - float(last_ts)
-    left = DAILY_COOLDOWN - passed
-    return max(0.0, left)
-
-
-def _format_timedelta(seconds: float) -> str:
-    seconds = int(seconds)
-    h, r = divmod(seconds, 3600)
-    m, s = divmod(r, 60)
-    parts: List[str] = []
-    if h: parts.append(f"{h}h")
-    if m: parts.append(f"{m}m")
-    if s or not parts: parts.append(f"{s}s")
-    return " ".join(parts)
-
-
-def _get_user_data_safe(gid: int, uid: int) -> Tuple[List, int, Optional[Dict]]:
-    if callable(_get_user_data):
+def _save():
+    if storage is not None and hasattr(storage, "save_data"):
         try:
-            inv, coins, perso = _get_user_data(str(gid), str(uid))  # type: ignore
-            return inv or [], int(coins or 0), perso
-        except Exception:
-            pass
-    return [], 0, None
-
-
-def _save_safe():
-    if callable(_save_data):
-        try:
-            _save_data()  # type: ignore
+            storage.save_data()
         except Exception:
             pass
 
+# ---------------------------------------------------------------------------
+# Le COG
+# ---------------------------------------------------------------------------
 
 class DailyCog(commands.Cog):
-    """Récompenses quotidiennes : 2 objets + 1 ticket + coins (bonus streak cap 25)."""
+    """Récompense quotidienne : 24h de CD, streak, 1 ticket + 2 objets + coins."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # Petit utilitaire pour le texte temps restant
+    def _fmt_delta(self, seconds: float) -> str:
+        seconds = max(0, int(seconds))
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        parts = []
+        if h: parts.append(f"{h}h")
+        if m: parts.append(f"{m}m")
+        if s or not parts: parts.append(f"{s}s")
+        return " ".join(parts)
+
     @app_commands.command(name="daily", description="Récupère ta récompense quotidienne.")
     async def daily(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            return await interaction.response.send_message("Commande serveur uniquement.")
-
-        # message PUBLIC (non-éphémère)
-        await interaction.response.defer()
-
-        gid = interaction.guild.id
+        gid = interaction.guild_id
+        if not gid:
+            await interaction.response.send_message(
+                "Cette commande doit être utilisée dans un serveur.",
+                ephemeral=True
+            )
+            return
         uid = interaction.user.id
 
-        entry = _get_daily_entry(gid, uid)
-        last = float(entry.get("last", 0.0))
-        streak = int(entry.get("streak", 0))
+        # Lecture user + compteur daily
+        inv, coins_before, _ = _get_user_data(gid, uid)
+        daily_map = _ensure_daily_slot()
+        gmap = daily_map.setdefault(str(gid), {})
+        urec = gmap.setdefault(str(uid), {"last": 0.0, "streak": 0})
 
-        left = _cooldown_left(last)
-        if left > 0:
-            return await interaction.followup.send(
-                f"⏳ Tu as déjà pris ton daily. Reviens dans **{_format_timedelta(left)}**."
+        now = _now()
+        last = float(urec.get("last", 0.0))
+        streak = int(urec.get("streak", 0))
+
+        # Cooldown strict 24h
+        remaining = (last + DAILY_COOLDOWN) - now
+        if remaining > 0:
+            # on répond en éphémère ici (évite le spam public)
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    title="⏳ Daily déjà récupéré",
+                    description=f"Reviens dans **{self._fmt_delta(remaining)}**.",
+                    color=discord.Color.orange(),
+                ),
+                ephemeral=True
             )
+            return
 
-        now = time.time()
-        # streak si pris “à peu près” tous les jours (tolérance 60s)
-        if last > 0 and now - last <= (DAILY_COOLDOWN + 60):
+        # Gestion du streak : si on revient < 48h après le dernier claim, +1, sinon reset
+        if last > 0 and (now - last) <= STREAK_WINDOW:
             streak += 1
         else:
-            streak = 1
+            streak = 1  # on recommence
 
-        base_coins = random.randint(*BASE_COINS_RANGE)
-        bonus = min(STREAK_BONUS_MAX, streak * STREAK_BONUS_PER_DAY)
-        total_coins = base_coins + bonus
+        # Gains
+        base = random.randint(25, 35)
+        bonus = min(streak, STREAK_BONUS_CAP)
+        coins_gain = base + bonus
 
-        inv, coins_before, _ = _get_user_data_safe(gid, uid)
-        coins_after = coins_before + total_coins
-
-        # 2 objets
+        # Tickets & objets
+        inv.append(TICKET_EMOJI)
         item1 = get_random_item()
         item2 = get_random_item()
         inv.append(item1)
         inv.append(item2)
 
-        # 1 ticket
-        inv.append(TICKET_EMOJI)
+        # Mise à jour solde
+        coins_after = coins_before + coins_gain
+        _set_user_coins(gid, uid, coins_after)
 
-        # maj coins dans storage si dispo
-        if _storage is not None:
-            try:
-                root = getattr(_storage, "data", None)
-                if isinstance(root, dict):
-                    root.setdefault(str(gid), {}).setdefault(str(uid), {})
-                    root[str(gid)][str(uid)]["coins"] = coins_after
-            except Exception:
-                pass
+        # Mémorise daily
+        urec["last"] = now
+        urec["streak"] = streak
+        _save()
 
-        _set_daily_entry(gid, uid, now, streak)
-        _save_safe()
-
-        # ── Embed format “comme la capture” ───────────────────────────
-        e = discord.Embed(
+        # Embed public (succès)
+        embed = discord.Embed(
             title="✅ Récompense quotidienne",
-            color=discord.Color.green()
+            color=discord.Color.green(),
         )
-        # auteur = pseudo + avatar
-        try:
-            avatar = interaction.user.display_avatar.url  # type: ignore
-        except Exception:
-            avatar = discord.Embed.Empty
-        e.set_author(name=interaction.user.display_name, icon_url=avatar)
+        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
 
-        # Bloc GotCoins
-        coins_text = (
-            f"+{total_coins} (base {base_coins} + bonus streak {bonus})\n"
-            f"Solde actuel : {coins_after}"
+        # GotCoins : afficher le gain du jour (sans +) + détail base/bonus
+        embed.add_field(
+            name="GotCoins",
+            value=f"{coins_gain} *(base {base} · bonus streak {bonus})*",
+            inline=False,
         )
-        e.add_field(name="GotCoins", value=coins_text, inline=False)
 
-        # Deux colonnes : Tickets / Objets
-        e.add_field(name="Tickets", value=f"{TICKET_EMOJI}×1", inline=True)
-        e.add_field(name="Objets", value=f"{item1}  {item2}", inline=True)
+        # Tickets
+        embed.add_field(
+            name="Tickets",
+            value=f"{TICKET_EMOJI} ×1",
+            inline=True
+        )
 
-        await interaction.followup.send(embed=e)
+        # Objets
+        embed.add_field(
+            name="Objets",
+            value=f"{item1} {item2}",
+            inline=True
+        )
+
+        # Solde (à la fin, montant actuel seulement)
+        embed.add_field(
+            name="Solde",
+            value=f"{coins_after}",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=False)
 
 
 async def setup(bot: commands.Bot):
