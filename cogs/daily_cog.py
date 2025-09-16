@@ -1,209 +1,155 @@
 # cogs/daily_cog.py
-from __future__ import annotations
-
-import time
+import asyncio
 import random
-from typing import Dict, Tuple, List, Any
+import time
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# ----- Import du bon storage (racine d'abord, puis data.storage) -----
-try:
-    import storage  # <- privilégier la même cible que utils.py, ravitaillement, etc.
-except Exception:
-    try:
-        from data import storage  # fallback si ton projet l’expose comme package
-    except Exception:
-        storage = None  # dernier filet (mémoire volatile)
+import aiosqlite
+
+from economy_db import add_balance, get_balance
+from inventory_db import add_item
 
 try:
-    from utils import get_random_item
+    from utils import get_random_items as _get_random_items
 except Exception:
-    def get_random_item(debug: bool = False):
-        return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
+    _get_random_items = None
 
-TICKET_EMOJI = "🎟️"
-DAILY_COOLDOWN = 24 * 3600          # 24h
-STREAK_WINDOW = 48 * 3600           # streak conservé si on reclique < 48h
-STREAK_BONUS_CAP = 25               # +1/jour jusqu'à 25 max
+DAILY_COOLDOWN_H = 24
+STREAK_WINDOW_H = 48
+TICKET_ITEM_NAME = "🎟️ Ticket"
 
-# ---------------------------------------------------------------------------
-# Helpers de compat avec ton storage
-# ---------------------------------------------------------------------------
+# ⚠️ Adapte ce chemin pour utiliser la même DB que tes autres modules
+try:
+    # Essayons de la récupérer depuis economy_db si dispo
+    from economy_db import DB_PATH as DB_PATH  # type: ignore
+except Exception:
+    DB_PATH = "gotvalis.sqlite3"
 
 def _now() -> float:
     return time.time()
 
-def _ensure_daily_slot() -> Dict[str, Dict[str, Dict[str, Any]]]:
-    """
-    Crée/retourne storage.daily (persistant) ou une mémoire locale si storage indispo.
-    Structure: storage.daily[guild_id][user_id] = {"last": ts, "streak": int}
-    """
-    if storage is None:
-        if not hasattr(_ensure_daily_slot, "_mem"):
-            _ensure_daily_slot._mem = {}
-        return _ensure_daily_slot._mem  # type: ignore[attr-defined]
-
-    if not hasattr(storage, "daily") or not isinstance(getattr(storage, "daily"), dict):
-        storage.daily = {}
-    return storage.daily
-
-def _get_user_data(gid: int | str, uid: int | str) -> Tuple[List[Any], int, Any]:
-    gid = str(gid); uid = str(uid)
-    if storage is None:
-        d = getattr(_get_user_data, "_mem", {})
-        if not d:
-            _get_user_data._mem = d = {}
-        d.setdefault(gid, {}).setdefault(uid, {"inv": [], "coins": 0, "perso": None})
-        rec = d[gid][uid]
-        return rec["inv"], rec["coins"], rec["perso"]
-
-    # API standard de ton projet
-    if hasattr(storage, "get_user_data"):
-        inv, coins, perso = storage.get_user_data(gid, uid)
-        return inv, int(coins or 0), perso
-
-    # API alternative possible
-    if hasattr(storage, "get_or_create_user"):
-        u = storage.get_or_create_user(gid, uid)
-        u.setdefault("inventory", [])
-        u.setdefault("coins", 0)
-        return u["inventory"], int(u["coins"]), u.get("personnage")
-
-    raise RuntimeError("Impossible de lire les données utilisateur depuis storage.")
-
-def _add_user_coins(gid: int | str, uid: int | str, delta: int) -> int:
-    """Ajoute 'delta' au solde et renvoie le nouveau solde."""
-    gid = str(gid); uid = str(uid)
-    inv, coins, perso = _get_user_data(gid, uid)
-    new_amount = int(coins) + int(delta)
-
-    if storage is None:
-        d = getattr(_get_user_data, "_mem", {})
-        d[gid][uid]["coins"] = new_amount
-        return new_amount
-
-    # Priorité à des API dédiées si elles existent
-    if hasattr(storage, "add_coins"):
-        storage.add_coins(gid, uid, int(delta))
-        return new_amount
-
-    if hasattr(storage, "set_user_coins"):
-        storage.set_user_coins(gid, uid, int(new_amount))
-        return new_amount
-
-    if hasattr(storage, "set_user_data"):
-        storage.set_user_data(gid, uid, inv, int(new_amount), perso)
-        return new_amount
-
-    # Dernier recours: écrire dans storage.data si présent
-    if hasattr(storage, "data") and isinstance(storage.data, dict):
-        storage.data.setdefault(gid, {}).setdefault(uid, {})
-        storage.data[gid][uid]["coins"] = int(new_amount)
-
-    return new_amount
-
-def _save():
-    if storage is not None and hasattr(storage, "save_data"):
+def _pick_items(n: int) -> list[str]:
+    if _get_random_items:
         try:
-            storage.save_data()
+            items = _get_random_items(n)
+            if isinstance(items, list) and items:
+                return items[:n]
         except Exception:
             pass
+    FALLBACK_POOL = [
+        "Mystery Box", "Potion de soin", "Poison", "Virus", "Bouclier", "Casque",
+        "Évasion +", "Immunité", "Régénération", "Vol à la tire"
+    ]
+    return random.sample(FALLBACK_POOL, k=min(n, len(FALLBACK_POOL)))
 
-# ---------------------------------------------------------------------------
-# Le COG
-# ---------------------------------------------------------------------------
+CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS dailies (
+    user_id    INTEGER PRIMARY KEY,
+    last_ts    REAL NOT NULL,
+    streak     INTEGER NOT NULL
+);
+"""
 
-class DailyCog(commands.Cog):
-    """Récompense quotidienne : 24h de CD, streak, 1 ticket + 2 objets + coins."""
-
+class Daily(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._ready = False
 
-    def _fmt_delta(self, seconds: float) -> str:
-        seconds = max(0, int(seconds))
-        h = seconds // 3600
-        m = (seconds % 3600) // 60
-        s = seconds % 60
-        parts = []
-        if h: parts.append(f"{h}h")
-        if m: parts.append(f"{m}m")
-        if s or not parts: parts.append(f"{s}s")
-        return " ".join(parts)
+    async def _ensure_table(self):
+        if self._ready:
+            return
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(CREATE_TABLE_SQL)
+            await db.commit()
+        self._ready = True
 
-    @app_commands.command(name="daily", description="Récupère ta récompense quotidienne.")
+    async def _get_daily_row(self, uid: int):
+        async with aiosqlite.connect(DB_PATH) as db:
+            cur = await db.execute("SELECT last_ts, streak FROM dailies WHERE user_id = ?", (uid,))
+            row = await cur.fetchone()
+            await cur.close()
+        return row  # (last_ts, streak) or None
+
+    async def _set_daily_row(self, uid: int, last_ts: float, streak: int):
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO dailies(user_id, last_ts, streak) VALUES(?,?,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET last_ts=excluded.last_ts, streak=excluded.streak",
+                (uid, last_ts, streak)
+            )
+            await db.commit()
+
+    @app_commands.command(name="daily", description="Récupère ta récompense quotidienne (persistant SQL).")
     async def daily(self, interaction: discord.Interaction):
-        gid = interaction.guild_id
-        if not gid:
-            await interaction.response.send_message(
-                "Cette commande doit être utilisée dans un serveur.",
-                ephemeral=True
-            )
-            return
+        await interaction.response.defer(ephemeral=False, thinking=False)
+        await self._ensure_table()
+
         uid = interaction.user.id
-
-        inv, coins_before, _ = _get_user_data(gid, uid)
-
-        # Streak & cooldown
-        daily_map = _ensure_daily_slot()
-        gmap = daily_map.setdefault(str(gid), {})
-        urec = gmap.setdefault(str(uid), {"last": 0.0, "streak": 0})
         now = _now()
-        last = float(urec.get("last", 0.0))
-        streak = int(urec.get("streak", 0))
 
-        remaining = (last + DAILY_COOLDOWN) - now
-        if remaining > 0:
-            await interaction.response.send_message(
-                embed=discord.Embed(
-                    title="⏳ Daily déjà récupéré",
-                    description=f"Reviens dans **{self._fmt_delta(remaining)}**.",
-                    color=discord.Color.orange(),
-                ),
-                ephemeral=True
-            )
-            return
+        row = await self._get_daily_row(uid)
+        last_ts = row[0] if row else None
+        prev_streak = row[1] if row else 0
 
-        if last > 0 and (now - last) <= STREAK_WINDOW:
-            streak += 1
-        else:
+        if last_ts is not None:
+            elapsed_h = (now - last_ts) / 3600
+            if elapsed_h < DAILY_COOLDOWN_H:
+                remaining = DAILY_COOLDOWN_H - elapsed_h
+                hours = int(remaining)
+                minutes = int((remaining - hours) * 60)
+                embed = discord.Embed(
+                    title="⏳ Daily non disponible",
+                    description=f"Reviens dans **{hours}h {minutes}m**.",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed)
+                return
+
+        # streak update dans fenêtre 48h
+        if last_ts is None:
             streak = 1
+        else:
+            since_last_h = (now - last_ts) / 3600
+            if since_last_h <= STREAK_WINDOW_H:
+                streak = max(1, prev_streak) + 1
+            else:
+                streak = 1
 
-        # Gains
-        base = random.randint(25, 35)
-        bonus = min(streak, STREAK_BONUS_CAP)
-        coins_gain = base + bonus
+        # Récompenses
+        base_coins = 20
+        streak_bonus = min(streak, 25)
+        coins_gain = base_coins + streak_bonus
+        items = _pick_items(2)
 
-        # Tickets & objets (persistants car 'inv' vient du storage)
-        inv.append(TICKET_EMOJI)
-        item1 = get_random_item()
-        item2 = get_random_item()
-        inv.append(item1)
-        inv.append(item2)
+        # DB writes
+        await add_balance(uid, coins_gain, reason="daily")
+        coins_after = await get_balance(uid)
+        await add_item(uid, TICKET_ITEM_NAME, 1)
+        for it in items:
+            await add_item(uid, it, 1)
 
-        # Mise à jour des coins via un setter compatible
-        coins_after = _add_user_coins(gid, uid, coins_gain)
+        # Persist daily row
+        await self._set_daily_row(uid, now, streak)
 
-        # Sauvegarde du daily + data
-        urec["last"] = now
-        urec["streak"] = streak
-        _save()
-
-        # Embed public
+        # Embed
         embed = discord.Embed(
-            title="✅ Récompense quotidienne",
-            color=discord.Color.green(),
+            title="🎁 Récompense quotidienne",
+            description=f"Streak : **{streak}** (bonus +{streak_bonus})",
+            color=discord.Color.green()
         )
-        embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
-        embed.add_field(name="GotCoins", value=f"{coins_gain} *(base {base} · bonus streak {bonus})*", inline=False)
-        embed.add_field(name="Tickets", value=f"{TICKET_EMOJI} ×1", inline=True)
-        embed.add_field(name="Objets", value=f"{item1} {item2}", inline=True)
-        embed.add_field(name="Solde", value=f"{coins_after}", inline=False)
+        embed.add_field(name="GotCoins gagnés", value=f"+{coins_gain}", inline=True)
+        embed.add_field(name="Ticket", value=f"+1 {TICKET_ITEM_NAME}", inline=True)
+        embed.add_field(name="Objets", value=" + ".join([f"+1 {name}" for name in items]) or "—", inline=False)
+        embed.add_field(name="Solde", value=f"{coins_after}", inline=True)
 
-        await interaction.response.send_message(embed=embed, ephemeral=False)
-
+        if last_ts:
+            dt = datetime.fromtimestamp(last_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            embed.set_footer(text=f"Dernier daily: {dt}")
+        await interaction.followup.send(embed=embed)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(DailyCog(bot))
+    await bot.add_cog(Daily(bot))
