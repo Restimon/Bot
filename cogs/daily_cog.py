@@ -205,24 +205,27 @@ class Daily(commands.Cog):
         # Persist daily row
         await self._set_daily_row(uid, now, streak)
 
-        # --- Embed (émojis uniquement pour Tickets & Objets)
+        # --- Embed (GotCoins sur la ligne 1, Tickets+Objets sur la ligne 2)
         embed = discord.Embed(
             title="🎁 Récompense quotidienne",
             description=f"Streak : **{streak}** (bonus +{streak_bonus})",
             color=discord.Color.green()
         )
-        embed.add_field(name="GotCoins gagnés", value=f"+{coins_gain}", inline=True)
-        embed.add_field(name="Tickets", value=f"{TICKET_EMOJI}×1", inline=True)
 
+        # Ligne 1 : pleine largeur
+        embed.add_field(name="GotCoins gagnés", value=f"+{coins_gain}", inline=False)
+
+        # Ligne 2 : deux colonnes
+        embed.add_field(name="Tickets", value=f"{TICKET_EMOJI}×1", inline=True)
         obj_emojis = " ".join(_item_emoji(n) for n in items) or "—"
         embed.add_field(name="Objets", value=obj_emojis, inline=True)
+
+        # Ligne 3 : pleine largeur (solde)
+        embed.add_field(name="Solde actuel", value=str(coins_after), inline=False)
 
         if last_ts:
             dt = datetime.fromtimestamp(last_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             embed.set_footer(text=f"Dernier daily: {dt}")
-
-        # Affiche le solde actuel dans un champ séparé (optionnel)
-        embed.add_field(name="Solde actuel", value=str(coins_after), inline=False)
 
         await interaction.followup.send(embed=embed)
 
