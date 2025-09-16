@@ -3,18 +3,20 @@ from __future__ import annotations
 
 import time
 import random
-import math
-from typing import Dict, Tuple, List, Any, Optional
+from typing import Dict, Tuple, List, Any
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# ----- Imports tolérants -----
+# ----- Import du bon storage (racine d'abord, puis data.storage) -----
 try:
-    from data import storage  # ton module de persistance
-except Exception:  # fallback léger
-    storage = None
+    import storage  # <- privilégier la même cible que utils.py, ravitaillement, etc.
+except Exception:
+    try:
+        from data import storage  # fallback si ton projet l’expose comme package
+    except Exception:
+        storage = None  # dernier filet (mémoire volatile)
 
 try:
     from utils import get_random_item
@@ -24,11 +26,11 @@ except Exception:
 
 TICKET_EMOJI = "🎟️"
 DAILY_COOLDOWN = 24 * 3600          # 24h
-STREAK_WINDOW = 48 * 3600           # on garde le streak si on reclame < 48h
-STREAK_BONUS_CAP = 25               # bonus max appliqué
+STREAK_WINDOW = 48 * 3600           # streak conservé si on reclique < 48h
+STREAK_BONUS_CAP = 25               # +1/jour jusqu'à 25 max
 
 # ---------------------------------------------------------------------------
-# Helpers de compatibilité avec ton storage
+# Helpers de compat avec ton storage
 # ---------------------------------------------------------------------------
 
 def _now() -> float:
@@ -36,11 +38,10 @@ def _now() -> float:
 
 def _ensure_daily_slot() -> Dict[str, Dict[str, Dict[str, Any]]]:
     """
-    Crée un magasin daily si absent.
+    Crée/retourne storage.daily (persistant) ou une mémoire locale si storage indispo.
     Structure: storage.daily[guild_id][user_id] = {"last": ts, "streak": int}
     """
     if storage is None:
-        # fallback mémoire très minimal si storage pas dispo
         if not hasattr(_ensure_daily_slot, "_mem"):
             _ensure_daily_slot._mem = {}
         return _ensure_daily_slot._mem  # type: ignore[attr-defined]
@@ -50,13 +51,8 @@ def _ensure_daily_slot() -> Dict[str, Dict[str, Dict[str, Any]]]:
     return storage.daily
 
 def _get_user_data(gid: int | str, uid: int | str) -> Tuple[List[Any], int, Any]:
-    """
-    Essaie d'utiliser storage.get_user_data(gid, uid) -> (inv, coins, personnage)
-    Fallback si tu as une autre forme de stockage.
-    """
     gid = str(gid); uid = str(uid)
     if storage is None:
-        # fallback mémoire
         d = getattr(_get_user_data, "_mem", {})
         if not d:
             _get_user_data._mem = d = {}
@@ -64,45 +60,50 @@ def _get_user_data(gid: int | str, uid: int | str) -> Tuple[List[Any], int, Any]
         rec = d[gid][uid]
         return rec["inv"], rec["coins"], rec["perso"]
 
-    # cas standard (ton utils.py s’attend à cette signature)
+    # API standard de ton projet
     if hasattr(storage, "get_user_data"):
         inv, coins, perso = storage.get_user_data(gid, uid)
         return inv, int(coins or 0), perso
 
-    # autre API éventuelle : get_or_create_user -> dict
+    # API alternative possible
     if hasattr(storage, "get_or_create_user"):
         u = storage.get_or_create_user(gid, uid)
         u.setdefault("inventory", [])
         u.setdefault("coins", 0)
         return u["inventory"], int(u["coins"]), u.get("personnage")
 
-    # dernier filet
-    raise RuntimeError("Aucune API compatible trouvée dans data.storage pour lire l'utilisateur.")
+    raise RuntimeError("Impossible de lire les données utilisateur depuis storage.")
 
-def _set_user_coins(gid: int | str, uid: int | str, new_amount: int) -> None:
+def _add_user_coins(gid: int | str, uid: int | str, delta: int) -> int:
+    """Ajoute 'delta' au solde et renvoie le nouveau solde."""
     gid = str(gid); uid = str(uid)
+    inv, coins, perso = _get_user_data(gid, uid)
+    new_amount = int(coins) + int(delta)
+
     if storage is None:
         d = getattr(_get_user_data, "_mem", {})
-        d.setdefault(gid, {}).setdefault(uid, {"inv": [], "coins": 0, "perso": None})
-        d[gid][uid]["coins"] = int(new_amount)
-        return
+        d[gid][uid]["coins"] = new_amount
+        return new_amount
+
+    # Priorité à des API dédiées si elles existent
+    if hasattr(storage, "add_coins"):
+        storage.add_coins(gid, uid, int(delta))
+        return new_amount
 
     if hasattr(storage, "set_user_coins"):
         storage.set_user_coins(gid, uid, int(new_amount))
-        return
+        return new_amount
 
-    # si get_user_data renvoie une structure modifiable, on l'écrase puis save
-    if hasattr(storage, "get_user_data"):
-        inv, _, perso = storage.get_user_data(gid, uid)
-        # petite astuce: certaines implémentations mettent coins par référence
-        # si non, on essaye une API générique
-        if hasattr(storage, "set_user_data"):
-            storage.set_user_data(gid, uid, inv, int(new_amount), perso)
-        else:
-            # tente d'accéder à un dict sous-jacent
-            if hasattr(storage, "data") and isinstance(storage.data, dict):
-                storage.data.setdefault(gid, {}).setdefault(uid, {})
-                storage.data[gid][uid]["coins"] = int(new_amount)
+    if hasattr(storage, "set_user_data"):
+        storage.set_user_data(gid, uid, inv, int(new_amount), perso)
+        return new_amount
+
+    # Dernier recours: écrire dans storage.data si présent
+    if hasattr(storage, "data") and isinstance(storage.data, dict):
+        storage.data.setdefault(gid, {}).setdefault(uid, {})
+        storage.data[gid][uid]["coins"] = int(new_amount)
+
+    return new_amount
 
 def _save():
     if storage is not None and hasattr(storage, "save_data"):
@@ -121,7 +122,6 @@ class DailyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # Petit utilitaire pour le texte temps restant
     def _fmt_delta(self, seconds: float) -> str:
         seconds = max(0, int(seconds))
         h = seconds // 3600
@@ -144,20 +144,18 @@ class DailyCog(commands.Cog):
             return
         uid = interaction.user.id
 
-        # Lecture user + compteur daily
         inv, coins_before, _ = _get_user_data(gid, uid)
+
+        # Streak & cooldown
         daily_map = _ensure_daily_slot()
         gmap = daily_map.setdefault(str(gid), {})
         urec = gmap.setdefault(str(uid), {"last": 0.0, "streak": 0})
-
         now = _now()
         last = float(urec.get("last", 0.0))
         streak = int(urec.get("streak", 0))
 
-        # Cooldown strict 24h
         remaining = (last + DAILY_COOLDOWN) - now
         if remaining > 0:
-            # on répond en éphémère ici (évite le spam public)
             await interaction.response.send_message(
                 embed=discord.Embed(
                     title="⏳ Daily déjà récupéré",
@@ -168,67 +166,41 @@ class DailyCog(commands.Cog):
             )
             return
 
-        # Gestion du streak : si on revient < 48h après le dernier claim, +1, sinon reset
         if last > 0 and (now - last) <= STREAK_WINDOW:
             streak += 1
         else:
-            streak = 1  # on recommence
+            streak = 1
 
         # Gains
         base = random.randint(25, 35)
         bonus = min(streak, STREAK_BONUS_CAP)
         coins_gain = base + bonus
 
-        # Tickets & objets
+        # Tickets & objets (persistants car 'inv' vient du storage)
         inv.append(TICKET_EMOJI)
         item1 = get_random_item()
         item2 = get_random_item()
         inv.append(item1)
         inv.append(item2)
 
-        # Mise à jour solde
-        coins_after = coins_before + coins_gain
-        _set_user_coins(gid, uid, coins_after)
+        # Mise à jour des coins via un setter compatible
+        coins_after = _add_user_coins(gid, uid, coins_gain)
 
-        # Mémorise daily
+        # Sauvegarde du daily + data
         urec["last"] = now
         urec["streak"] = streak
         _save()
 
-        # Embed public (succès)
+        # Embed public
         embed = discord.Embed(
             title="✅ Récompense quotidienne",
             color=discord.Color.green(),
         )
         embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
-
-        # GotCoins : afficher le gain du jour (sans +) + détail base/bonus
-        embed.add_field(
-            name="GotCoins",
-            value=f"{coins_gain} *(base {base} · bonus streak {bonus})*",
-            inline=False,
-        )
-
-        # Tickets
-        embed.add_field(
-            name="Tickets",
-            value=f"{TICKET_EMOJI} ×1",
-            inline=True
-        )
-
-        # Objets
-        embed.add_field(
-            name="Objets",
-            value=f"{item1} {item2}",
-            inline=True
-        )
-
-        # Solde (à la fin, montant actuel seulement)
-        embed.add_field(
-            name="Solde",
-            value=f"{coins_after}",
-            inline=False
-        )
+        embed.add_field(name="GotCoins", value=f"{coins_gain} *(base {base} · bonus streak {bonus})*", inline=False)
+        embed.add_field(name="Tickets", value=f"{TICKET_EMOJI} ×1", inline=True)
+        embed.add_field(name="Objets", value=f"{item1} {item2}", inline=True)
+        embed.add_field(name="Solde", value=f"{coins_after}", inline=False)
 
         await interaction.response.send_message(embed=embed, ephemeral=False)
 
