@@ -3,18 +3,24 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import aiosqlite
+from typing import List, Tuple
 
 from economy_db import get_balance
 from inventory_db import get_all_items
 
-# ---- Emojis depuis utils.py (fonction si dispo, sinon fallback dict)
+# ---- Emojis & descriptions depuis utils.py (fonctions si dispo, sinon fallback dict)
 try:
     from utils import get_item_emoji as _utils_item_emoji  # type: ignore
 except Exception:
     _utils_item_emoji = None
 
+try:
+    from utils import get_item_description as _utils_item_desc  # type: ignore
+except Exception:
+    _utils_item_desc = None
+
 _UTILS_ITEMS = None
-if _utils_item_emoji is None:
+if _utils_item_emoji is None or _utils_item_desc is None:
     try:
         from utils import ITEMS as _UTILS_ITEMS  # type: ignore
     except Exception:
@@ -50,6 +56,26 @@ def _item_emoji(name: str) -> str:
     }
     return FALLBACK.get(name, name)
 
+def _item_desc(name: str) -> str:
+    # 1) fonction dédiée
+    if _utils_item_desc:
+        try:
+            d = _utils_item_desc(name)
+            if isinstance(d, str) and d.strip():
+                return d
+        except Exception:
+            pass
+    # 2) dict catalogue
+    if isinstance(_UTILS_ITEMS, dict):
+        meta = _UTILS_ITEMS.get(name) or _UTILS_ITEMS.get((name or "").lower())
+        if isinstance(meta, dict):
+            for key in ("short", "short_desc", "shortDescription", "desc", "description"):
+                d = meta.get(key)
+                if isinstance(d, str) and d.strip():
+                    return d
+    # 3) fallback
+    return name
+
 # ---- DB path (la même DB que le reste)
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
@@ -84,17 +110,34 @@ class Inventory(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def _format_items_emoji_xqty(self, items: list[tuple[str, int]]) -> str:
-        """Affiche uniquement les émojis avec ×qty, en excluant les tickets."""
-        chunks = []
+    def _format_items_lines(self, items: List[Tuple[str, int]]) -> List[str]:
+        """Retourne une liste de lignes '1x 🛡️ [Description]' en excluant les tickets."""
+        lines: List[str] = []
         for name, qty in items:
             if not name or name in TICKET_NAMES:
-                continue  # ne pas montrer les tickets comme objets
+                continue
             emoji = _item_emoji(name)
+            desc = _item_desc(name)
             if not isinstance(emoji, str) or not emoji.strip():
                 emoji = name
-            chunks.append(f"{emoji} × {qty}")
-        return " · ".join(chunks) if chunks else "—"
+            # ex: "1x 🛡️ [Réduction de dégâts]"
+            lines.append(f"{qty}x {emoji} [{desc}]")
+        return lines
+
+    def _split_in_columns(self, lines: List[str], n_cols: int = 2) -> List[str]:
+        """Découpe la liste en n colonnes équilibrées, renvoie la valeur texte de chaque colonne."""
+        if not lines:
+            return ["—"]
+        # équilibre: moitié - moitié (ou réparti quasi égal)
+        per_col = (len(lines) + n_cols - 1) // n_cols
+        cols = []
+        for i in range(n_cols):
+            start = i * per_col
+            chunk = lines[start:start + per_col]
+            if chunk:
+                cols.append("\n".join(chunk))
+        # au moins une colonne
+        return cols or ["—"]
 
     async def _send_inventory(self, interaction: discord.Interaction):
         """Logique partagée par /inventory et /inv."""
@@ -112,10 +155,20 @@ class Inventory(commands.Cog):
             color=discord.Color.green()
         )
 
-        # Ligne 1: Objets
-        embed.add_field(name="Objets", value=self._format_items_emoji_xqty(items), inline=False)
+        # OBJETS en colonnes
+        lines = self._format_items_lines(items)
+        cols = self._split_in_columns(lines, n_cols=2)
 
-        # Ligne 2: Tickets & GoldValis
+        if len(cols) == 1:
+            # une seule colonne/peu d'items
+            embed.add_field(name="Objets", value=cols[0], inline=False)
+        else:
+            # petit en-tête puis deux colonnes vides (noms invisibles) pour un rendu clean
+            embed.add_field(name="Objets", value="\u200b", inline=False)
+            embed.add_field(name="\u200b", value=cols[0], inline=True)
+            embed.add_field(name="\u200b", value=cols[1], inline=True)
+
+        # Tickets & GoldValis (ligne suivante)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
         embed.add_field(name="💰 GoldValis", value=str(coins), inline=True)
 
