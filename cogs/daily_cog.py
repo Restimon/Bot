@@ -2,7 +2,7 @@
 import random
 import time
 from datetime import datetime, timezone
-from typing import List, Tuple, Dict, Any
+from typing import List, Dict, Any
 
 import discord
 from discord import app_commands
@@ -13,17 +13,8 @@ import aiosqlite
 from economy_db import add_balance, get_balance
 from inventory_db import add_item
 
-# --- Catalogue/ tirage depuis utils.py
-try:
-    # renvoie p.ex. ["🛡", "🧪"] (les noms SONT les emojis)
-    from utils import get_random_items as _get_random_items  # type: ignore
-except Exception:
-    _get_random_items = None
-
-try:
-    from utils import ITEMS as ITEM_CATALOG  # dict: { "🛡": {...}, "🩹": {...}, ... }
-except Exception:
-    ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
+# --- Catalogue/ tirage depuis utils.py (clés = ÉMOJIS)
+from utils import ITEMS as ITEM_CATALOG, get_random_items as _get_random_items
 
 # ===============================
 # Config
@@ -106,93 +97,53 @@ async def _get_tickets(uid: int) -> int:
 # ===============================
 # Sélection items & descriptions
 # ===============================
-def _pick_items(n: int) -> List[str]:
-    """
-    Tire n items depuis utils.get_random_items si dispo (les noms sont des emojis),
-    en excluant tout ce qui ressemble à un ticket.
-    """
-    items: List[str] = []
-    if _get_random_items:
-        try:
-            cand = _get_random_items(n)
-            if isinstance(cand, list):
-                items = [x for x in cand if isinstance(x, str) and x not in TICKET_NAMES]
-        except Exception:
-            items = []
-    if not items:
-        # Fallback si utils absent : petit pool d'emojis réels de ton catalogue
-        fallback_pool = [k for k in ITEM_CATALOG.keys() if isinstance(k, str) and k not in TICKET_NAMES]
-        if not fallback_pool:
-            fallback_pool = ["🛡", "🩹", "💊", "💕", "🧪", "🧟", "🦠", "❄️", "🪓", "🔥", "⚡", "🔫", "🧨", "☠️", "📦", "🔍", "💉", "👟", "🪖", "⭐️"]
-        random.shuffle(fallback_pool)
-        items = fallback_pool[:n]
-    # Ajuste la taille
-    if len(items) > n:
-        items = items[:n]
-    elif len(items) < n:
-        # Complète aléatoirement (sans tickets)
-        pool = [k for k in ITEM_CATALOG.keys() if k not in items and k not in TICKET_NAMES]
-        while len(items) < n and pool:
-            items.append(pool.pop(random.randrange(len(pool))))
-    return items
-
 def _short_desc(emoji_key: str) -> str:
     """
     Produit une description courte à partir des métadonnées.
     """
-    meta = ITEM_CATALOG.get(emoji_key, {}) if isinstance(ITEM_CATALOG, dict) else {}
+    meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
 
     if t == "attaque":
-        dmg = meta.get("degats")
-        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
+        dmg = meta.get("degats");        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
     if t == "attaque_chaine":
         dp = meta.get("degats_principal"); ds = meta.get("degats_secondaire")
         return f"Chaîne {dp}/{ds}" if dp is not None and ds is not None else "Attaque en chaîne"
     if t == "virus":
-        dmg = meta.get("degats")
-        return f"Virus {dmg} sur durée" if dmg is not None else "Virus"
+        dmg = meta.get("degats");        return f"Virus {dmg} sur durée" if dmg is not None else "Virus"
     if t == "poison":
-        dmg = meta.get("degats")
-        return f"Poison {dmg}/tick" if dmg is not None else "Poison"
+        dmg = meta.get("degats");        return f"Poison {dmg}/tick" if dmg is not None else "Poison"
     if t == "infection":
-        dmg = meta.get("degats")
-        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
+        dmg = meta.get("degats");        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
     if t == "soin":
-        heal = meta.get("soin")
-        return f"Soigne {heal} PV" if heal is not None else "Soin"
+        heal = meta.get("soin");         return f"Soigne {heal} PV" if heal is not None else "Soin"
     if t == "regen":
-        val = meta.get("valeur")
-        return f"Régén {val}/tick" if val is not None else "Régénération"
-    if t == "mysterybox":
-        return "Mystery Box"
-    if t == "vol":
-        return "Vol"
-    if t == "vaccin":
-        return "Immunise contre statut"
+        val = meta.get("valeur");        return f"Régén {val}/tick" if val is not None else "Régénération"
+    if t == "mysterybox":                return "Mystery Box"
+    if t == "vol":                       return "Vol"
+    if t == "vaccin":                    return "Immunise contre statut"
     if t == "bouclier":
-        val = meta.get("valeur")
-        return f"Bouclier {val}" if val is not None else "Bouclier"
+        val = meta.get("valeur");        return f"Bouclier {val}" if val is not None else "Bouclier"
     if t == "esquive+":
-        val = meta.get("valeur")
-        return f"Esquive +{int(val*100)}%" if isinstance(val, (int, float)) else "Esquive +"
+        val = meta.get("valeur");        return f"Esquive +{int(val*100)}%" if isinstance(val, (int, float)) else "Esquive +"
     if t == "reduction":
-        val = meta.get("valeur")
-        return f"Réduction {int(val*100)}%" if isinstance(val, (int, float)) else "Réduction"
-    if t == "immunite":
-        return "Immunité"
-
+        val = meta.get("valeur");        return f"Réduction {int(val*100)}%" if isinstance(val, (int, float)) else "Réduction"
+    if t == "immunite":                  return "Immunité"
     return emoji_key
+
+def _pick_items(n: int) -> List[str]:
+    """
+    Tire n items via utils.get_random_items (clés = emojis), en excluant les tickets.
+    """
+    items = [e for e in _get_random_items(n) if e not in TICKET_NAMES]
+    if len(items) < n:
+        pool = [k for k in ITEM_CATALOG.keys() if k not in items and k not in TICKET_NAMES]
+        items += pool[: max(0, n - len(items))]
+    return items[:n]
 
 def _format_items_lines(items: List[str]) -> List[str]:
     """Transforme ['🛡', '🩹'] -> ['1x 🛡 [Bouclier 20]', '1x 🩹 [Soigne 10 PV]']"""
-    lines: List[str] = []
-    for emoji in items:
-        if not emoji or emoji in TICKET_NAMES:
-            continue
-        desc = _short_desc(emoji)
-        lines.append(f"1x {emoji} [{desc}]")
-    return lines
+    return [f"1x {emoji} [{_short_desc(emoji)}]" for emoji in items if emoji and emoji not in TICKET_NAMES]
 
 def _split_in_columns(lines: List[str], n_cols: int = 2) -> List[str]:
     if not lines:
@@ -286,11 +237,7 @@ class Daily(commands.Cog):
             embed.add_field(name="Objets", value=cols[0], inline=True)
         else:
             embed.add_field(name="Objets", value="\u200b", inline=True)  # en-tête
-            # Pour garder l’alignement avec Tickets, on met la première colonne ici,
-            # puis on ouvre une nouvelle "ligne" si besoin
             embed.add_field(name="\u200b", value=cols[0], inline=True)
-            # si on veut forcer le retour ligne avant la 2e colonne d'objets, décommente la ligne vide :
-            # embed.add_field(name="\u200b", value="\u200b", inline=False)
             if len(cols) >= 2:
                 embed.add_field(name="\u200b", value=cols[1], inline=True)
 
