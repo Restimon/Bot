@@ -91,52 +91,46 @@ class Inventory(commands.Cog):
             if not name or name in TICKET_NAMES:
                 continue  # ne pas montrer les tickets comme objets
             emoji = _item_emoji(name)
-            # si la fonction renvoie le nom (pas d'emoji), on affiche quand même pour ne rien perdre
             if not isinstance(emoji, str) or not emoji.strip():
                 emoji = name
             chunks.append(f"{emoji} × {qty}")
         return " · ".join(chunks) if chunks else "—"
 
-    @app_commands.command(name="inventory", description="Affiche ton inventaire.")
-    async def inventory(self, interaction: discord.Interaction):
+    async def _send_inventory(self, interaction: discord.Interaction):
+        """Logique partagée par /inventory et /inv."""
         await interaction.response.defer(ephemeral=False, thinking=False)
 
         uid = interaction.user.id
         username = interaction.user.display_name
 
-        # Solde et items
         coins = await get_balance(uid)
-        items = await get_all_items(uid)  # attendu: List[Tuple[name, qty]]
-
-        # Tickets séparés
+        items = await get_all_items(uid)  # List[Tuple[name, qty]]
         tickets = await _get_tickets(uid)
 
-        # Embed
         embed = discord.Embed(
             title=f"📦 Inventaire — {username}",
             color=discord.Color.green()
         )
 
-        # Objets (ligne 1)
+        # Ligne 1: Objets
         embed.add_field(name="Objets", value=self._format_items_emoji_xqty(items), inline=False)
 
-        # Tickets & GoldValis (ligne 2, deux colonnes)
+        # Ligne 2: Tickets & GoldValis
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
         embed.add_field(name="💰 GoldValis", value=str(coins), inline=True)
 
-        # (Option) Un rappel Daily si tu veux
-        # embed.add_field(name="📅 Daily", value="Utilise `/daily` pour récupérer ton ticket journalier.", inline=False)
-
-        # Avatar à droite si possible
         if interaction.user.display_avatar:
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
         await interaction.followup.send(embed=embed)
 
-    # Alias /inv si tu l'utilises déjà
+    @app_commands.command(name="inventory", description="Affiche ton inventaire.")
+    async def inventory(self, interaction: discord.Interaction):
+        await self._send_inventory(interaction)
+
     @app_commands.command(name="inv", description="Alias de /inventory.")
     async def inv(self, interaction: discord.Interaction):
-        await self.inventory(interaction)
+        await self._send_inventory(interaction)
 
 
 async def setup(bot: commands.Bot):
