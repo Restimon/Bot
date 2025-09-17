@@ -2,92 +2,43 @@
 import random
 import time
 from datetime import datetime, timezone
+from typing import List, Tuple, Dict, Any
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-
 import aiosqlite
 
-# --- DB modernes
+# --- DB projets
 from economy_db import add_balance, get_balance
 from inventory_db import add_item
 
-# --- Tirage & emojis depuis utils.py
-# 1) tirage des items (idéalement utils.get_random_items(n) renvoie une liste de noms)
+# --- Catalogue/ tirage depuis utils.py
 try:
+    # renvoie p.ex. ["🛡", "🧪"] (les noms SONT les emojis)
     from utils import get_random_items as _get_random_items  # type: ignore
 except Exception:
     _get_random_items = None
 
-# 2) récupération de l'emoji d'un item
 try:
-    from utils import get_item_emoji as _utils_item_emoji  # type: ignore
+    from utils import ITEMS as ITEM_CATALOG  # dict: { "🛡": {...}, "🩹": {...}, ... }
 except Exception:
-    _utils_item_emoji = None
-
-_UTILS_ITEMS = None
-if _utils_item_emoji is None:
-    try:
-        # Si utils.py expose un catalogue d'items
-        from utils import ITEMS as _UTILS_ITEMS  # type: ignore
-    except Exception:
-        _UTILS_ITEMS = None
-
-
-def _item_emoji(name: str) -> str:
-    """Renvoie l'emoji d'un item d'après utils.py (fonction ou dict), sinon le nom brut."""
-    # 1) fonction dédiée
-    if _utils_item_emoji:
-        try:
-            em = _utils_item_emoji(name)
-            if isinstance(em, str) and em.strip():
-                return em
-        except Exception:
-            pass
-    # 2) dict catalogue
-    if isinstance(_UTILS_ITEMS, dict):
-        meta = _UTILS_ITEMS.get(name) or _UTILS_ITEMS.get(name.lower())
-        if isinstance(meta, dict):
-            em = meta.get("emoji") or meta.get("icon") or meta.get("emote")
-            if isinstance(em, str) and em.strip():
-                return em
-    # 3) fallback
-    FALLBACK = {
-        "Bouclier": "🛡️",
-        "Casque": "🥽",
-        "Potion de soin": "🩹",
-        "Régénération": "⚡",
-        "Poison": "☠️",
-        "Virus": "🧬",
-        "Immunité": "🛡️",
-        "Évasion +": "💨",
-        "Vol à la tire": "🧤",
-        "Mystery Box": "🎁",
-        "Ticket": "🎟️",
-        "🎟️ Ticket": "🎟️",
-    }
-    return FALLBACK.get(name, name)
-
+    ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
 
 # ===============================
-# Config Daily
+# Config
 # ===============================
 DAILY_COOLDOWN_H = 24
 STREAK_WINDOW_H = 48
-TICKET_ITEM_NAME = "🎟️ Ticket"  # stocké comme un item en DB
 TICKET_EMOJI = "🎟️"
 
-# ===============================
-# Base SQLite pour cooldown + streak
-# ===============================
+# Même DB que le reste
 try:
-    # Utilise le même chemin que l'économie si exposé
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-CREATE_TABLE_SQL = """
+CREATE_DAILIES_SQL = """
 CREATE TABLE IF NOT EXISTS dailies (
     user_id    INTEGER PRIMARY KEY,
     last_ts    REAL NOT NULL,
@@ -95,68 +46,184 @@ CREATE TABLE IF NOT EXISTS dailies (
 );
 """
 
+# Tickets stockés séparément (pas en inventaire)
+CREATE_TICKETS_SQL = """
+CREATE TABLE IF NOT EXISTS tickets (
+    user_id INTEGER PRIMARY KEY,
+    count   INTEGER NOT NULL
+);
+"""
 
+# Valeurs à filtrer si jamais le tirage utils renvoie un "ticket"
+TICKET_NAMES = {"🎟️", "🎟️ Ticket", "Ticket", "ticket", "Daily Ticket", "daily ticket"}
+
+
+# ===============================
+# Helpers SQL
+# ===============================
 def _now() -> float:
     return time.time()
 
+async def _ensure_tables():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(CREATE_DAILIES_SQL)
+        await db.execute(CREATE_TICKETS_SQL)
+        await db.commit()
 
-def _pick_items(n: int) -> list[str]:
-    """Tire n objets via utils.py si possible, sinon fallback simple."""
+async def _get_daily_row(uid: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT last_ts, streak FROM dailies WHERE user_id = ?", (uid,))
+        row = await cur.fetchone()
+        await cur.close()
+    return row  # (last_ts, streak) or None
+
+async def _set_daily_row(uid: int, last_ts: float, streak: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO dailies(user_id, last_ts, streak) VALUES(?,?,?) "
+            "ON CONFLICT(user_id) DO UPDATE SET last_ts=excluded.last_ts, streak=excluded.streak",
+            (uid, last_ts, streak)
+        )
+        await db.commit()
+
+async def _add_tickets(uid: int, amount: int = 1):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO tickets(user_id, count) VALUES(?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET count = tickets.count + ?",
+            (uid, amount, amount)
+        )
+        await db.commit()
+
+async def _get_tickets(uid: int) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT count FROM tickets WHERE user_id = ?", (uid,))
+        row = await cur.fetchone()
+        await cur.close()
+    return int(row[0]) if row else 0
+
+
+# ===============================
+# Sélection items & descriptions
+# ===============================
+def _pick_items(n: int) -> List[str]:
+    """
+    Tire n items depuis utils.get_random_items si dispo (les noms sont des emojis),
+    en excluant tout ce qui ressemble à un ticket.
+    """
+    items: List[str] = []
     if _get_random_items:
         try:
-            items = _get_random_items(n)
-            if isinstance(items, list) and items:
-                return items[:n]
+            cand = _get_random_items(n)
+            if isinstance(cand, list):
+                items = [x for x in cand if isinstance(x, str) and x not in TICKET_NAMES]
         except Exception:
-            pass
-    # Fallback minimal si utils.get_random_items n'est pas dispo
-    pool = [
-        "Mystery Box", "Potion de soin", "Poison", "Virus", "Bouclier", "Casque",
-        "Évasion +", "Immunité", "Régénération", "Vol à la tire"
-    ]
-    n = min(n, len(pool))
-    return random.sample(pool, k=n)
+            items = []
+    if not items:
+        # Fallback si utils absent : petit pool d'emojis réels de ton catalogue
+        fallback_pool = [k for k in ITEM_CATALOG.keys() if isinstance(k, str) and k not in TICKET_NAMES]
+        if not fallback_pool:
+            fallback_pool = ["🛡", "🩹", "💊", "💕", "🧪", "🧟", "🦠", "❄️", "🪓", "🔥", "⚡", "🔫", "🧨", "☠️", "📦", "🔍", "💉", "👟", "🪖", "⭐️"]
+        random.shuffle(fallback_pool)
+        items = fallback_pool[:n]
+    # Ajuste la taille
+    if len(items) > n:
+        items = items[:n]
+    elif len(items) < n:
+        # Complète aléatoirement (sans tickets)
+        pool = [k for k in ITEM_CATALOG.keys() if k not in items and k not in TICKET_NAMES]
+        while len(items) < n and pool:
+            items.append(pool.pop(random.randrange(len(pool))))
+    return items
+
+def _short_desc(emoji_key: str) -> str:
+    """
+    Produit une description courte à partir des métadonnées.
+    """
+    meta = ITEM_CATALOG.get(emoji_key, {}) if isinstance(ITEM_CATALOG, dict) else {}
+    t = meta.get("type", "")
+
+    if t == "attaque":
+        dmg = meta.get("degats")
+        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
+    if t == "attaque_chaine":
+        dp = meta.get("degats_principal"); ds = meta.get("degats_secondaire")
+        return f"Chaîne {dp}/{ds}" if dp is not None and ds is not None else "Attaque en chaîne"
+    if t == "virus":
+        dmg = meta.get("degats")
+        return f"Virus {dmg} sur durée" if dmg is not None else "Virus"
+    if t == "poison":
+        dmg = meta.get("degats")
+        return f"Poison {dmg}/tick" if dmg is not None else "Poison"
+    if t == "infection":
+        dmg = meta.get("degats")
+        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
+    if t == "soin":
+        heal = meta.get("soin")
+        return f"Soigne {heal} PV" if heal is not None else "Soin"
+    if t == "regen":
+        val = meta.get("valeur")
+        return f"Régén {val}/tick" if val is not None else "Régénération"
+    if t == "mysterybox":
+        return "Mystery Box"
+    if t == "vol":
+        return "Vol"
+    if t == "vaccin":
+        return "Immunise contre statut"
+    if t == "bouclier":
+        val = meta.get("valeur")
+        return f"Bouclier {val}" if val is not None else "Bouclier"
+    if t == "esquive+":
+        val = meta.get("valeur")
+        return f"Esquive +{int(val*100)}%" if isinstance(val, (int, float)) else "Esquive +"
+    if t == "reduction":
+        val = meta.get("valeur")
+        return f"Réduction {int(val*100)}%" if isinstance(val, (int, float)) else "Réduction"
+    if t == "immunite":
+        return "Immunité"
+
+    return emoji_key
+
+def _format_items_lines(items: List[str]) -> List[str]:
+    """Transforme ['🛡', '🩹'] -> ['1x 🛡 [Bouclier 20]', '1x 🩹 [Soigne 10 PV]']"""
+    lines: List[str] = []
+    for emoji in items:
+        if not emoji or emoji in TICKET_NAMES:
+            continue
+        desc = _short_desc(emoji)
+        lines.append(f"1x {emoji} [{desc}]")
+    return lines
+
+def _split_in_columns(lines: List[str], n_cols: int = 2) -> List[str]:
+    if not lines:
+        return ["—"]
+    per_col = (len(lines) + n_cols - 1) // n_cols
+    cols = []
+    for i in range(n_cols):
+        start = i * per_col
+        block = "\n".join(lines[start:start + per_col]).strip()
+        if block:
+            cols.append(block)
+    return cols or ["—"]
 
 
+# ===============================
+# Cog
+# ===============================
 class Daily(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._ready = False
-
-    async def _ensure_table(self):
-        if self._ready:
-            return
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(CREATE_TABLE_SQL)
-            await db.commit()
-        self._ready = True
-
-    async def _get_daily_row(self, uid: int):
-        async with aiosqlite.connect(DB_PATH) as db:
-            cur = await db.execute("SELECT last_ts, streak FROM dailies WHERE user_id = ?", (uid,))
-            row = await cur.fetchone()
-            await cur.close()
-        return row  # (last_ts, streak) or None
-
-    async def _set_daily_row(self, uid: int, last_ts: float, streak: int):
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "INSERT INTO dailies(user_id, last_ts, streak) VALUES(?,?,?) "
-                "ON CONFLICT(user_id) DO UPDATE SET last_ts=excluded.last_ts, streak=excluded.streak",
-                (uid, last_ts, streak)
-            )
-            await db.commit()
 
     @app_commands.command(name="daily", description="Récupère ta récompense quotidienne.")
     async def daily(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False, thinking=False)
-        await self._ensure_table()
+        await _ensure_tables()
 
         uid = interaction.user.id
         now = _now()
 
-        # --- Cooldown / streak depuis SQL
-        row = await self._get_daily_row(uid)
+        # Cooldown / streak
+        row = await _get_daily_row(uid)
         last_ts = row[0] if row else None
         prev_streak = row[1] if row else 0
 
@@ -174,53 +241,60 @@ class Daily(commands.Cog):
                 await interaction.followup.send(embed=embed)
                 return
 
-        # streak update dans fenêtre 48h
         if last_ts is None:
             streak = 1
         else:
             since_last_h = (now - last_ts) / 3600
-            if since_last_h <= STREAK_WINDOW_H:
-                streak = max(1, prev_streak) + 1
-            else:
-                streak = 1
+            streak = (max(1, prev_streak) + 1) if since_last_h <= STREAK_WINDOW_H else 1
 
-        # --- Récompenses
+        # Récompenses
         base_coins = 20
         streak_bonus = min(streak, 25)
         coins_gain = base_coins + streak_bonus
 
-        # 1 ticket + 2 items
+        # 1 ticket (séparé) + 2 items
         items = _pick_items(2)
 
-        # --- Écritures DB
+        # Écritures
         await add_balance(uid, coins_gain, reason="daily")
-        coins_after = await get_balance(uid)
-
-        # Ajout ticket (stockage comme item)
-        await add_item(uid, TICKET_ITEM_NAME, 1)
-        # Ajout des deux objets
+        await _add_tickets(uid, 1)
         for it in items:
             await add_item(uid, it, 1)
 
-        # Persist daily row
-        await self._set_daily_row(uid, now, streak)
+        await _set_daily_row(uid, now, streak)
 
-        # --- Embed (GotCoins sur la ligne 1, Tickets+Objets sur la ligne 2)
+        coins_after = await get_balance(uid)
+        tickets_after = await _get_tickets(uid)
+
+        # --- Embed
         embed = discord.Embed(
             title="🎁 Récompense quotidienne",
             description=f"Streak : **{streak}** (bonus +{streak_bonus})",
             color=discord.Color.green()
         )
 
-        # Ligne 1 : pleine largeur
+        # Ligne 1 : coins
         embed.add_field(name="GotCoins gagnés", value=f"+{coins_gain}", inline=False)
 
-        # Ligne 2 : deux colonnes
-        embed.add_field(name="Tickets", value=f"{TICKET_EMOJI}×1", inline=True)
-        obj_emojis = " ".join(_item_emoji(n) for n in items) or "—"
-        embed.add_field(name="Objets", value=obj_emojis, inline=True)
+        # Ligne 2 : Tickets + Objets (colonnes)
+        embed.add_field(name="🎟️ Tickets", value=f"+1 (total: {tickets_after})", inline=True)
 
-        # Ligne 3 : pleine largeur (solde)
+        lines = _format_items_lines(items)  # ['1x 🛡 [Bouclier 20]', '1x 🩹 [Soigne 10 PV]']
+        cols = _split_in_columns(lines, n_cols=2)
+
+        if len(cols) == 1:
+            embed.add_field(name="Objets", value=cols[0], inline=True)
+        else:
+            embed.add_field(name="Objets", value="\u200b", inline=True)  # en-tête
+            # Pour garder l’alignement avec Tickets, on met la première colonne ici,
+            # puis on ouvre une nouvelle "ligne" si besoin
+            embed.add_field(name="\u200b", value=cols[0], inline=True)
+            # si on veut forcer le retour ligne avant la 2e colonne d'objets, décommente la ligne vide :
+            # embed.add_field(name="\u200b", value="\u200b", inline=False)
+            if len(cols) >= 2:
+                embed.add_field(name="\u200b", value=cols[1], inline=True)
+
+        # Ligne suivante : solde actuel (pleine largeur)
         embed.add_field(name="Solde actuel", value=str(coins_after), inline=False)
 
         if last_ts:
