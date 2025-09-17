@@ -8,13 +8,10 @@ from typing import List, Tuple, Dict, Any
 from economy_db import get_balance
 from inventory_db import get_all_items
 
-# -- On importe le catalogue depuis utils.py (clés = emojis)
-try:
-    from utils import ITEMS as ITEM_CATALOG  # type: ignore
-except Exception:
-    ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
+# --- On lit directement depuis utils.py
+from utils import ITEMS as ITEM_CATALOG, get_random_items as _get_random_items  # noqa: F401  (tirage non utilisé ici)
 
-# ---- DB path (même DB que le reste)
+# ---- DB path (la même DB que le reste)
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
@@ -28,7 +25,6 @@ CREATE TABLE IF NOT EXISTS tickets (
 );
 """
 
-# valeurs acceptées pour “ticket” si jamais il se glisse dans l’inventaire par erreur
 TICKET_NAMES = {"🎟️", "🎟️ Ticket", "Ticket", "ticket", "Daily Ticket", "daily ticket"}
 
 async def _ensure_tickets_table():
@@ -48,86 +44,49 @@ async def _get_tickets(uid: int) -> int:
 # ---------- Helpers d'affichage ----------
 def _short_desc(emoji_key: str) -> str:
     """
-    Fabrique une description courte à partir des métadonnées du catalogue.
-    On couvre tous les 'type' que tu as listés : attaque, attaque_chaine, virus, poison, infection,
-    soin, regen, mysterybox, vol, vaccin, bouclier, esquive+, reduction, immunite.
+    Construit une description courte directement à partir de utils.ITEMS.
+    Les clés du dict sont les ÉMOJIS (ex: "🛡", "🩹", ...).
     """
-    meta = ITEM_CATALOG.get(emoji_key, {}) if isinstance(ITEM_CATALOG, dict) else {}
+    meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
 
-    # Attaques simples
     if t == "attaque":
-        dmg = meta.get("degats")
-        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
-    # Attaque en chaîne
+        dmg = meta.get("degats");        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
     if t == "attaque_chaine":
-        dp = meta.get("degats_principal")
-        ds = meta.get("degats_secondaire")
-        if dp is not None and ds is not None:
-            return f"Chaîne {dp}/{ds}"
-        return "Attaque en chaîne"
-    # Virus / Poison / Infection (DoT)
+        dp = meta.get("degats_principal"); ds = meta.get("degats_secondaire")
+        return f"Chaîne {dp}/{ds}" if dp is not None and ds is not None else "Attaque en chaîne"
     if t == "virus":
-        dmg = meta.get("degats")
-        dur = meta.get("duree")
-        return f"Virus {dmg} sur durée" if dmg is not None else "Virus"
+        dmg = meta.get("degats");        return f"Virus {dmg} sur durée" if dmg is not None else "Virus"
     if t == "poison":
-        dmg = meta.get("degats")
-        return f"Poison {dmg}/tick" if dmg is not None else "Poison"
+        dmg = meta.get("degats");        return f"Poison {dmg}/tick" if dmg is not None else "Poison"
     if t == "infection":
-        dmg = meta.get("degats")
-        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
-    # Soins
+        dmg = meta.get("degats");        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
     if t == "soin":
-        heal = meta.get("soin")
-        return f"Soigne {heal} PV" if heal is not None else "Soin"
-    # Régénération
+        heal = meta.get("soin");         return f"Soigne {heal} PV" if heal is not None else "Soin"
     if t == "regen":
-        val = meta.get("valeur")
-        return f"Régén {val}/tick" if val is not None else "Régénération"
-    # Mystery box
-    if t == "mysterybox":
-        return "Mystery Box"
-    # Vol
-    if t == "vol":
-        return "Vol"
-    # Vaccin
-    if t == "vaccin":
-        return "Immunise contre statut"
-    # Bouclier
+        val = meta.get("valeur");        return f"Régén {val}/tick" if val is not None else "Régénération"
+    if t == "mysterybox":                return "Mystery Box"
+    if t == "vol":                       return "Vol"
+    if t == "vaccin":                    return "Immunise contre statut"
     if t == "bouclier":
-        val = meta.get("valeur")
-        return f"Bouclier {val}" if val is not None else "Bouclier"
-    # Esquive +
+        val = meta.get("valeur");        return f"Bouclier {val}" if val is not None else "Bouclier"
     if t == "esquive+":
-        val = meta.get("valeur")
-        return f"Esquive +{int(val*100)}%" if isinstance(val, (int, float)) else "Esquive +"
-    # Réduction (casque)
+        val = meta.get("valeur");        return f"Esquive +{int(val*100)}%" if isinstance(val, (int, float)) else "Esquive +"
     if t == "reduction":
-        val = meta.get("valeur")
-        return f"Réduction {int(val*100)}%" if isinstance(val, (int, float)) else "Réduction"
-    # Immunité
-    if t == "immunite":
-        return "Immunité"
-
-    # Par défaut, si non trouvé, on renvoie l'emoji lui-même
-    return emoji_key
-
+        val = meta.get("valeur");        return f"Réduction {int(val*100)}%" if isinstance(val, (int, float)) else "Réduction"
+    if t == "immunite":                  return "Immunité"
+    return emoji_key  # fallback neutre
 
 def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
     """
     Transforme [(emoji, qty), ...] en lignes '1x 🛡️ [Description]'.
     Filtre les tickets.
     """
-    lines: List[str] = []
-    for name, qty in items:
-        if not name or name in TICKET_NAMES:
-            continue
-        emoji = name  # le nom EST déjà l'emoji
-        desc = _short_desc(emoji)
-        lines.append(f"{qty}x {emoji} [{desc}]")
-    return lines
-
+    return [
+        f"{qty}x {emoji} [{_short_desc(emoji)}]"
+        for emoji, qty in items
+        if emoji and emoji not in TICKET_NAMES
+    ]
 
 def _split_in_columns(lines: List[str], n_cols: int = 2) -> List[str]:
     """Découpe en n colonnes équilibrées et renvoie les blocs texte pour chaque colonne."""
