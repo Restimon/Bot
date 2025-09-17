@@ -3,86 +3,24 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import aiosqlite
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 from economy_db import get_balance
 from inventory_db import get_all_items
 
-# ---- Emojis & descriptions depuis utils.py (fonctions si dispo, sinon fallback dict)
+# -- On importe le catalogue depuis utils.py (clés = emojis)
 try:
-    from utils import get_item_emoji as _utils_item_emoji  # type: ignore
+    from utils import ITEMS as ITEM_CATALOG  # type: ignore
 except Exception:
-    _utils_item_emoji = None
+    ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
 
-try:
-    from utils import get_item_description as _utils_item_desc  # type: ignore
-except Exception:
-    _utils_item_desc = None
-
-_UTILS_ITEMS = None
-if _utils_item_emoji is None or _utils_item_desc is None:
-    try:
-        from utils import ITEMS as _UTILS_ITEMS  # type: ignore
-    except Exception:
-        _UTILS_ITEMS = None
-
-def _item_emoji(name: str) -> str:
-    if _utils_item_emoji:
-        try:
-            em = _utils_item_emoji(name)
-            if isinstance(em, str) and em.strip():
-                return em
-        except Exception:
-            pass
-    if isinstance(_UTILS_ITEMS, dict):
-        meta = _UTILS_ITEMS.get(name) or _UTILS_ITEMS.get((name or "").lower())
-        if isinstance(meta, dict):
-            em = meta.get("emoji") or meta.get("icon") or meta.get("emote")
-            if isinstance(em, str) and em.strip():
-                return em
-    FALLBACK = {
-        "Bouclier": "🛡️",
-        "Casque": "🥽",
-        "Potion de soin": "🩹",
-        "Régénération": "⚡",
-        "Poison": "☠️",
-        "Virus": "🧬",
-        "Immunité": "🛡️",
-        "Évasion +": "💨",
-        "Vol à la tire": "🧤",
-        "Mystery Box": "🎁",
-        "Ticket": "🎟️",
-        "🎟️ Ticket": "🎟️",
-    }
-    return FALLBACK.get(name, name)
-
-def _item_desc(name: str) -> str:
-    # 1) fonction dédiée
-    if _utils_item_desc:
-        try:
-            d = _utils_item_desc(name)
-            if isinstance(d, str) and d.strip():
-                return d
-        except Exception:
-            pass
-    # 2) dict catalogue
-    if isinstance(_UTILS_ITEMS, dict):
-        meta = _UTILS_ITEMS.get(name) or _UTILS_ITEMS.get((name or "").lower())
-        if isinstance(meta, dict):
-            for key in ("short", "short_desc", "shortDescription", "desc", "description"):
-                d = meta.get(key)
-                if isinstance(d, str) and d.strip():
-                    return d
-    # 3) fallback
-    return name
-
-# ---- DB path (la même DB que le reste)
+# ---- DB path (même DB que le reste)
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-# ---- Tickets en table séparée (comme dans le daily modifié)
+# ---- Tickets en table séparée (le ticket ne doit PAS apparaître dans les objets)
 CREATE_TICKETS_SQL = """
 CREATE TABLE IF NOT EXISTS tickets (
     user_id INTEGER PRIMARY KEY,
@@ -90,7 +28,8 @@ CREATE TABLE IF NOT EXISTS tickets (
 );
 """
 
-TICKET_NAMES = {"Ticket", "ticket", "🎟️ Ticket", "🎟️", "Daily Ticket", "daily ticket"}
+# valeurs acceptées pour “ticket” si jamais il se glisse dans l’inventaire par erreur
+TICKET_NAMES = {"🎟️", "🎟️ Ticket", "Ticket", "ticket", "Daily Ticket", "daily ticket"}
 
 async def _ensure_tickets_table():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -106,48 +45,117 @@ async def _get_tickets(uid: int) -> int:
     return int(row[0]) if row else 0
 
 
+# ---------- Helpers d'affichage ----------
+def _short_desc(emoji_key: str) -> str:
+    """
+    Fabrique une description courte à partir des métadonnées du catalogue.
+    On couvre tous les 'type' que tu as listés : attaque, attaque_chaine, virus, poison, infection,
+    soin, regen, mysterybox, vol, vaccin, bouclier, esquive+, reduction, immunite.
+    """
+    meta = ITEM_CATALOG.get(emoji_key, {}) if isinstance(ITEM_CATALOG, dict) else {}
+    t = meta.get("type", "")
+
+    # Attaques simples
+    if t == "attaque":
+        dmg = meta.get("degats")
+        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
+    # Attaque en chaîne
+    if t == "attaque_chaine":
+        dp = meta.get("degats_principal")
+        ds = meta.get("degats_secondaire")
+        if dp is not None and ds is not None:
+            return f"Chaîne {dp}/{ds}"
+        return "Attaque en chaîne"
+    # Virus / Poison / Infection (DoT)
+    if t == "virus":
+        dmg = meta.get("degats")
+        dur = meta.get("duree")
+        return f"Virus {dmg} sur durée" if dmg is not None else "Virus"
+    if t == "poison":
+        dmg = meta.get("degats")
+        return f"Poison {dmg}/tick" if dmg is not None else "Poison"
+    if t == "infection":
+        dmg = meta.get("degats")
+        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
+    # Soins
+    if t == "soin":
+        heal = meta.get("soin")
+        return f"Soigne {heal} PV" if heal is not None else "Soin"
+    # Régénération
+    if t == "regen":
+        val = meta.get("valeur")
+        return f"Régén {val}/tick" if val is not None else "Régénération"
+    # Mystery box
+    if t == "mysterybox":
+        return "Mystery Box"
+    # Vol
+    if t == "vol":
+        return "Vol"
+    # Vaccin
+    if t == "vaccin":
+        return "Immunise contre statut"
+    # Bouclier
+    if t == "bouclier":
+        val = meta.get("valeur")
+        return f"Bouclier {val}" if val is not None else "Bouclier"
+    # Esquive +
+    if t == "esquive+":
+        val = meta.get("valeur")
+        return f"Esquive +{int(val*100)}%" if isinstance(val, (int, float)) else "Esquive +"
+    # Réduction (casque)
+    if t == "reduction":
+        val = meta.get("valeur")
+        return f"Réduction {int(val*100)}%" if isinstance(val, (int, float)) else "Réduction"
+    # Immunité
+    if t == "immunite":
+        return "Immunité"
+
+    # Par défaut, si non trouvé, on renvoie l'emoji lui-même
+    return emoji_key
+
+
+def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
+    """
+    Transforme [(emoji, qty), ...] en lignes '1x 🛡️ [Description]'.
+    Filtre les tickets.
+    """
+    lines: List[str] = []
+    for name, qty in items:
+        if not name or name in TICKET_NAMES:
+            continue
+        emoji = name  # le nom EST déjà l'emoji
+        desc = _short_desc(emoji)
+        lines.append(f"{qty}x {emoji} [{desc}]")
+    return lines
+
+
+def _split_in_columns(lines: List[str], n_cols: int = 2) -> List[str]:
+    """Découpe en n colonnes équilibrées et renvoie les blocs texte pour chaque colonne."""
+    if not lines:
+        return ["—"]
+    per_col = (len(lines) + n_cols - 1) // n_cols
+    cols = []
+    for i in range(n_cols):
+        start = i * per_col
+        block = "\n".join(lines[start:start + per_col]).strip()
+        if block:
+            cols.append(block)
+    return cols or ["—"]
+
+
+# ---------- Cog ----------
 class Inventory(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def _format_items_lines(self, items: List[Tuple[str, int]]) -> List[str]:
-        """Retourne une liste de lignes '1x 🛡️ [Description]' en excluant les tickets."""
-        lines: List[str] = []
-        for name, qty in items:
-            if not name or name in TICKET_NAMES:
-                continue
-            emoji = _item_emoji(name)
-            desc = _item_desc(name)
-            if not isinstance(emoji, str) or not emoji.strip():
-                emoji = name
-            # ex: "1x 🛡️ [Réduction de dégâts]"
-            lines.append(f"{qty}x {emoji} [{desc}]")
-        return lines
-
-    def _split_in_columns(self, lines: List[str], n_cols: int = 2) -> List[str]:
-        """Découpe la liste en n colonnes équilibrées, renvoie la valeur texte de chaque colonne."""
-        if not lines:
-            return ["—"]
-        # équilibre: moitié - moitié (ou réparti quasi égal)
-        per_col = (len(lines) + n_cols - 1) // n_cols
-        cols = []
-        for i in range(n_cols):
-            start = i * per_col
-            chunk = lines[start:start + per_col]
-            if chunk:
-                cols.append("\n".join(chunk))
-        # au moins une colonne
-        return cols or ["—"]
-
     async def _send_inventory(self, interaction: discord.Interaction):
-        """Logique partagée par /inventory et /inv."""
         await interaction.response.defer(ephemeral=False, thinking=False)
 
         uid = interaction.user.id
         username = interaction.user.display_name
 
         coins = await get_balance(uid)
-        items = await get_all_items(uid)  # List[Tuple[name, qty]]
+        items = await get_all_items(uid)  # List[Tuple[str(emoji), int]]
         tickets = await _get_tickets(uid)
 
         embed = discord.Embed(
@@ -155,15 +163,13 @@ class Inventory(commands.Cog):
             color=discord.Color.green()
         )
 
-        # OBJETS en colonnes
-        lines = self._format_items_lines(items)
-        cols = self._split_in_columns(lines, n_cols=2)
+        # OBJETS en colonnes (2)
+        lines = _format_items_lines(items)
+        cols = _split_in_columns(lines, n_cols=2)
 
         if len(cols) == 1:
-            # une seule colonne/peu d'items
             embed.add_field(name="Objets", value=cols[0], inline=False)
         else:
-            # petit en-tête puis deux colonnes vides (noms invisibles) pour un rendu clean
             embed.add_field(name="Objets", value="\u200b", inline=False)
             embed.add_field(name="\u200b", value=cols[0], inline=True)
             embed.add_field(name="\u200b", value=cols[1], inline=True)
