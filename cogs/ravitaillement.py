@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import random
 from dataclasses import dataclass
-from typing import Dict, Optional, Set, List
+from typing import Dict, Set, List
 
 import discord
 from discord.ext import commands
@@ -19,7 +19,6 @@ MAX_CLAIMERS = 5
 try:
     from utils import get_random_item, OBJETS  # get_random_item() -> str (emoji), OBJETS[emoji] -> meta
 except Exception:
-    # Fallback minimal si utils.py n'est pas dispo
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
     OBJETS = {}
@@ -156,7 +155,6 @@ class Ravitaillement(commands.Cog):
                 try:
                     await add_item(uid, pend.item_emoji, qty)
                 except Exception:
-                    # on continue même si un joueur échoue, pour ne pas bloquer les autres
                     pass
 
             suffix = f" ×{qty}" if qty > 1 else ""
@@ -204,4 +202,52 @@ class Ravitaillement(commands.Cog):
         if gid not in self._armed_after:
             self._roll_next_threshold(gid)
 
-        #
+        # incrémenter et comparer au seuil
+        self._count[gid] = self._count.get(gid, 0) + 1
+        target = self._armed_after[g id]
+
+        if self._count[gid] >= target:
+            # Tirer l'objet (emoji) MAINTENANT et armer ce message
+            item_emoji = get_random_item(debug=False)
+
+            # Ajouter la réaction = l'objet lui-même
+            await self._add_item_reaction(msg, item_emoji)
+
+            pend = PendingDrop(
+                message_id=msg.id,
+                channel_id=msg.channel.id,
+                guild_id=gid,
+                deadline=self.bot.loop.time() + CLAIM_SECONDS,
+                claimers=set(),
+                item_emoji=item_emoji,
+            )
+            self._active[gid] = pend
+            self._start_timer(gid)  # ← lance le timer de fin (le compteur sera réarmé à la récupération)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        gid = payload.guild_id
+        pend = self._active.get(gid)
+        if not pend or pend.message_id != payload.message_id:
+            return
+
+        # filtre : seule la réaction qui correspond à l'objet compte
+        if str(payload.emoji) != pend.item_emoji:
+            return
+
+        if payload.user_id == getattr(self.bot.user, "id", None):
+            return
+
+        # encore dans la fenêtre ?
+        if self.bot.loop.time() > pend.deadline:
+            return
+
+        if len(pend.claimers) >= MAX_CLAIMERS:
+            return
+
+        pend.claimers.add(payload.user_id)
+
+
+async def setup(bot: commands.Bot):
+    """Fonction d’entrée requise par discord.ext.commands pour charger le cog."""
+    await bot.add_cog(Ravitaillement(bot))
