@@ -24,7 +24,7 @@ logging.basicConfig(
 log = logging.getLogger("gotvalis.main")
 
 # ─────────────────────────────────────────────────────────────
-# 1) PYTHONPATH (racine du projet)
+# 1) Sécuriser le PYTHONPATH (racine du projet)
 # ─────────────────────────────────────────────────────────────
 ROOT = pathlib.Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -39,13 +39,13 @@ GUILD_ID = int(GUILD_ID_ENV) if (GUILD_ID_ENV and GUILD_ID_ENV.isdigit()) else N
 
 if not TOKEN:
     log.error("Aucun token. Définis GOTVALIS_TOKEN (ou DISCORD_TOKEN) dans l'environnement.")
-    raise SystemExit(1)
+    sys.exit(1)
 
 # ─────────────────────────────────────────────────────────────
 # 3) Intents
 # ─────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True  # requis pour commandes préfixées
 intents.members = True
 intents.guilds = True
 intents.reactions = True
@@ -55,7 +55,7 @@ intents.voice_states = True
 # 4) Helpers
 # ─────────────────────────────────────────────────────────────
 def spec_exists(module_path: str) -> bool:
-    """True si l’extension/module Python existe (importable)."""
+    """True si l’extension/module Python existe et est importable."""
     try:
         return importlib.util.find_spec(module_path) is not None
     except Exception:
@@ -90,7 +90,7 @@ class GotValisBot(commands.Bot):
             intents=intents,
             help_command=None,
         )
-        # Extensions à charger si elles existent
+        # Liste d’extensions à charger si elles existent
         self.initial_extensions: List[str] = [
             # Core
             "cogs.info_cog",
@@ -118,7 +118,7 @@ class GotValisBot(commands.Bot):
         ]
 
     async def setup_hook(self) -> None:
-        # 5.1 Storage JSON (optionnel)
+        # 5.1 Storage JSON (tickets/CD/config, si tu l’utilises)
         try:
             if spec_exists("data.storage"):
                 from data import storage  # type: ignore
@@ -150,21 +150,22 @@ class GotValisBot(commands.Bot):
         await self.sync_slash()
 
     async def sync_slash(self) -> None:
+        """Publie les commandes slash. Si GUILD_ID est défini → sync locale rapide."""
         try:
             if GUILD_ID:
                 guild = discord.Object(id=GUILD_ID)
-                # Copie des globales dans la guilde cible pour publication instantanée
                 self.tree.copy_global_to(guild=guild)
-                cmds = await self.tree.sync(guild=guild)
-                log.info("Slash synchronisées (guild: %s, %d cmds).", GUILD_ID, len(cmds))
+                synced = await self.tree.sync(guild=guild)
+                log.info("Slash synchronisées (guild: %s) — %d cmds.", GUILD_ID, len(synced))
             else:
-                cmds = await self.tree.sync()
-                log.info("Slash synchronisées (globales, %d cmds).", len(cmds))
+                synced = await self.tree.sync()
+                log.info("Slash synchronisées (globales) — %d cmds.", len(synced))
         except Exception as e:
             log.exception("Erreur de sync: %s", e)
 
     async def on_ready(self):
         log.info("Connecté en tant que %s (%s)", self.user, getattr(self.user, "id", "?"))
+        # Changer la présence quand le WS est prêt
         try:
             await self.change_presence(
                 activity=discord.Activity(type=discord.ActivityType.watching, name="le réseau GotValis"),
@@ -176,13 +177,13 @@ class GotValisBot(commands.Bot):
 bot = GotValisBot()
 
 # ─────────────────────────────────────────────────────────────
-# 6) DEV / ADMIN COG : sync & debug des slashs (slash + préfixe)
+# 6) DEV / ADMIN COG : sync & debug (slash + préfixé)
 # ─────────────────────────────────────────────────────────────
 class DevCog(commands.Cog):
     def __init__(self, bot: GotValisBot):
         self.bot = bot
 
-    # ----- SLASH -----
+    # -------- SLASH (admin) --------
     @app_commands.default_permissions(administrator=True)
     @app_commands.command(name="resync", description="(Admin) Resynchronise les commandes slash (global ou GUILD_ID).")
     async def resync(self, inter: discord.Interaction):
@@ -224,21 +225,21 @@ class DevCog(commands.Cog):
         except Exception as e:
             await inter.followup.send(f"❌ Impossible de lister : `{type(e).__name__}: {e}`", ephemeral=True)
 
-    # ----- PRÉFIXE (bypass slash s'ils ne sont pas publiés) -----
+    # -------- PRÉFIXÉ (admin) --------
     @commands.command(name="sync_here")
     @commands.has_permissions(administrator=True)
     async def sync_here_prefix(self, ctx: commands.Context):
-        """Publie/maj les slash commands dans CE serveur."""
+        """Publie/maj les slash commands dans CE serveur (utile si les slashs sont cassés)."""
         try:
             synced = await self.bot.tree.sync(guild=discord.Object(id=ctx.guild.id))
-            await ctx.reply(f"✅ Sync locale OK ({len(synced)} cmds). Réessaie les slashs (ex: /inv).", mention_author=False)
+            await ctx.reply(f"✅ Sync locale OK ({len(synced)} cmds). Réessaie les slashs.", mention_author=False)
         except Exception as e:
             await ctx.reply(f"❌ Sync KO: `{type(e).__name__}: {e}`", mention_author=False)
 
     @commands.command(name="list_cmds")
     @commands.has_permissions(administrator=True)
     async def list_cmds_prefix(self, ctx: commands.Context):
-        """Liste les slash commands publiées dans CE serveur."""
+        """Liste les slash commands publiées dans CE serveur (commande texte)."""
         try:
             cmds = await self.bot.tree.fetch_commands(guild=discord.Object(id=ctx.guild.id))
             if not cmds:
