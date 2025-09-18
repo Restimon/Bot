@@ -1,4 +1,5 @@
 # cogs/inventory_cog.py
+import os
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -7,6 +8,27 @@ from typing import List, Tuple, Dict, Any
 
 from economy_db import get_balance
 from inventory_db import get_all_items
+
+# ========= Publi GUILDE immédiate (corrige "Intégration inconnue") =========
+GUILD_ID_ENV = os.getenv("GUILD_ID")
+TEST_GUILD = (
+    discord.Object(id=int(GUILD_ID_ENV))
+    if GUILD_ID_ENV and GUILD_ID_ENV.isdigit()
+    else None
+)
+
+def _guilds_deco():
+    """Retourne un décorateur qui scope la commande à TEST_GUILD si dispo."""
+    if TEST_GUILD:
+        return app_commands.guilds(TEST_GUILD)
+    # no-op decorator
+    def _noop(func):
+        return func
+    return _noop
+
+guilds_scope = _guilds_deco()
+# ==========================================================================
+
 
 # --- Catalogue depuis utils.py (priorité à OBJETS, fallback ITEMS)
 try:
@@ -90,8 +112,8 @@ def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
 
 def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
     """
-    Répartition LIGNE PAR LIGNE (row-major) :
-    1er -> col1, 2e -> col2, 3e -> col1, 4e -> col2, ...
+    Répartition LIGNE PAR LIGNE :
+      1er -> col1, 2e -> col2, 3e -> col1, 4e -> col2, ...
     """
     if not lines:
         return ["—"]
@@ -152,10 +174,13 @@ class Inventory(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
+    # ----- commandes (scopées à la guilde si GUILD_ID présent) -----
+    @guilds_scope
     @app_commands.command(name="inventory", description="Affiche ton inventaire.")
     async def inventory(self, interaction: discord.Interaction):
         await self._send_inventory(interaction)
 
+    @guilds_scope
     @app_commands.command(name="inv", description="Alias de /inventory.")
     async def inv(self, interaction: discord.Interaction):
         await self._send_inventory(interaction)
