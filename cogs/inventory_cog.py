@@ -13,17 +13,17 @@ try:
     from utils import OBJETS as ITEM_CATALOG  # dict: { "🛡": {...}, ... }
 except Exception:
     try:
-        from utils import ITEMS as ITEM_CATALOG  # fallback si présent
+        from utils import ITEMS as ITEM_CATALOG
     except Exception:
         ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
 
-# ---- DB path (la même DB que le reste)
+# ---- DB path
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-# ---- Tickets en table séparée (le ticket ne doit PAS apparaître dans les objets)
+# ---- Tickets dans une table dédiée
 CREATE_TICKETS_SQL = """
 CREATE TABLE IF NOT EXISTS tickets (
     user_id INTEGER PRIMARY KEY,
@@ -49,10 +49,6 @@ async def _get_tickets(uid: int) -> int:
 
 # ---------- Helpers d'affichage ----------
 def _short_desc(emoji_key: str) -> str:
-    """
-    Construit une description courte directement à partir de utils.OBJETS/ITEMS.
-    Les clés du dict sont les ÉMOJIS (ex: "🛡", "🩹", ...).
-    """
     meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
 
@@ -81,31 +77,28 @@ def _short_desc(emoji_key: str) -> str:
     if t == "reduction":
         val = meta.get("valeur");        return f"Réduction {int(val*100)}%" if isinstance(val, (int, float)) else "Réduction"
     if t == "immunite":                  return "Immunité"
-    return emoji_key  # fallback neutre
+    return emoji_key
 
 def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
-    """
-    Transforme [(emoji, qty), ...] en lignes '1x 🛡️ [Description]'.
-    Filtre les tickets.
-    """
+    # (emoji, qty) -> "1x 🛡 [Bouclier 20]"
     return [
         f"{qty}x {emoji} [{_short_desc(emoji)}]"
         for emoji, qty in items
         if emoji and emoji not in TICKET_NAMES
     ]
 
-def _split_in_columns(lines: List[str], n_cols: int = 2) -> List[str]:
-    """Découpe en n colonnes équilibrées et renvoie les blocs texte pour chaque colonne."""
+def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
+    """
+    Répartition LIGNE PAR LIGNE (row-major) :
+      1er -> col1, 2e -> col2, 3e -> col1, 4e -> col2, ...
+    Ainsi les colonnes ont des hauteurs proches et l’ordre reste naturel.
+    """
     if not lines:
         return ["—"]
-    per_col = (len(lines) + n_cols - 1) // n_cols
-    cols = []
-    for i in range(n_cols):
-        start = i * per_col
-        block = "\n".join(lines[start:start + per_col]).strip()
-        if block:
-            cols.append(block)
-    return cols or ["—"]
+    cols: List[List[str]] = [[] for _ in range(n_cols)]
+    for i, line in enumerate(lines):
+        cols[i % n_cols].append(line)
+    return ["\n".join(c) if c else "—" for c in cols]
 
 
 # ---------- Cog ----------
@@ -128,20 +121,24 @@ class Inventory(commands.Cog):
             color=discord.Color.green()
         )
 
-        # OBJETS en colonnes (2)
+        # OBJETS (entête)
+        embed.add_field(name="Objets", value="\u200b", inline=False)
+
+        # OBJETS en 2 colonnes, remplies LIGNE PAR LIGNE
         lines = _format_items_lines(items)
-        cols = _split_in_columns(lines, n_cols=2)
+        col_values = _columns_rowwise(lines, n_cols=2)
 
-        if len(cols) == 1:
-            embed.add_field(name="Objets", value=cols[0], inline=False)
-        else:
-            embed.add_field(name="Objets", value="\u200b", inline=False)
-            embed.add_field(name="\u200b", value=cols[0], inline=True)
-            embed.add_field(name="\u200b", value=cols[1], inline=True)
+        # Deux colonnes inline
+        embed.add_field(name="\u200b", value=col_values[0], inline=True)
+        if len(col_values) > 1:
+            embed.add_field(name="\u200b", value=col_values[1], inline=True)
 
-        # Tickets & GoldValis (ligne suivante)
-        embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
+        # Forcer un RETOUR À LA LIGNE après la grille d’objets
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+        # Ligne suivante : GoldValis | Tickets (côte à côte)
         embed.add_field(name="💰 GoldValis", value=str(coins), inline=True)
+        embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
         if interaction.user.display_avatar:
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
