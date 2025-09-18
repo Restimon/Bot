@@ -13,11 +13,6 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-import os, sys
-ROOT = os.path.dirname(os.path.abspath(__file__))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
 # ─────────────────────────────────────────────────────────────
 # 0) Logging
 # ─────────────────────────────────────────────────────────────
@@ -180,14 +175,14 @@ class GotValisBot(commands.Bot):
 bot = GotValisBot()
 
 # ─────────────────────────────────────────────────────────────
-# 6) /resync (admin)
+# 6) DEV / ADMIN COG : sync & debug des slashs
 # ─────────────────────────────────────────────────────────────
 class DevCog(commands.Cog):
     def __init__(self, bot: GotValisBot):
         self.bot = bot
 
     @app_commands.default_permissions(administrator=True)
-    @app_commands.command(name="resync", description="(Admin) Resynchronise les commandes slash.")
+    @app_commands.command(name="resync", description="(Admin) Resynchronise les commandes slash (global ou GUILD_ID).")
     async def resync(self, inter: discord.Interaction):
         await inter.response.defer(ephemeral=True, thinking=True)
         try:
@@ -195,6 +190,37 @@ class DevCog(commands.Cog):
             await inter.followup.send("✅ Slash commands resynchronisées.", ephemeral=True)
         except Exception as e:
             await inter.followup.send(f"❌ Erreur: `{e}`", ephemeral=True)
+
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(name="sync_here", description="(Admin) Force la sync des slashs uniquement dans CE serveur.")
+    async def sync_here(self, inter: discord.Interaction):
+        if not inter.guild:
+            await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+            return
+        await inter.response.defer(ephemeral=True)
+        try:
+            synced = await self.bot.tree.sync(guild=discord.Object(id=inter.guild.id))
+            names = ", ".join(sorted(f"/{c.name}" for c in synced))
+            await inter.followup.send(f"✅ Sync locale OK ({len(synced)} cmds) : {names}", ephemeral=True)
+        except Exception as e:
+            await inter.followup.send(f"❌ Sync locale KO: `{type(e).__name__}: {e}`", ephemeral=True)
+
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(name="list_cmds", description="(Admin) Liste les slashs disponibles dans CE serveur.")
+    async def list_cmds(self, inter: discord.Interaction):
+        if not inter.guild:
+            await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+            return
+        await inter.response.defer(ephemeral=True)
+        try:
+            cmds = await self.bot.tree.fetch_commands(guild=discord.Object(id=inter.guild.id))
+            if not cmds:
+                await inter.followup.send("ℹ️ Aucune commande publiée ici.", ephemeral=True)
+                return
+            lines = [f"• /{c.name} — {c.description or '(sans description)'}" for c in cmds]
+            await inter.followup.send("\n".join(lines), ephemeral=True)
+        except Exception as e:
+            await inter.followup.send(f"❌ Impossible de lister : `{type(e).__name__}: {e}`", ephemeral=True)
 
 async def _add_dev_cog():
     try:
