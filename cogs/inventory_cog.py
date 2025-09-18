@@ -64,7 +64,7 @@ def _short_desc(emoji_key: str) -> str:
     if t == "infection":
         dmg = meta.get("degats");        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
     if t == "soin":
-        heal = meta.get("soin");         return f"Soigne {heal} PV" if heal is not None else "Soin"
+        heal = meta.get("soin");         return f"Soigne {heal} PV" if := heal is not None else "Soin"
     if t == "regen":
         val = meta.get("valeur");        return f"Régén {val}/tick" if val is not None else "Régénération"
     if t == "mysterybox":                return "Mystery Box"
@@ -91,7 +91,6 @@ def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
     """
     Répartition LIGNE PAR LIGNE (row-major) :
       1er -> col1, 2e -> col2, 3e -> col1, 4e -> col2, ...
-    Ainsi les colonnes ont des hauteurs proches et l’ordre reste naturel.
     """
     if not lines:
         return ["—"]
@@ -121,19 +120,23 @@ class Inventory(commands.Cog):
             color=discord.Color.green()
         )
 
-        # OBJETS (entête)
+        # OBJETS — header
         embed.add_field(name="Objets", value="\u200b", inline=False)
 
-        # OBJETS en 2 colonnes, remplies LIGNE PAR LIGNE
+        # Prépare les lignes d'objets
         lines = _format_items_lines(items)
-        col_values = _columns_rowwise(lines, n_cols=2)
 
-        # Deux colonnes inline
-        embed.add_field(name="\u200b", value=col_values[0], inline=True)
-        if len(col_values) > 1:
-            embed.add_field(name="\u200b", value=col_values[1], inline=True)
+        if len(lines) >= 6:
+            # — 2 colonnes, remplies ligne par ligne
+            col_values = _columns_rowwise(lines, n_cols=2)
+            embed.add_field(name="\u200b", value=col_values[0], inline=True)
+            embed.add_field(name="\u200b", value=col_values[1] if len(col_values) > 1 else "—", inline=True)
+        else:
+            # — une seule colonne (un item par ligne)
+            block = "\n".join(lines) if lines else "—"
+            embed.add_field(name="\u200b", value=block, inline=False)
 
-        # Forcer un RETOUR À LA LIGNE après la grille d’objets
+        # Séparateur pour forcer la ligne suivante
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
         # Ligne suivante : GoldValis | Tickets (côte à côte)
