@@ -9,25 +9,27 @@ from typing import Dict, Optional, Set, List
 import discord
 from discord.ext import commands
 
-BOX_EMOJI = "📦"
-DROP_AFTER_MIN = 12
-DROP_AFTER_MAX = 30
+# Fenêtre & limites
+DROP_AFTER_MIN = 5
+DROP_AFTER_MAX = 22
 CLAIM_SECONDS = 30
 MAX_CLAIMERS = 5
 
-# stockage JSON optionnel (inventaire)
+# Tirage d’objet pondéré par rareté (utils.py)
 try:
-    from data import storage
+    from utils import get_random_item, OBJETS  # get_random_item() -> str (emoji), OBJETS[emoji] -> meta
 except Exception:
-    storage = None
-
-# tirage d’objet pondéré par rareté
-try:
-    from utils import get_random_item, OBJETS
-except Exception:
+    # Fallback minimal si utils.py n'est pas dispo
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
     OBJETS = {}
+
+# Inventaire (SQLite)
+try:
+    from inventory_db import add_item
+except Exception:
+    add_item = None  # type: ignore
+
 
 @dataclass
 class PendingDrop:
@@ -36,18 +38,24 @@ class PendingDrop:
     guild_id: int
     deadline: float
     claimers: Set[int]
+    item_emoji: str  # <- l'objet à récupérer (emoji)
+
 
 class Ravitaillement(commands.Cog):
     """
-    Auto-drop toutes les 12–30 interactions éligibles (messages dans salons
+    Auto-drop toutes les 5–22 interactions éligibles (messages dans salons
     où le bot peut **ajouter une réaction**). Un seul drop actif par serveur.
-    On ajoute 📦 au message utilisateur, on collecte jusqu’à 5 joueurs,
-    et on poste un récap 30 s plus tard.
+
+    Lors du drop, le bot ajoute **l'emoji de l'objet** au message utilisateur.
+    Les membres réagissent avec **ce même emoji** pour le récupérer pendant 30s,
+    jusqu'à MAX_CLAIMERS gagnants. À la fin, un récap est posté, les gagnants
+    reçoivent l'objet (quantité selon la rareté), et le compteur est réarmé.
     """
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._armed_after: Dict[int, int] = {}    # guild_id -> seuil actuel
-        self._count: Dict[int, int] = {}          # guild_id -> compteur
+        self._count: Dict[int, int] = {}          # guild_id -> compteur courant
         self._active: Dict[int, PendingDrop] = {} # guild_id -> drop actif
         self._timers: Dict[int, asyncio.Task] = {}# guild_id -> task de fin
 
@@ -57,7 +65,7 @@ class Ravitaillement(commands.Cog):
         self._count[guild_id] = 0
 
     def _stack_quantity_for_item(self, emoji: str) -> int:
-        """Quantité par rareté (plus rare → qty = 1)."""
+        """Quantité accordée en fonction de la rareté (plus rare → moins d'unités)."""
         info = OBJETS.get(emoji, {})
         r = int(info.get("rarete", 25))
         if r <= 3:
@@ -83,9 +91,9 @@ class Ravitaillement(commands.Cog):
 
         self._timers[guild_id] = self.bot.loop.create_task(_end())
 
-    async def _add_box_reaction(self, msg: discord.Message) -> None:
+    async def _add_item_reaction(self, msg: discord.Message, emoji: str) -> None:
         try:
-            await msg.add_reaction(BOX_EMOJI)
+            await msg.add_reaction(emoji)
         except Exception:
             pass
 
@@ -101,15 +109,15 @@ class Ravitaillement(commands.Cog):
         channel = guild.get_channel(pend.channel_id) if guild else None
         if not isinstance(channel, discord.TextChannel):
             self._active.pop(guild_id, None)
-            self._roll_next_threshold(guild_id)
+            self._roll_next_threshold(guild_id)  # réarme le compteur à la récupération
             return
 
-        # Fallback: si on a perdu des events de réaction, relire le message
+        # Fallback: si on a perdu des events de réaction, relire le message et re-collecter
         try:
             msg = await channel.fetch_message(pend.message_id)
             for reaction in msg.reactions:
                 try:
-                    if str(reaction.emoji) != BOX_EMOJI:
+                    if str(reaction.emoji) != pend.item_emoji:
                         continue
                     users = [u async for u in reaction.users(limit=50)]
                     for u in users:
@@ -123,12 +131,13 @@ class Ravitaillement(commands.Cog):
         except Exception:
             pass
 
-        # Personne ?
+        # Personne n'a réagi ?
         if not pend.claimers:
             try:
                 await channel.send(
                     embed=discord.Embed(
-                        title="🗑️ Ravitaillement détruit",
+                        title="🗑️ Ravitaillement expiré",
+                        description=f"Aucun joueur n'a récupéré l'objet {pend.item_emoji}.",
                         color=discord.Color.dark_grey(),
                     )
                 )
@@ -137,33 +146,33 @@ class Ravitaillement(commands.Cog):
                 self._roll_next_threshold(guild_id)
             return
 
-        # Distribuer maintenant (inventaire JSON si dispo)
+        # Distribuer maintenant (inventaire SQL si dispo)
         lines: List[str] = []
         for uid in list(pend.claimers)[:MAX_CLAIMERS]:
-            emoji = get_random_item(debug=False)
-            qty = self._stack_quantity_for_item(emoji)
+            qty = self._stack_quantity_for_item(pend.item_emoji)
 
-            if storage is not None:
-                inv, _, _ = storage.get_user_data(str(guild_id), str(uid))
-                for _ in range(qty):
-                    inv.append(emoji)
+            # Ajout inventaire (SQLite)
+            if add_item is not None:
+                try:
+                    await add_item(uid, pend.item_emoji, qty)
+                except Exception:
+                    # on continue même si un joueur échoue, pour ne pas bloquer les autres
+                    pass
 
             suffix = f" ×{qty}" if qty > 1 else ""
-            lines.append(f"✅ <@{uid}> a récupéré : {emoji}{suffix}")
-
-        if storage is not None:
-            storage.save_data()
+            lines.append(f"✅ <@{uid}> a récupéré : {pend.item_emoji}{suffix}")
 
         embed = discord.Embed(
-            title="📦 Ravitaillement récupéré",
+            title="🎯 Ravitaillement récupéré",
             color=discord.Color.green(),
         )
         embed.description = "\n".join(lines)
+
         try:
             await channel.send(embed=embed)
         finally:
             self._active.pop(guild_id, None)
-            self._roll_next_threshold(guild_id)
+            self._roll_next_threshold(guild_id)  # réarme le compteur à la récupération
 
     # ── listeners ────────────────────────────────────────────
     @commands.Cog.listener()
@@ -195,39 +204,4 @@ class Ravitaillement(commands.Cog):
         if gid not in self._armed_after:
             self._roll_next_threshold(gid)
 
-        # incrémenter et comparer au seuil
-        self._count[gid] = self._count.get(gid, 0) + 1
-        target = self._armed_after[gid]
-
-        if self._count[gid] >= target:
-            # armer un drop sur CE message
-            await self._add_box_reaction(msg)
-            pend = PendingDrop(
-                message_id=msg.id,
-                channel_id=msg.channel.id,
-                guild_id=gid,
-                deadline=self.bot.loop.time() + CLAIM_SECONDS,
-                claimers=set(),
-            )
-            self._active[gid] = pend
-            self._start_timer(gid)  # ← lance le timer de fin
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        if str(payload.emoji) != BOX_EMOJI:
-            return
-        if payload.user_id == getattr(self.bot.user, "id", None):
-            return
-        gid = payload.guild_id
-        pend = self._active.get(gid)
-        if not pend or pend.message_id != payload.message_id:
-            return
-        # encore dans la fenêtre ?
-        if self.bot.loop.time() > pend.deadline:
-            return
-        if len(pend.claimers) >= MAX_CLAIMERS:
-            return
-        pend.claimers.add(payload.user_id)
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(Ravitaillement(bot))
+        #
