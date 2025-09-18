@@ -8,8 +8,14 @@ from typing import List, Tuple, Dict, Any
 from economy_db import get_balance
 from inventory_db import get_all_items
 
-# --- On lit directement depuis utils.py
-from utils import ITEMS as ITEM_CATALOG, get_random_items as _get_random_items  # noqa: F401  (tirage non utilisé ici)
+# --- Catalogue depuis utils.py (priorité à OBJETS, fallback ITEMS)
+try:
+    from utils import OBJETS as ITEM_CATALOG  # dict: { "🛡": {...}, ... }
+except Exception:
+    try:
+        from utils import ITEMS as ITEM_CATALOG  # fallback si présent
+    except Exception:
+        ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
 
 # ---- DB path (la même DB que le reste)
 try:
@@ -44,7 +50,7 @@ async def _get_tickets(uid: int) -> int:
 # ---------- Helpers d'affichage ----------
 def _short_desc(emoji_key: str) -> str:
     """
-    Construit une description courte directement à partir de utils.ITEMS.
+    Construit une description courte directement à partir de utils.OBJETS/ITEMS.
     Les clés du dict sont les ÉMOJIS (ex: "🛡", "🩹", ...).
     """
     meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
