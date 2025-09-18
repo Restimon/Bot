@@ -13,17 +13,25 @@ from economy_db import add_balance, get_balance
 from inventory_db import add_item
 
 # --- Catalogue & tirage utils.py (items = emojis)
-from utils import ITEMS as ITEM_CATALOG  # dict: { "🛡": {...}, ... }
 # On accepte get_random_items(n) OU get_random_item()
+try:
+    from utils import ITEMS as ITEM_CATALOG  # dict: { "🛡": {...}, ... }
+except Exception:
+    ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
+
 try:
     from utils import get_random_items as _get_random_items  # type: ignore
 except Exception:
-    _get_random_items = None
+    _get_random_items = None  # type: ignore
+
 try:
     from utils import get_random_item as _get_random_item  # type: ignore
 except Exception:
-    _get_random_item = None
+    _get_random_item = None  # type: ignore
 
+# ===============================
+# Config
+# ===============================
 DAILY_COOLDOWN_H = 24
 STREAK_WINDOW_H = 48
 TICKET_EMOJI = "🎟️"
@@ -52,7 +60,6 @@ CREATE TABLE IF NOT EXISTS tickets (
 
 # Valeurs à filtrer si jamais le tirage renvoie un "ticket"
 TICKET_NAMES = {"🎟️", "🎟️ Ticket", "Ticket", "ticket", "Daily Ticket", "daily ticket"}
-
 
 # ===============================
 # Helpers SQL
@@ -97,7 +104,6 @@ async def _get_tickets(uid: int) -> int:
         row = await cur.fetchone()
         await cur.close()
     return int(row[0]) if row else 0
-
 
 # ===============================
 # Tirage / formatage items
@@ -179,7 +185,6 @@ def _format_items_block(pairs: List[tuple[str, int]]) -> str:
         return "—"
     lines = [f"{qty}x {emoji} [{_short_desc(emoji)}]" for emoji, qty in pairs]
     return "\n".join(lines)
-
 
 # ===============================
 # Cog
@@ -263,7 +268,6 @@ class Daily(commands.Cog):
             embed.set_footer(text=f"Dernier daily: {dt}")
 
         await interaction.followup.send(embed=embed)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Daily(bot))
