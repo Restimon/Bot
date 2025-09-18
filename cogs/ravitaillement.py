@@ -76,7 +76,6 @@ class Ravitaillement(commands.Cog):
         return 1
 
     def _start_timer(self, guild_id: int):
-        # annule un timer résiduel si besoin
         old = self._timers.pop(guild_id, None)
         if old and not old.done():
             old.cancel()
@@ -99,7 +98,7 @@ class Ravitaillement(commands.Cog):
     # ── logique de fin & récap ───────────────────────────────
     async def _finalize_drop(self, guild_id: int):
         pend = self._active.get(guild_id)
-        self._timers.pop(guild_id, None)  # plus de timer actif pour ce serveur
+        self._timers.pop(guild_id, None)
 
         if not pend:
             return
@@ -108,10 +107,10 @@ class Ravitaillement(commands.Cog):
         channel = guild.get_channel(pend.channel_id) if guild else None
         if not isinstance(channel, discord.TextChannel):
             self._active.pop(guild_id, None)
-            self._roll_next_threshold(guild_id)  # réarme le compteur à la récupération
+            self._roll_next_threshold(guild_id)
             return
 
-        # Fallback: si on a perdu des events de réaction, relire le message et re-collecter
+        # Fallback: relire le message pour récupérer les réactions si des events manquent
         try:
             msg = await channel.fetch_message(pend.message_id)
             for reaction in msg.reactions:
@@ -130,7 +129,6 @@ class Ravitaillement(commands.Cog):
         except Exception:
             pass
 
-        # Personne n'a réagi ?
         if not pend.claimers:
             try:
                 await channel.send(
@@ -150,7 +148,6 @@ class Ravitaillement(commands.Cog):
         for uid in list(pend.claimers)[:MAX_CLAIMERS]:
             qty = self._stack_quantity_for_item(pend.item_emoji)
 
-            # Ajout inventaire (SQLite)
             if add_item is not None:
                 try:
                     await add_item(uid, pend.item_emoji, qty)
@@ -170,12 +167,11 @@ class Ravitaillement(commands.Cog):
             await channel.send(embed=embed)
         finally:
             self._active.pop(guild_id, None)
-            self._roll_next_threshold(guild_id)  # réarme le compteur à la récupération
+            self._roll_next_threshold(guild_id)
 
     # ── listeners ────────────────────────────────────────────
     @commands.Cog.listener()
     async def on_ready(self):
-        # init seuils pour les serveurs déjà présents
         for g in self.bot.guilds:
             self._roll_next_threshold(g.id)
 
@@ -188,29 +184,23 @@ class Ravitaillement(commands.Cog):
         if msg.author.bot or not msg.guild:
             return
 
-        # on ne “compte” que si le bot peut au moins ajouter une réaction
         perms = msg.channel.permissions_for(msg.guild.me)
         if not perms.add_reactions:
             return
 
         gid = msg.guild.id
 
-        # pas de double drop
         if gid in self._active:
             return
 
         if gid not in self._armed_after:
             self._roll_next_threshold(gid)
 
-        # incrémenter et comparer au seuil
         self._count[gid] = self._count.get(gid, 0) + 1
-        target = self._armed_after[gid]   # ← FIX: pas d'espace dans "gid"
+        target = self._armed_after[gid]   # ✅ pas d'espace
 
         if self._count[gid] >= target:
-            # Tirer l'objet (emoji) MAINTENANT et armer ce message
             item_emoji = get_random_item(debug=False)
-
-            # Ajouter la réaction = l'objet lui-même
             await self._add_item_reaction(msg, item_emoji)
 
             pend = PendingDrop(
@@ -222,7 +212,7 @@ class Ravitaillement(commands.Cog):
                 item_emoji=item_emoji,
             )
             self._active[gid] = pend
-            self._start_timer(gid)  # ← lance le timer de fin (le compteur sera réarmé à la récupération)
+            self._start_timer(gid)
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
@@ -231,14 +221,12 @@ class Ravitaillement(commands.Cog):
         if not pend or pend.message_id != payload.message_id:
             return
 
-        # filtre : seule la réaction qui correspond à l'objet compte
         if str(payload.emoji) != pend.item_emoji:
             return
 
         if payload.user_id == getattr(self.bot.user, "id", None):
             return
 
-        # encore dans la fenêtre ?
         if self.bot.loop.time() > pend.deadline:
             return
 
@@ -249,5 +237,19 @@ class Ravitaillement(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    """Fonction d’entrée requise par discord.ext.commands pour charger le cog."""
+    """
+    Charge le cog en écrasant proprement une version déjà chargée (hot-reload,
+    collision de nom avec un autre module, etc.).
+    """
+    # Méthode moderne (si supportée par ta version de discord.py)
+    try:
+        await bot.add_cog(Ravitaillement(bot), override=True)  # type: ignore[call-arg]
+        return
+    except TypeError:
+        # Anciennes versions: pas d'argument override -> on retire puis on rajoute
+        pass
+
+    # Fallback universel
+    if bot.get_cog("Ravitaillement") is not None:
+        bot.remove_cog("Ravitaillement")
     await bot.add_cog(Ravitaillement(bot))
