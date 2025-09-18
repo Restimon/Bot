@@ -23,7 +23,7 @@ try:
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-# ---- Tickets dans une table dédiée
+# ---- Tickets dans une table dédiée (pas dans l'inventaire)
 CREATE_TICKETS_SQL = """
 CREATE TABLE IF NOT EXISTS tickets (
     user_id INTEGER PRIMARY KEY,
@@ -49,6 +49,7 @@ async def _get_tickets(uid: int) -> int:
 
 # ---------- Helpers d'affichage ----------
 def _short_desc(emoji_key: str) -> str:
+    """Construit une petite description à partir des métadonnées de utils."""
     meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
 
@@ -64,7 +65,7 @@ def _short_desc(emoji_key: str) -> str:
     if t == "infection":
         dmg = meta.get("degats");        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
     if t == "soin":
-        heal = meta.get("soin");         return f"Soigne {heal} PV" if := heal is not None else "Soin"
+        heal = meta.get("soin");         return f"Soigne {heal} PV" if heal is not None else "Soin"
     if t == "regen":
         val = meta.get("valeur");        return f"Régén {val}/tick" if val is not None else "Régénération"
     if t == "mysterybox":                return "Mystery Box"
@@ -80,7 +81,7 @@ def _short_desc(emoji_key: str) -> str:
     return emoji_key
 
 def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
-    # (emoji, qty) -> "1x 🛡 [Bouclier 20]"
+    """(emoji, qty) -> '1x 🛡 [Bouclier 20]' ; filtre tickets au cas où."""
     return [
         f"{qty}x {emoji} [{_short_desc(emoji)}]"
         for emoji, qty in items
@@ -90,7 +91,7 @@ def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
 def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
     """
     Répartition LIGNE PAR LIGNE (row-major) :
-      1er -> col1, 2e -> col2, 3e -> col1, 4e -> col2, ...
+    1er -> col1, 2e -> col2, 3e -> col1, 4e -> col2, ...
     """
     if not lines:
         return ["—"]
@@ -111,38 +112,41 @@ class Inventory(commands.Cog):
         uid = interaction.user.id
         username = interaction.user.display_name
 
+        # Données
         coins = await get_balance(uid)
-        items = await get_all_items(uid)  # List[Tuple[str(emoji), int]]
+        raw_items = await get_all_items(uid)  # List[Tuple[str(emoji), int]]
         tickets = await _get_tickets(uid)
 
+        # Embed
         embed = discord.Embed(
             title=f"📦 Inventaire — {username}",
             color=discord.Color.green()
         )
 
-        # OBJETS — header
+        # --------- OBJETS ---------
         embed.add_field(name="Objets", value="\u200b", inline=False)
 
-        # Prépare les lignes d'objets
-        lines = _format_items_lines(items)
+        lines = _format_items_lines(raw_items)
 
         if len(lines) >= 6:
-            # — 2 colonnes, remplies ligne par ligne
+            # 2 colonnes (remplies ligne par ligne)
             col_values = _columns_rowwise(lines, n_cols=2)
             embed.add_field(name="\u200b", value=col_values[0], inline=True)
             embed.add_field(name="\u200b", value=col_values[1] if len(col_values) > 1 else "—", inline=True)
         else:
-            # — une seule colonne (un item par ligne)
+            # 1 seule colonne
             block = "\n".join(lines) if lines else "—"
             embed.add_field(name="\u200b", value=block, inline=False)
 
-        # Séparateur pour forcer la ligne suivante
+        # Séparateur pour forcer un retour à la ligne
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        # Ligne suivante : GoldValis | Tickets (côte à côte)
+        # --------- RESSOURCES ---------
+        # Même ligne : GoldValis | Tickets
         embed.add_field(name="💰 GoldValis", value=str(coins), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
+        # Avatar
         if interaction.user.display_avatar:
             embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
