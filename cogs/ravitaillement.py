@@ -204,7 +204,7 @@ class Ravitaillement(commands.Cog):
 
         # incrémenter et comparer au seuil
         self._count[gid] = self._count.get(gid, 0) + 1
-        target = self._armed_after[g id]
+        target = self._armed_after[gid]   # ← FIX: pas d'espace dans "gid"
 
         if self._count[gid] >= target:
             # Tirer l'objet (emoji) MAINTENANT et armer ce message
