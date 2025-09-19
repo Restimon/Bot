@@ -145,10 +145,9 @@ def _find_by_name(name: str) -> Optional[Path]:
 
 def _image_file_for(perso: dict, suffix: str = "") -> Tuple[Optional[discord.File], Optional[str]]:
     """
-    Retourne (file, filename/url) :
-      - URL http(s) → (None, url)  → e.set_image(url=url)
-      - Fichier local → (discord.File, filename)  → e.set_image(url=f"attachment://{filename}")
-      - Fallback: recherche par nom dans assets/personnage(s)
+    Retourne (file, safe_filename_or_url).
+    - URL http(s) -> (None, url)
+    - Fichier local -> (discord.File, 'inv{suffix or _1}.png') pour set_image('attachment://...')
     """
     img = str(perso.get("image") or "").strip()
     name = str(perso.get("nom") or "").strip()
@@ -157,24 +156,22 @@ def _image_file_for(perso: dict, suffix: str = "") -> Tuple[Optional[discord.Fil
     if img.startswith("http://") or img.startswith("https://"):
         return None, img
 
-    # Chemin exact (+ correction "personnage" -> "personnages")
+    # Chemin exact (+ correction 'personnage' -> 'personnages')
+    candidate: Optional[Path] = None
     if img:
         p = (PROJECT_ROOT / img).resolve()
-        if not _try_file(p) and "/personnage/" in img.replace("\\", "/"):
-            p = (PROJECT_ROOT / img.replace("/personnage/", "/personnages/")).resolve()
-        ok = _try_file(p)
-        if ok:
-            stem, ext = ok.stem, ok.suffix
-            fname = f"{stem}{suffix}{ext}" if suffix else ok.name
-            return discord.File(str(ok), filename=fname), fname
+        candidate = _try_file(p)
+        if not candidate and "/personnage/" in img.replace("\\", "/"):
+            p2 = (PROJECT_ROOT / img.replace("/personnage/", "/personnages/")).resolve()
+            candidate = _try_file(p2)
 
-    # Recherche par nom
-    if name:
-        found = _find_by_name(name)
-        if found:
-            stem, ext = found.stem, found.suffix
-            fname = f"{stem}{suffix}{ext}" if suffix else found.name
-            return discord.File(str(found), filename=fname), fname
+    # Fallback par nom
+    if not candidate and name:
+        candidate = _find_by_name(name)
+
+    if candidate:
+        safe = f"inv{suffix or '_1'}.png"  # nom garanti sans espace/accent
+        return discord.File(str(candidate), filename=safe), safe
 
     return None, None
 
@@ -267,12 +264,12 @@ class Invocation(commands.Cog):
             e.set_footer(text="Astuce: /invocation 10 pour une multi.")
 
             # Image en bas de l'embed (attachment ou URL)
-            f, fname_or_url = _image_file_for(p, suffix="_1")
-            if f and fname_or_url:
+            f, safe_name_or_url = _image_file_for(p, suffix="_1")
+            if f and safe_name_or_url:
                 files.append(f)
-                e.set_image(url=f"attachment://{fname_or_url}")
-            elif fname_or_url and (fname_or_url.startswith("http://") or fname_or_url.startswith("https://")):
-                e.set_image(url=fname_or_url)
+                e.set_image(url=f"attachment://{safe_name_or_url}")
+            elif safe_name_or_url and (safe_name_or_url.startswith("http://") or safe_name_or_url.startswith("https://")):
+                e.set_image(url=safe_name_or_url)
 
             embeds.append(e)
 
@@ -299,12 +296,12 @@ class Invocation(commands.Cog):
                     e.set_footer(text="Astuce: /invocation 10 pour une multi.")
 
                 # Image (suffix différent pour éviter les collisions d'attachment)
-                f, fname_or_url = _image_file_for(p, suffix=f"_{idx}")
-                if f and fname_or_url:
+                f, safe_name_or_url = _image_file_for(p, suffix=f"_{idx}")
+                if f and safe_name_or_url:
                     files.append(f)
-                    e.set_image(url=f"attachment://{fname_or_url}")
-                elif fname_or_url and (fname_or_url.startswith("http://") or fname_or_url.startswith("https://")):
-                    e.set_image(url=fname_or_url)
+                    e.set_image(url=f"attachment://{safe_name_or_url}")
+                elif safe_name_or_url and (safe_name_or_url.startswith("http://") or safe_name_or_url.startswith("https://")):
+                    e.set_image(url=safe_name_or_url)
 
                 embeds.append(e)
 
