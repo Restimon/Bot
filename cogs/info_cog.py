@@ -10,7 +10,7 @@ from datetime import timezone
 from economy_db import get_balance
 from inventory_db import get_all_items
 
-# ---- Total carrière (optionnel)
+# ---- Total carrière (optionnels)
 _get_total_career: Optional[callable] = None
 try:
     from economy_db import get_total_earned as _get_total_career  # type: ignore
@@ -133,7 +133,6 @@ def _pretty_character(char_id: Optional[str]) -> str:
 def _short_desc(emoji_key: str) -> str:
     meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
-
     if t == "attaque":
         dmg = meta.get("degats");        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
     if t == "attaque_chaine":
@@ -182,6 +181,65 @@ def _fmt_dt_utc(dt) -> str:
     except Exception:
         return str(dt)
 
+# ---------- Calcul du total carrière (fallback robuste) ----------
+USER_COLS = ("user_id", "uid", "member_id", "author_id", "player_id")
+AMOUNT_COLS = ("amount", "delta", "change", "value", "coins", "gotcoins", "gc", "balance_change")
+
+async def _career_total_from_db(uid: int) -> Optional[int]:
+    """
+    Essaie d'inférer le total gagné dans l'historique de la DB
+    en scannant les tables et colonnes probables.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            # Lister les tables
+            cur = await db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [r[0] for r in await cur.fetchall()]
+            await cur.close()
+
+            for t in tables:
+                # Cherche un couple (user_col, amount_col)
+                cur = await db.execute(f"PRAGMA table_info({t})")
+                cols = [r[1].lower() for r in await cur.fetchall()]
+                await cur.close()
+
+                user_candidates = [c for c in cols if c in USER_COLS]
+                amount_candidates = [c for c in cols if c in AMOUNT_COLS]
+                if not user_candidates or not amount_candidates:
+                    continue
+
+                ucol = user_candidates[0]
+                acol = amount_candidates[0]
+
+                # somme des montants POSITIFS pour ce user
+                q = f"SELECT COALESCE(SUM(CASE WHEN {acol} > 0 THEN {acol} ELSE 0 END), 0) FROM {t} WHERE {ucol}=?"
+                cur = await db.execute(q, (uid,))
+                v = await cur.fetchone()
+                await cur.close()
+                if v and v[0] is not None:
+                    total = int(v[0])
+                    if total > 0:
+                        return total
+    except Exception:
+        pass
+    return None
+
+async def _get_career_total(uid: int, min_floor: int) -> int:
+    # 1) fonction dédiée si dispo
+    if _get_total_career:
+        try:
+            v = int(await _get_total_career(uid))  # type: ignore
+            if v > 0:
+                return v
+        except Exception:
+            pass
+    # 2) heuristique DB
+    dbv = await _career_total_from_db(uid)
+    if dbv is not None and dbv >= 0:
+        return max(dbv, min_floor)
+    # 3) fallback minimal: au moins le solde actuel
+    return max(min_floor, 0)
+
 # ---------- Cog ----------
 class Info(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -194,12 +252,7 @@ class Info(commands.Cog):
         # Ressources
         coins_now = await get_balance(uid)
         tickets = await _get_tickets(uid)
-        career_total = 0
-        if _get_total_career:
-            try:
-                career_total = int(await _get_total_career(uid))  # type: ignore
-            except Exception:
-                career_total = 0
+        career_total = await _get_career_total(uid, min_floor=coins_now)
 
         # Personnage équipé
         char_id = await _get_equipped_char_id(uid)
@@ -247,13 +300,7 @@ class Info(commands.Cog):
         embed.add_field(name="💰 Solde actuel (dépensable)", value=str(coins_now), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
-        # Dates (ajouté : date de création du compte Discord)
-        try:
-            created = getattr(member, "created_at", None)
-            if created:
-                embed.add_field(name="🗓️ Sur Discord depuis", value=_fmt_dt_utc(created), inline=False)
-        except Exception:
-            pass
+        # Dates — on GARDE uniquement l'entrée serveur (on retire "Sur Discord depuis")
         if isinstance(member, discord.Member) and member.joined_at:
             embed.add_field(name="📅 Membre du serveur depuis", value=_fmt_dt_utc(member.joined_at), inline=False)
 
@@ -273,15 +320,6 @@ class Info(commands.Cog):
         # Avatar
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
-
-        # Image perso si fournie par le catalogue
-        try:
-            meta = CHAR_CATALOG.get(char_id or "", {})
-            banner = meta.get("image") or meta.get("banner") or meta.get("icon_url")
-            if banner:
-                embed.set_image(url=banner)
-        except Exception:
-            pass
 
         # Effets/pathologies
         embed.add_field(name="🩺 État pathologique", value=effects_text, inline=False)
