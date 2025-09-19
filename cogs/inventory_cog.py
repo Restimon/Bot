@@ -1,5 +1,4 @@
 # cogs/inventory_cog.py
-import os
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -9,22 +8,22 @@ from typing import List, Tuple, Dict, Any
 from economy_db import get_balance
 from inventory_db import get_all_items
 
-# --- Catalogue utils (OBJETS prioritaire, fallback ITEMS)
+# --- Catalogue depuis utils.py (priorité à OBJETS, fallback ITEMS)
 try:
-    from utils import OBJETS as ITEM_CATALOG
+    from utils import OBJETS as ITEM_CATALOG  # dict: { "🛡": {...}, ... }
 except Exception:
     try:
         from utils import ITEMS as ITEM_CATALOG
     except Exception:
         ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
 
-# DB path
+# ---- DB path
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-# Tickets en table dédiée
+# ---- Tickets dans une table dédiée (pas dans l'inventaire)
 CREATE_TICKETS_SQL = """
 CREATE TABLE IF NOT EXISTS tickets (
     user_id INTEGER PRIMARY KEY,
@@ -46,7 +45,8 @@ async def _get_tickets(uid: int) -> int:
         await cur.close()
     return int(row[0]) if row else 0
 
-# ---------- Helpers ----------
+
+# ---------- Helpers d'affichage ----------
 def _short_desc(emoji_key: str) -> str:
     meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
@@ -78,6 +78,7 @@ def _short_desc(emoji_key: str) -> str:
     return emoji_key
 
 def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
+    # (emoji, qty) -> "1x 🛡 [Bouclier 20]"
     return [
         f"{qty}x {emoji} [{_short_desc(emoji)}]"
         for emoji, qty in items
@@ -85,6 +86,10 @@ def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
     ]
 
 def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
+    """
+    Répartition LIGNE PAR LIGNE (row-major) :
+      1er -> col1, 2e -> col2, 3e -> col1, 4e -> col2, ...
+    """
     if not lines:
         return ["—"]
     cols: List[List[str]] = [[] for _ in range(n_cols)]
@@ -92,18 +97,18 @@ def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
         cols[i % n_cols].append(line)
     return ["\n".join(c) if c else "—" for c in cols]
 
+
 # ---------- Cog ----------
 class Inventory(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def _send_inventory(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=False, thinking=False)
-        uid = interaction.user.id
-        username = interaction.user.display_name
+    async def _render_inventory_embed(self, user: discord.abc.User) -> discord.Embed:
+        uid = user.id
+        username = user.display_name if isinstance(user, discord.Member) else user.name
 
         coins = await get_balance(uid)
-        raw_items = await get_all_items(uid)
+        raw_items = await get_all_items(uid)  # List[Tuple[str(emoji), int]]
         tickets = await _get_tickets(uid)
 
         embed = discord.Embed(
@@ -111,37 +116,54 @@ class Inventory(commands.Cog):
             color=discord.Color.green()
         )
 
-        # OBJETS
+        # --------- OBJETS ---------
         embed.add_field(name="Objets", value="\u200b", inline=False)
+
         lines = _format_items_lines(raw_items)
 
         if len(lines) >= 6:
+            # 2 colonnes (remplies ligne par ligne)
             col_values = _columns_rowwise(lines, n_cols=2)
             embed.add_field(name="\u200b", value=col_values[0], inline=True)
             embed.add_field(name="\u200b", value=col_values[1] if len(col_values) > 1 else "—", inline=True)
         else:
+            # 1 seule colonne
             block = "\n".join(lines) if lines else "—"
             embed.add_field(name="\u200b", value=block, inline=False)
 
-        # Séparateur pour aller à la ligne
+        # Séparateur pour forcer un retour à la ligne
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        # RESSOURCES (même ligne)
+        # --------- RESSOURCES (même ligne) ---------
         embed.add_field(name="💰 GoldValis", value=str(coins), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
-        if interaction.user.display_avatar:
-            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        return embed
 
-        await interaction.followup.send(embed=embed)
-
+    # ===== Slash commands =====
     @app_commands.command(name="inventory", description="Affiche ton inventaire.")
     async def inventory(self, interaction: discord.Interaction):
-        await self._send_inventory(interaction)
+        await interaction.response.defer(ephemeral=False, thinking=False)
+        embed = await self._render_inventory_embed(interaction.user)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="inv", description="Alias de /inventory.")
     async def inv(self, interaction: discord.Interaction):
-        await self._send_inventory(interaction)
+        await interaction.response.defer(ephemeral=False, thinking=False)
+        embed = await self._render_inventory_embed(interaction.user)
+        await interaction.followup.send(embed=embed)
+
+    # ===== Préfixé (fallback si les slashs ne sont pas publiés) =====
+    @commands.command(name="inventory")
+    async def inventory_prefix(self, ctx: commands.Context):
+        embed = await self._render_inventory_embed(ctx.author)
+        await ctx.reply(embed=embed, mention_author=False)
+
+    @commands.command(name="inv")
+    async def inv_prefix(self, ctx: commands.Context):
+        embed = await self._render_inventory_embed(ctx.author)
+        await ctx.reply(embed=embed, mention_author=False)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Inventory(bot))
