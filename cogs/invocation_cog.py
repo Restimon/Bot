@@ -9,19 +9,19 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-# ── données & tirage depuis data/personnage.py (OBLIGATOIRE) ────────────────
+# ── Données & tirage depuis data/personnage.py (OBLIGATOIRE) ─────────────────
 try:
     from data.personnage import (
         PERSONNAGES_LIST,
-        tirage_personnage,      # -> (rarete: str, perso: dict)
-        generer_slug,           # -> str
+        tirage_personnage,   # -> (rarete: str, perso: dict)
+        generer_slug,        # -> str
     )
 except Exception:
     PERSONNAGES_LIST = None      # type: ignore
     tirage_personnage = None     # type: ignore
     generer_slug = lambda s: s   # type: ignore
 
-# ── DB partagée ─────────────────────────────────────────────────────────────
+# ── DB partagée (même fichier que /daily, /economy, etc.) ───────────────────
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
@@ -62,6 +62,7 @@ async def _get_tickets(uid: int) -> int:
         return int(row[0]) if row else 0
 
 async def _add_tickets(uid: int, delta: int) -> int:
+    """Ajoute (ou retire) des tickets et retourne le nouveau total."""
     await _ensure_tables()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -76,6 +77,7 @@ async def _add_tickets(uid: int, delta: int) -> int:
         return int(row[0]) if row else 0
 
 async def _own_char(uid: int, char_slug: str) -> bool:
+    """Enregistre un perso possédé ; True si nouveau, False si doublon."""
     await _ensure_tables()
     async with aiosqlite.connect(DB_PATH) as db:
         try:
@@ -109,8 +111,10 @@ async def _set_equipped(uid: int, char_slug: str):
         )
         await db.commit()
 
-# ── images (assets/personnage/*.png ou assets/personnages/*.png ou URL) ─────
+
+# ── Utils image tolérants: assets/personnage(s)/, accents, apostrophes ──────
 import unicodedata
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 def _norm(s: str) -> str:
@@ -119,7 +123,7 @@ def _norm(s: str) -> str:
     s = s.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
     return s.lower().strip()
 
-def _try_path(p: Path) -> Optional[Path]:
+def _try_file(p: Path) -> Optional[Path]:
     try:
         if p.exists() and p.is_file():
             return p
@@ -127,7 +131,7 @@ def _try_path(p: Path) -> Optional[Path]:
         pass
     return None
 
-def _find_image_for_name(name: str) -> Optional[Path]:
+def _find_by_name(name: str) -> Optional[Path]:
     bases = [PROJECT_ROOT / "assets" / "personnage",
              PROJECT_ROOT / "assets" / "personnages"]
     targets = {_norm(name), _norm(name).replace(" ", "-"), _norm(name).replace(" ", "")}
@@ -139,44 +143,43 @@ def _find_image_for_name(name: str) -> Optional[Path]:
                 return img
     return None
 
-def _image_attachment_for(perso: dict, suffix: str = "") -> tuple[Optional[discord.File], Optional[str]]:
+def _image_file_for(perso: dict, suffix: str = "") -> Tuple[Optional[discord.File], Optional[str]]:
     """
-    Retourne (file, url) pour e.set_image(...) :
-      - URL http(s) → (None, url)
-      - Fichier local existant → (discord.File renommé avec suffix, attachment://filename)
-      - Sinon, recherche par nom (tolérant) dans assets/personnage(s)
+    Retourne (file, filename/url) :
+      - URL http(s) → (None, url)  → e.set_image(url=url)
+      - Fichier local → (discord.File, filename)  → e.set_image(url=f"attachment://{filename}")
+      - Fallback: recherche par nom dans assets/personnage(s)
     """
     img = str(perso.get("image") or "").strip()
     name = str(perso.get("nom") or "").strip()
 
-    # URL directe ?
+    # URL directe
     if img.startswith("http://") or img.startswith("https://"):
         return None, img
 
-    # Chemin exact (avec correction personnage -> personnages)
+    # Chemin exact (+ correction "personnage" -> "personnages")
     if img:
         p = (PROJECT_ROOT / img).resolve()
-        if not _try_path(p) and "/personnage/" in img.replace("\\", "/"):
+        if not _try_file(p) and "/personnage/" in img.replace("\\", "/"):
             p = (PROJECT_ROOT / img.replace("/personnage/", "/personnages/")).resolve()
-        ok = _try_path(p)
+        ok = _try_file(p)
         if ok:
             stem, ext = ok.stem, ok.suffix
             fname = f"{stem}{suffix}{ext}" if suffix else ok.name
-            f = discord.File(str(ok), filename=fname)
-            return f, f"attachment://{fname}"
+            return discord.File(str(ok), filename=fname), fname
 
     # Recherche par nom
     if name:
-        found = _find_image_for_name(name)
+        found = _find_by_name(name)
         if found:
             stem, ext = found.stem, found.suffix
             fname = f"{stem}{suffix}{ext}" if suffix else found.name
-            f = discord.File(str(found), filename=fname)
-            return f, f"attachment://{fname}"
+            return discord.File(str(found), filename=fname), fname
 
     return None, None
 
-# ── sécurité : refuser si data/personnage.py indisponible ───────────────────
+
+# ── Sécurité : refuser si data/personnage.py indisponible ───────────────────
 def _must_have_personnages() -> Optional[str]:
     if PERSONNAGES_LIST is None or not isinstance(PERSONNAGES_LIST, list) or len(PERSONNAGES_LIST) == 0:
         return "Le module `data/personnage.py` est introuvable ou la liste `PERSONNAGES_LIST` est vide."
@@ -184,9 +187,12 @@ def _must_have_personnages() -> Optional[str]:
         return "La fonction `tirage_personnage()` est introuvable dans `data/personnage.py`."
     return None
 
+
 # ============================================================================
 
 class Invocation(commands.Cog):
+    """Invoque un personnage défini dans data/personnage.py en consommant des tickets."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -238,7 +244,7 @@ class Invocation(commands.Cog):
         embeds: List[discord.Embed] = []
         files: List[discord.File] = []
 
-        # Tirage unique → 1 embed détaillé
+        # Tirage unique → 1 embed détaillé (avec image AU BAS de l'embed)
         if len(results) == 1:
             rarete, p, is_new = results[0]
             nom = p.get("nom", "Inconnu")
@@ -260,15 +266,17 @@ class Invocation(commands.Cog):
             e.add_field(name="Équipement", value=equip_line, inline=False)
             e.set_footer(text="Astuce: /invocation 10 pour une multi.")
 
-            f, url = _image_attachment_for(p, suffix="_1")
-            if f:
-                files.append(f); e.set_image(url=url)
-            elif url:
-                e.set_image(url=url)
+            # Image en bas de l'embed (attachment ou URL)
+            f, fname_or_url = _image_file_for(p, suffix="_1")
+            if f and fname_or_url:
+                files.append(f)
+                e.set_image(url=f"attachment://{fname_or_url}")
+            elif fname_or_url and (fname_or_url.startswith("http://") or fname_or_url.startswith("https://")):
+                e.set_image(url=fname_or_url)
 
             embeds.append(e)
 
-        # Multi → 1 embed PAR tirage (max 10). Le 1er embed porte aussi le résumé.
+        # Multi → 1 embed PAR tirage (max 10). Le premier embed porte le résumé.
         else:
             for idx, (rarete, p, is_new) in enumerate(results, start=1):
                 nom = p.get("nom", "Inconnu")
@@ -284,23 +292,23 @@ class Invocation(commands.Cog):
                 e.add_field(name="Description", value=desc, inline=False)
                 e.add_field(name="Capacité", value=f"**{cap_nom}**\n{cap_effet}", inline=False)
 
-                # Ajouter le résumé uniquement sur le premier embed (évite d'exploser 10 embeds)
                 if idx == 1:
                     e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
                     e.add_field(name="📚 Collection", value=f"{owned_total} possédés (+{new_count} nouveaux)", inline=True)
                     e.add_field(name="Équipement", value=equip_line, inline=False)
                     e.set_footer(text="Astuce: /invocation 10 pour une multi.")
 
-                # Image (renommage par suffix pour éviter les collisions d'attachment)
-                f, url = _image_attachment_for(p, suffix=f"_{idx}")
-                if f:
-                    files.append(f); e.set_image(url=url)
-                elif url:
-                    e.set_image(url=url)
+                # Image (suffix différent pour éviter les collisions d'attachment)
+                f, fname_or_url = _image_file_for(p, suffix=f"_{idx}")
+                if f and fname_or_url:
+                    files.append(f)
+                    e.set_image(url=f"attachment://{fname_or_url}")
+                elif fname_or_url and (fname_or_url.startswith("http://") or fname_or_url.startswith("https://")):
+                    e.set_image(url=fname_or_url)
 
                 embeds.append(e)
 
-        # Envoi (Discord autorise jusqu'à 10 embeds/fichiers par message)
+        # Envoi (≤10 embeds et ≤10 fichiers par message)
         if files:
             await interaction.followup.send(embeds=embeds, files=files)
         else:
@@ -319,6 +327,7 @@ class Invocation(commands.Cog):
             color=discord.Color.green(),
         )
         await interaction.followup.send(embed=e, ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Invocation(bot))
