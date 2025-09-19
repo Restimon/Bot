@@ -1,330 +1,377 @@
-# cogs/invocation_cog.py
+# cogs/leaderboard_live.py
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List, Tuple, Optional
+import asyncio
+from typing import Dict, List, Optional, Tuple
 
-import aiosqlite
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
-# ── Données & tirage depuis data/personnage.py (OBLIGATOIRE) ─────────────────
+# ─────────────────────────────────────────────────────────
+# Storage JSON (optionnel) pour persister canal/message/flags
+# ─────────────────────────────────────────────────────────
+_storage = None
+_save_data = None
+_get_user_data = None
+
 try:
-    from data.personnage import (
-        PERSONNAGES_LIST,
-        tirage_personnage,   # -> (rarete: str, perso: dict)
-        generer_slug,        # -> str
-    )
+    from data import storage as _storage  # type: ignore
 except Exception:
-    PERSONNAGES_LIST = None      # type: ignore
-    tirage_personnage = None     # type: ignore
-    generer_slug = lambda s: s   # type: ignore
+    _storage = None
 
-# ── DB partagée (même fichier que /daily, /economy, etc.) ───────────────────
 try:
-    from economy_db import DB_PATH as DB_PATH  # type: ignore
+    from data.storage import save_data as _save_data  # type: ignore
 except Exception:
-    DB_PATH = "gotvalis.sqlite3"
+    _save_data = None
 
-CREATE_TICKETS_SQL = """
-CREATE TABLE IF NOT EXISTS tickets (
-    user_id INTEGER PRIMARY KEY,
-    count   INTEGER NOT NULL
-);
-"""
-CREATE_OWNED_SQL = """
-CREATE TABLE IF NOT EXISTS gacha_owned (
-    user_id INTEGER NOT NULL,
-    char_id TEXT    NOT NULL,
-    PRIMARY KEY (user_id, char_id)
-);
-"""
-CREATE_EQUIPPED_SQL = """
-CREATE TABLE IF NOT EXISTS equipped_character (
-    user_id INTEGER PRIMARY KEY,
-    char_id TEXT NOT NULL
-);
-"""
+try:
+    # get_user_data(gid, uid) -> (inventory: list[str], coins: int, perso: dict|None)
+    from data.storage import get_user_data as _get_user_data  # type: ignore
+except Exception:
+    _get_user_data = None
 
-async def _ensure_tables():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(CREATE_TICKETS_SQL)
-        await db.execute(CREATE_OWNED_SQL)
-        await db.execute(CREATE_EQUIPPED_SQL)
-        await db.commit()
 
-async def _get_tickets(uid: int) -> int:
-    await _ensure_tables()
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT count FROM tickets WHERE user_id=?", (uid,))
-        row = await cur.fetchone(); await cur.close()
-        return int(row[0]) if row else 0
-
-async def _add_tickets(uid: int, delta: int) -> int:
-    """Ajoute (ou retire) des tickets et retourne le nouveau total."""
-    await _ensure_tables()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO tickets(user_id, count) VALUES(?, 0) "
-            "ON CONFLICT(user_id) DO NOTHING",
-            (uid,),
-        )
-        await db.execute("UPDATE tickets SET count = MAX(0, count + ?) WHERE user_id=?", (delta, uid))
-        await db.commit()
-        cur = await db.execute("SELECT count FROM tickets WHERE user_id=?", (uid,))
-        row = await cur.fetchone(); await cur.close()
-        return int(row[0]) if row else 0
-
-async def _own_char(uid: int, char_slug: str) -> bool:
-    """Enregistre un perso possédé ; True si nouveau, False si doublon."""
-    await _ensure_tables()
-    async with aiosqlite.connect(DB_PATH) as db:
+# ─────────────────────────────────────────────────────────
+# Petits helpers pour lire Coins / PV / PB de manière souple
+# ─────────────────────────────────────────────────────────
+def _read_coins(gid: int, uid: int) -> int:
+    if callable(_get_user_data):
         try:
-            await db.execute("INSERT INTO gacha_owned(user_id, char_id) VALUES (?, ?)", (uid, char_slug))
-            await db.commit()
-            return True
+            _, coins, _ = _get_user_data(str(gid), str(uid))  # type: ignore
+            return int(coins or 0)
         except Exception:
-            return False
+            pass
+    return 0
 
-async def _count_owned(uid: int) -> int:
-    await _ensure_tables()
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT COUNT(*) FROM gacha_owned WHERE user_id=?", (uid,))
-        row = await cur.fetchone(); await cur.close()
-        return int(row[0]) if row else 0
-
-async def _get_equipped(uid: int) -> Optional[str]:
-    await _ensure_tables()
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT char_id FROM equipped_character WHERE user_id=?", (uid,))
-        row = await cur.fetchone(); await cur.close()
-        return str(row[0]) if row and row[0] else None
-
-async def _set_equipped(uid: int, char_slug: str):
-    await _ensure_tables()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO equipped_character(user_id, char_id) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET char_id=excluded.char_id",
-            (uid, char_slug),
-        )
-        await db.commit()
+def _read_hp_pb(gid: int, uid: int) -> Tuple[int, int]:
+    """
+    Essaie de lire PV/PB si tu as une DB d'effets; sinon fallback 100/0.
+    Tu peux brancher effects_db ici si tu as la fonction.
+    """
+    # Exemple d’intégration (à activer si dispo) :
+    # try:
+    #     from effects_db import get_current_hp_pb  # type: ignore
+    #     hp, pb = get_current_hp_pb(gid, uid)
+    #     return int(hp or 0), int(pb or 0)
+    # except Exception:
+    #     pass
+    return 100, 0
 
 
-# ── Utils image tolérants: assets/personnage(s)/, accents, apostrophes ──────
-import unicodedata
+# ─────────────────────────────────────────────────────────
+# Persistance (canal & message & options)
+# ─────────────────────────────────────────────────────────
+def _get_cfg_for_guild(gid: int) -> Dict[str, int]:
+    """
+    Retourne {channel_id, message_id, auto_all} pour CE serveur.
+    Persisté dans storage.leaderboard_live si dispo; sinon RAM.
+    """
+    key = "leaderboard_live"
+    if _storage is not None:
+        if not hasattr(_storage, key) or not isinstance(getattr(_storage, key), dict):
+            setattr(_storage, key, {})
+        all_cfg = getattr(_storage, key)
+        all_cfg.setdefault(str(gid), {})
+        gcfg = all_cfg[str(gid)]
+        gcfg.setdefault("channel_id", 0)
+        gcfg.setdefault("message_id", 0)
+        gcfg.setdefault("auto_all", 1)  # 1 = ON par défaut
+        return gcfg
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    # fallback RAM
+    if not hasattr(_get_cfg_for_guild, "_mem"):
+        _get_cfg_for_guild._mem: Dict[str, Dict[str, int]] = {}
+    mem = _get_cfg_for_guild._mem  # type: ignore
+    mem.setdefault(str(gid), {"channel_id": 0, "message_id": 0, "auto_all": 1})
+    return mem[str(gid)]
 
-def _norm(s: str) -> str:
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = s.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
-    return s.lower().strip()
+def _save_cfg():
+    if callable(_save_data):
+        try:
+            _save_data()  # type: ignore
+        except Exception:
+            pass
 
-def _try_file(p: Path) -> Optional[Path]:
+def _auto_all_enabled(gid: int) -> bool:
+    cfg = _get_cfg_for_guild(gid)
     try:
-        if p.exists() and p.is_file():
-            return p
+        return bool(int(cfg.get("auto_all", 1)))
     except Exception:
-        pass
-    return None
+        return True
 
-def _find_by_name(name: str) -> Optional[Path]:
-    bases = [PROJECT_ROOT / "assets" / "personnage",
-             PROJECT_ROOT / "assets" / "personnages"]
-    targets = {_norm(name), _norm(name).replace(" ", "-"), _norm(name).replace(" ", "")}
-    for base in bases:
-        if not base.exists():
+
+# ─────────────────────────────────────────────────────────
+# Rendu du classement
+# ─────────────────────────────────────────────────────────
+def _rank_rows(guild: discord.Guild) -> List[Tuple[int, str, int, int, int]]:
+    """
+    Retourne une liste triée de tuples:
+    (user_id, display_name, coins, hp, pb)
+    Tri: coins DESC, pb DESC, hp DESC, name ASC
+    """
+    rows: List[Tuple[int, str, int, int, int]] = []
+    for m in guild.members:
+        if m.bot:
             continue
-        for img in base.glob("*.png"):
-            if _norm(img.stem) in targets:
-                return img
-    return None
+        coins = _read_coins(guild.id, m.id)
+        hp, pb = _read_hp_pb(guild.id, m.id)
+        if coins <= 0 and hp <= 0 and pb <= 0:
+            continue
+        rows.append((m.id, m.display_name, coins, hp, pb))
 
-def _image_file_for(perso: dict, suffix: str = "") -> Tuple[Optional[discord.File], Optional[str]]:
+    rows.sort(key=lambda t: (-t[2], -t[4], -t[3], t[1].lower()))
+    return rows
+
+def _rank_emoji(n: int) -> str:
+    return "🥇" if n == 1 else "🥈" if n == 2 else "🥉" if n == 3 else f"{n}."
+
+def _format_line(idx: int, name: str, coins: int, hp: int, pb: int) -> str:
+    medal = _rank_emoji(idx)
+    pb_part = f" | 🛡 {pb} PB" if pb > 0 else ""
+    return f"**{medal} {name}** → 💰 **{coins}** GotCoins | ❤️ **{hp}** PV{pb_part}"
+
+def _build_embed(guild: discord.Guild, rows: List[Tuple[int, str, int, int, int]]) -> discord.Embed:
+    e = discord.Embed(
+        title="🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆",
+        color=discord.Color.gold(),
+    )
+    lines: List[str] = []
+    for i, (_, name, coins, hp, pb) in enumerate(rows[:10], start=1):
+        lines.append(_format_line(i, name, coins, hp, pb))
+
+    e.description = "\n".join(lines) if lines else "_Aucun joueur classé pour le moment._"
+    e.set_footer(text="💡 Les GotCoins représentent votre richesse accumulée.")
+    return e
+
+
+# ─────────────────────────────────────────────────────────
+# Debounce & mise à jour “auto”
+# ─────────────────────────────────────────────────────────
+_update_tasks: Dict[int, asyncio.Task] = {}      # guild_id -> task en cours
+_last_snapshots: Dict[int, List[Tuple[int, int, int]]] = {}  # guild_id -> [(uid, coins, pb)]
+
+async def _do_update(bot: commands.Bot, gid: int):
+    guild = bot.get_guild(gid)
+    if not guild:
+        return
+
+    cfg = _get_cfg_for_guild(gid)
+    channel_id = int(cfg.get("channel_id") or 0)
+    message_id = int(cfg.get("message_id") or 0)
+
+    # Si pas configuré, on ne fait rien
+    if channel_id == 0:
+        return
+
+    channel = guild.get_channel(channel_id)
+    if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+        return
+
+    rows = _rank_rows(guild)
+
+    # Snapshot minimal pour détection de changement du top10
+    new_sig = [(uid, coins, pb) for uid, _, coins, _, pb in rows[:10]]
+    old_sig = _last_snapshots.get(gid)
+    if new_sig == old_sig:
+        return  # rien n'a changé
+    _last_snapshots[gid] = new_sig
+
+    embed = _build_embed(guild, rows)
+
+    # éditer le message existant ou en créer un
+    msg: Optional[discord.Message] = None
+    if message_id:
+        try:
+            msg = await channel.fetch_message(message_id)
+        except Exception:
+            msg = None
+
+    if msg is None:
+        try:
+            msg = await channel.send(embed=embed)
+            try:
+                await msg.pin()
+            except Exception:
+                pass
+            cfg["message_id"] = msg.id
+            _save_cfg()
+        except Exception:
+            return
+    else:
+        try:
+            await msg.edit(embed=embed)
+        except Exception:
+            try:
+                msg = await channel.send(embed=embed)
+                try:
+                    await msg.pin()
+                except Exception:
+                    pass
+                cfg["message_id"] = msg.id
+                _save_cfg()
+            except Exception:
+                return
+
+def _cancel_task(gid: int):
+    t = _update_tasks.pop(gid, None)
+    if t and not t.done():
+        t.cancel()
+
+def _schedule(bot: commands.Bot, gid: int, delay: float = 2.0):
+    _cancel_task(gid)
+
+    async def _worker():
+        try:
+            await asyncio.sleep(delay)
+            await _do_update(bot, gid)
+        except asyncio.CancelledError:
+            pass
+
+    _update_tasks[gid] = bot.loop.create_task(_worker())
+
+
+# ─────────────────────────────────────────────────────────
+# Helper PUBLIC à utiliser depuis d'autres cogs
+# ─────────────────────────────────────────────────────────
+def schedule_lb_update(bot: commands.Bot, guild_id: int, reason: str = ""):
     """
-    Retourne (file, safe_filename_or_url).
-    - URL http(s) -> (None, url)
-    - Fichier local -> (discord.File, 'inv{suffix or _1}.png') pour set_image('attachment://...')
+    Appelle ceci quand la richesse / PV / PB d'un joueur a changé.
+    Exemples :
+      - après /daily : schedule_lb_update(self.bot, guild_id, "daily")
+      - après achat/vente : schedule_lb_update(self.bot, guild_id, "shop")
+      - après combat (dégâts, soins, pb) : schedule_lb_update(self.bot, guild_id, "combat")
     """
-    img = str(perso.get("image") or "").strip()
-    name = str(perso.get("nom") or "").strip()
-
-    # URL directe
-    if img.startswith("http://") or img.startswith("https://"):
-        return None, img
-
-    # Chemin exact (+ correction 'personnage' -> 'personnages')
-    candidate: Optional[Path] = None
-    if img:
-        p = (PROJECT_ROOT / img).resolve()
-        candidate = _try_file(p)
-        if not candidate and "/personnage/" in img.replace("\\", "/"):
-            p2 = (PROJECT_ROOT / img.replace("/personnage/", "/personnages/")).resolve()
-            candidate = _try_file(p2)
-
-    # Fallback par nom
-    if not candidate and name:
-        candidate = _find_by_name(name)
-
-    if candidate:
-        safe = f"inv{suffix or '_1'}.png"  # nom garanti sans espace/accent
-        return discord.File(str(candidate), filename=safe), safe
-
-    return None, None
+    _schedule(bot, guild_id, delay=2.0)
 
 
-# ── Sécurité : refuser si data/personnage.py indisponible ───────────────────
-def _must_have_personnages() -> Optional[str]:
-    if PERSONNAGES_LIST is None or not isinstance(PERSONNAGES_LIST, list) or len(PERSONNAGES_LIST) == 0:
-        return "Le module `data/personnage.py` est introuvable ou la liste `PERSONNAGES_LIST` est vide."
-    if tirage_personnage is None or not callable(tirage_personnage):
-        return "La fonction `tirage_personnage()` est introuvable dans `data/personnage.py`."
-    return None
+# ─────────────────────────────────────────────────────────
+# Utilitaires pour boucle périodique
+# ─────────────────────────────────────────────────────────
+def _iter_configured_guild_ids() -> List[int]:
+    gids: List[int] = []
+    key = "leaderboard_live"
+    if _storage is not None and isinstance(getattr(_storage, key, None), dict):
+        for gid_str, cfg in getattr(_storage, key).items():
+            try:
+                gid = int(gid_str)
+            except Exception:
+                continue
+            if int(cfg.get("channel_id", 0) or 0):
+                gids.append(gid)
+    else:
+        mem = getattr(_get_cfg_for_guild, "_mem", {})
+        if isinstance(mem, dict):
+            for gid_str, cfg in mem.items():
+                try:
+                    gid = int(gid_str)
+                except Exception:
+                    continue
+                if int(cfg.get("channel_id", 0) or 0):
+                    gids.append(gid)
+    return gids
 
 
-# ============================================================================
-
-class Invocation(commands.Cog):
-    """Invoque un personnage défini dans data/personnage.py en consommant des tickets."""
+# ─────────────────────────────────────────────────────────
+# Le Cog
+# ─────────────────────────────────────────────────────────
+class LiveLeaderboard(commands.Cog):
+    """Classement persistant (top 10) basé sur la richesse (GotCoins) + PV/PB."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.auto_refresh.start()     # boucle périodique (filet de sécurité)
 
-    @app_commands.command(name="invocation", description="Utilise tes tickets pour invoquer un personnage.")
-    @app_commands.describe(tirages="Nombre d'invocations (1–10)")
-    async def invocation(self, interaction: discord.Interaction, tirages: app_commands.Range[int, 1, 10] = 1):
-        if not interaction.guild:
-            return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+    # — Admin: définir le salon & créer/épingle le message persistant
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(name="lb_set", description="(Admin) Définit le salon du classement persistant et le crée/replace.")
+    @app_commands.describe(channel="Salon où poster le classement")
+    async def lb_set(self, inter: discord.Interaction, channel: discord.TextChannel):
+        if not inter.guild:
+            return await inter.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
-        err = _must_have_personnages()
-        if err:
-            return await interaction.response.send_message(f"⚠️ {err}", ephemeral=True)
+        cfg = _get_cfg_for_guild(inter.guild.id)
+        cfg["channel_id"] = channel.id
+        cfg["message_id"] = 0  # on recréera proprement
+        _save_cfg()
 
-        await interaction.response.defer(ephemeral=False)
+        await inter.response.defer(ephemeral=True, thinking=True)
+        await _do_update(self.bot, inter.guild.id)
+        await inter.followup.send(f"✅ Classement persistant configuré dans {channel.mention}.", ephemeral=True)
 
-        uid = interaction.user.id
-        have = await _get_tickets(uid)
-        if have < tirages:
-            return await interaction.followup.send(
-                f"❌ Pas assez de tickets. Il te faut **{tirages}**, tu en as **{have}**."
-            )
+    # — Admin: refresh manuel
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(name="lb_refresh", description="(Admin) Recalcule et met à jour le classement persistant.")
+    async def lb_refresh(self, inter: discord.Interaction):
+        if not inter.guild:
+            return await inter.response.send_message("Commande serveur uniquement.", ephemeral=True)
+        await inter.response.defer(ephemeral=True, thinking=True)
+        await _do_update(self.bot, inter.guild.id)
+        await inter.followup.send("🔁 Classement mis à jour.", ephemeral=True)
 
-        # anti double-clic
-        await _add_tickets(uid, -tirages)
-
-        # Tirages
-        results: List[Tuple[str, dict, bool]] = []
-        new_count = 0
-        for _ in range(tirages):
-            rarete, perso = tirage_personnage()  # -> ("Rare", { "nom": ..., "image": ..., "passif": {...} })
-            if not perso or not perso.get("nom"):
-                continue
-            slug = generer_slug(perso["nom"])
-            is_new = await _own_char(uid, slug)
-            if is_new:
-                new_count += 1
-            results.append((rarete, perso, is_new))
-
-        remaining = await _get_tickets(uid)
-        owned_total = await _count_owned(uid)
-
-        # Auto-equip si rien
-        equip_line = "🧬 Personnage équipé inchangé."
-        if results and (await _get_equipped(uid)) is None:
-            first_slug = generer_slug(results[0][1]["nom"])
-            await _set_equipped(uid, first_slug)
-            equip_line = f"🧬 **Équipé automatiquement** : {results[0][1]['nom']}"
-
-        embeds: List[discord.Embed] = []
-        files: List[discord.File] = []
-
-        # Tirage unique → 1 embed détaillé (avec image AU BAS de l'embed)
-        if len(results) == 1:
-            rarete, p, is_new = results[0]
-            nom = p.get("nom", "Inconnu")
-            faction = p.get("faction", "—")
-            desc = p.get("description", "—")
-            passif = p.get("passif") or {}
-            cap_nom = passif.get("nom", "Capacité")
-            cap_effet = passif.get("effet", "—")
-
-            e = discord.Embed(title="🔮 Résultat de l’invocation", color=discord.Color.purple())
-            nouveau = " — 🆕" if is_new else ""
-            e.description = f"**{nom}** — *{rarete}* ({faction}){nouveau}"
-            e.add_field(name="Description", value=desc, inline=False)
-            e.add_field(name="Capacité", value=f"**{cap_nom}**\n{cap_effet}", inline=False)
-
-            # Résumé
-            e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
-            e.add_field(name="📚 Collection", value=f"{owned_total} possédés (+{new_count} nouveaux)", inline=True)
-            e.add_field(name="Équipement", value=equip_line, inline=False)
-            e.set_footer(text="Astuce: /invocation 10 pour une multi.")
-
-            # Image en bas de l'embed (attachment ou URL)
-            f, safe_name_or_url = _image_file_for(p, suffix="_1")
-            if f and safe_name_or_url:
-                files.append(f)
-                e.set_image(url=f"attachment://{safe_name_or_url}")
-            elif safe_name_or_url and (safe_name_or_url.startswith("http://") or safe_name_or_url.startswith("https://")):
-                e.set_image(url=safe_name_or_url)
-
-            embeds.append(e)
-
-        # Multi → 1 embed PAR tirage (max 10). Le premier embed porte le résumé.
-        else:
-            for idx, (rarete, p, is_new) in enumerate(results, start=1):
-                nom = p.get("nom", "Inconnu")
-                faction = p.get("faction", "—")
-                desc = p.get("description", "—")
-                passif = p.get("passif") or {}
-                cap_nom = passif.get("nom", "Capacité")
-                cap_effet = passif.get("effet", "—")
-
-                e = discord.Embed(title=f"🔮 Invocation #{idx}", color=discord.Color.purple())
-                nouveau = " — 🆕" if is_new else ""
-                e.description = f"**{nom}** — *{rarete}* ({faction}){nouveau}"
-                e.add_field(name="Description", value=desc, inline=False)
-                e.add_field(name="Capacité", value=f"**{cap_nom}**\n{cap_effet}", inline=False)
-
-                if idx == 1:
-                    e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
-                    e.add_field(name="📚 Collection", value=f"{owned_total} possédés (+{new_count} nouveaux)", inline=True)
-                    e.add_field(name="Équipement", value=equip_line, inline=False)
-                    e.set_footer(text="Astuce: /invocation 10 pour une multi.")
-
-                # Image (suffix différent pour éviter les collisions d'attachment)
-                f, safe_name_or_url = _image_file_for(p, suffix=f"_{idx}")
-                if f and safe_name_or_url:
-                    files.append(f)
-                    e.set_image(url=f"attachment://{safe_name_or_url}")
-                elif safe_name_or_url and (safe_name_or_url.startswith("http://") or safe_name_or_url.startswith("https://")):
-                    e.set_image(url=safe_name_or_url)
-
-                embeds.append(e)
-
-        # Envoi (≤10 embeds et ≤10 fichiers par message)
-        if files:
-            await interaction.followup.send(embeds=embeds, files=files)
-        else:
-            await interaction.followup.send(embeds=embeds)
-
-    @app_commands.command(name="invocation_pool", description="Affiche quelques personnages invocables.")
-    async def invocation_pool(self, interaction: discord.Interaction):
-        err = _must_have_personnages()
-        if err:
-            return await interaction.response.send_message(f"⚠️ {err}", ephemeral=True)
-        await interaction.response.defer(ephemeral=True)
-        sample = [p.get("nom") for p in PERSONNAGES_LIST[:10] if isinstance(p, dict) and p.get("nom")]
-        e = discord.Embed(
-            title="📜 Pool d’invocation (aperçu)",
-            description="\n".join(f"• {n}" for n in sample) if sample else "—",
-            color=discord.Color.green(),
+    # — Admin: activer/désactiver le “rafraîchissement à chaque action”
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(
+        name="lb_auto",
+        description="(Admin) Active/désactive le rafraîchissement à chaque action (global)."
+    )
+    @app_commands.describe(enabled="True = ON, False = OFF")
+    async def lb_auto(self, inter: discord.Interaction, enabled: bool):
+        if not inter.guild:
+            return await inter.response.send_message("Commande serveur uniquement.", ephemeral=True)
+        cfg = _get_cfg_for_guild(inter.guild.id)
+        cfg["auto_all"] = 1 if enabled else 0
+        _save_cfg()
+        await inter.response.send_message(
+            f"✅ Auto-refresh **{'activé' if enabled else 'désactivé'}** pour ce serveur.",
+            ephemeral=True
         )
-        await interaction.followup.send(embed=e, ephemeral=True)
+
+    # — Listeners pour déclenchement “à chaque action”
+    @commands.Cog.listener()
+    async def on_app_command_completion(self, interaction: discord.Interaction, command: app_commands.Command):
+        if interaction.guild and _auto_all_enabled(interaction.guild.id):
+            schedule_lb_update(self.bot, interaction.guild.id, f"/{command.name}")
+
+    @commands.Cog.listener()
+    async def on_command_completion(self, ctx: commands.Context):
+        if ctx.guild and _auto_all_enabled(ctx.guild.id):
+            name = ""
+            try:
+                if ctx.command:
+                    name = ctx.command.qualified_name
+            except Exception:
+                pass
+            schedule_lb_update(self.bot, ctx.guild.id, f"!{name}")
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.guild and not message.author.bot and _auto_all_enabled(message.guild.id):
+            schedule_lb_update(self.bot, message.guild.id, "message")
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        if member.guild and _auto_all_enabled(member.guild.id):
+            schedule_lb_update(self.bot, member.guild.id, "voice")
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        schedule_lb_update(self.bot, member.guild.id, "member_join")
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        schedule_lb_update(self.bot, member.guild.id, "member_remove")
+
+    # — Boucle périodique (2 min) : rattrapage si un event est manqué
+    @tasks.loop(minutes=2)
+    async def auto_refresh(self):
+        for gid in _iter_configured_guild_ids():
+            await _do_update(self.bot, gid)
+
+    @auto_refresh.before_loop
+    async def _wait_ready(self):
+        await self.bot.wait_until_ready()
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Invocation(bot))
+    await bot.add_cog(LiveLeaderboard(bot))
