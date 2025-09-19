@@ -118,7 +118,7 @@ class GotValisBot(commands.Bot):
         ]
 
     async def setup_hook(self) -> None:
-        # 5.1 Storage JSON (tickets/CD/config, si tu l’utilises)
+        # 5.1 Storage JSON (si tu l’utilises)
         try:
             if spec_exists("data.storage"):
                 from data import storage  # type: ignore
@@ -134,6 +134,7 @@ class GotValisBot(commands.Bot):
         await try_init_db("inventory_db", "init_inventory_db")
         await try_init_db("stats_db", "init_stats_db")
         await try_init_db("effects_db", "init_effects_db")
+        await try_init_db("shields_db", "init_shields_db")  # ← bouclier
 
         # 5.3 Charger les cogs existants
         for ext in self.initial_extensions:
@@ -165,7 +166,6 @@ class GotValisBot(commands.Bot):
 
     async def on_ready(self):
         log.info("Connecté en tant que %s (%s)", self.user, getattr(self.user, "id", "?"))
-        # Changer la présence quand le WS est prêt
         try:
             await self.change_presence(
                 activity=discord.Activity(type=discord.ActivityType.watching, name="le réseau GotValis"),
