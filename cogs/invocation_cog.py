@@ -109,34 +109,74 @@ async def _set_equipped(uid: int, char_slug: str):
         )
         await db.commit()
 
-# ── images (assets/personnage/*.png en local OU URL) ────────────────────────
+# ── images (assets/personnage/*.png ou assets/personnages/*.png ou URL) ─────
+import unicodedata
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-def _image_attachment_for(perso: dict) -> tuple[Optional[discord.File], Optional[str]]:
+def _norm(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
+    return s.lower().strip()
+
+def _try_path(p: Path) -> Optional[Path]:
+    try:
+        if p.exists() and p.is_file():
+            return p
+    except Exception:
+        pass
+    return None
+
+def _find_image_for_name(name: str) -> Optional[Path]:
+    bases = [PROJECT_ROOT / "assets" / "personnage",
+             PROJECT_ROOT / "assets" / "personnages"]
+    targets = {_norm(name), _norm(name).replace(" ", "-"), _norm(name).replace(" ", "")}
+    for base in bases:
+        if not base.exists():
+            continue
+        for img in base.glob("*.png"):
+            if _norm(img.stem) in targets:
+                return img
+    return None
+
+def _image_attachment_for(perso: dict, suffix: str = "") -> tuple[Optional[discord.File], Optional[str]]:
     """
-    Retourne (file, url) :
-      - si 'image' est un chemin local existant → (discord.File, attachment://...)
-      - si 'image' est une URL http(s)        → (None, url)
-      - sinon                                  → (None, None)
+    Retourne (file, url) pour e.set_image(...) :
+      - URL http(s) → (None, url)
+      - Fichier local existant → (discord.File renommé avec suffix, attachment://filename)
+      - Sinon, recherche par nom (tolérant) dans assets/personnage(s)
     """
     img = str(perso.get("image") or "").strip()
-    if not img:
-        return None, None
+    name = str(perso.get("nom") or "").strip()
+
+    # URL directe ?
     if img.startswith("http://") or img.startswith("https://"):
         return None, img
-    img_path = (PROJECT_ROOT / img).resolve()
-    try:
-        project_real = PROJECT_ROOT.resolve()
-        if project_real not in img_path.parents and img_path != project_real:
-            return None, None
-    except Exception:
-        return None, None
-    if not img_path.exists() or not img_path.is_file():
-        return None, None
-    f = discord.File(str(img_path), filename=img_path.name)
-    return f, f"attachment://{img_path.name}"
 
-# ── sécurité : on REFUSE si data/personnage.py n’est pas lisible ────────────
+    # Chemin exact (avec correction personnage -> personnages)
+    if img:
+        p = (PROJECT_ROOT / img).resolve()
+        if not _try_path(p) and "/personnage/" in img.replace("\\", "/"):
+            p = (PROJECT_ROOT / img.replace("/personnage/", "/personnages/")).resolve()
+        ok = _try_path(p)
+        if ok:
+            stem, ext = ok.stem, ok.suffix
+            fname = f"{stem}{suffix}{ext}" if suffix else ok.name
+            f = discord.File(str(ok), filename=fname)
+            return f, f"attachment://{fname}"
+
+    # Recherche par nom
+    if name:
+        found = _find_image_for_name(name)
+        if found:
+            stem, ext = found.stem, found.suffix
+            fname = f"{stem}{suffix}{ext}" if suffix else found.name
+            f = discord.File(str(found), filename=fname)
+            return f, f"attachment://{fname}"
+
+    return None, None
+
+# ── sécurité : refuser si data/personnage.py indisponible ───────────────────
 def _must_have_personnages() -> Optional[str]:
     if PERSONNAGES_LIST is None or not isinstance(PERSONNAGES_LIST, list) or len(PERSONNAGES_LIST) == 0:
         return "Le module `data/personnage.py` est introuvable ou la liste `PERSONNAGES_LIST` est vide."
@@ -172,6 +212,7 @@ class Invocation(commands.Cog):
         # anti double-clic
         await _add_tickets(uid, -tirages)
 
+        # Tirages
         results: List[Tuple[str, dict, bool]] = []
         new_count = 0
         for _ in range(tirages):
@@ -187,18 +228,17 @@ class Invocation(commands.Cog):
         remaining = await _get_tickets(uid)
         owned_total = await _count_owned(uid)
 
-        # auto-equip si rien
+        # Auto-equip si rien
         equip_line = "🧬 Personnage équipé inchangé."
         if results and (await _get_equipped(uid)) is None:
             first_slug = generer_slug(results[0][1]["nom"])
             await _set_equipped(uid, first_slug)
             equip_line = f"🧬 **Équipé automatiquement** : {results[0][1]['nom']}"
 
-        # embed
-        e = discord.Embed(title="🔮 Résultat de l’invocation", color=discord.Color.purple())
-
-        # Tirage unique → on affiche nom + description + capacité + image
+        embeds: List[discord.Embed] = []
         files: List[discord.File] = []
+
+        # Tirage unique → 1 embed détaillé
         if len(results) == 1:
             rarete, p, is_new = results[0]
             nom = p.get("nom", "Inconnu")
@@ -208,35 +248,63 @@ class Invocation(commands.Cog):
             cap_nom = passif.get("nom", "Capacité")
             cap_effet = passif.get("effet", "—")
 
+            e = discord.Embed(title="🔮 Résultat de l’invocation", color=discord.Color.purple())
             nouveau = " — 🆕" if is_new else ""
             e.description = f"**{nom}** — *{rarete}* ({faction}){nouveau}"
             e.add_field(name="Description", value=desc, inline=False)
             e.add_field(name="Capacité", value=f"**{cap_nom}**\n{cap_effet}", inline=False)
 
-            f, url = _image_attachment_for(p)
+            # Résumé
+            e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
+            e.add_field(name="📚 Collection", value=f"{owned_total} possédés (+{new_count} nouveaux)", inline=True)
+            e.add_field(name="Équipement", value=equip_line, inline=False)
+            e.set_footer(text="Astuce: /invocation 10 pour une multi.")
+
+            f, url = _image_attachment_for(p, suffix="_1")
             if f:
                 files.append(f); e.set_image(url=url)
             elif url:
                 e.set_image(url=url)
 
+            embeds.append(e)
+
+        # Multi → 1 embed PAR tirage (max 10). Le 1er embed porte aussi le résumé.
         else:
-            # Multi → liste compacte
-            lines = []
-            for rarete, p, is_new in results:
-                tag = " — 🆕" if is_new else ""
-                lines.append(f"{p.get('nom','Inconnu')} — *{rarete}*{tag}")
-            e.description = "\n".join(lines) if lines else "Aucun résultat."
+            for idx, (rarete, p, is_new) in enumerate(results, start=1):
+                nom = p.get("nom", "Inconnu")
+                faction = p.get("faction", "—")
+                desc = p.get("description", "—")
+                passif = p.get("passif") or {}
+                cap_nom = passif.get("nom", "Capacité")
+                cap_effet = passif.get("effet", "—")
 
-        # Infos tickets / collection / équipement
-        e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
-        e.add_field(name="📚 Collection", value=f"{owned_total} possédés (+{new_count} nouveaux)", inline=True)
-        e.add_field(name="Équipement", value=equip_line, inline=False)
-        e.set_footer(text="Astuce: /invocation 10 pour une multi.")
+                e = discord.Embed(title=f"🔮 Invocation #{idx}", color=discord.Color.purple())
+                nouveau = " — 🆕" if is_new else ""
+                e.description = f"**{nom}** — *{rarete}* ({faction}){nouveau}"
+                e.add_field(name="Description", value=desc, inline=False)
+                e.add_field(name="Capacité", value=f"**{cap_nom}**\n{cap_effet}", inline=False)
 
+                # Ajouter le résumé uniquement sur le premier embed (évite d'exploser 10 embeds)
+                if idx == 1:
+                    e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
+                    e.add_field(name="📚 Collection", value=f"{owned_total} possédés (+{new_count} nouveaux)", inline=True)
+                    e.add_field(name="Équipement", value=equip_line, inline=False)
+                    e.set_footer(text="Astuce: /invocation 10 pour une multi.")
+
+                # Image (renommage par suffix pour éviter les collisions d'attachment)
+                f, url = _image_attachment_for(p, suffix=f"_{idx}")
+                if f:
+                    files.append(f); e.set_image(url=url)
+                elif url:
+                    e.set_image(url=url)
+
+                embeds.append(e)
+
+        # Envoi (Discord autorise jusqu'à 10 embeds/fichiers par message)
         if files:
-            await interaction.followup.send(embed=e, files=files)
+            await interaction.followup.send(embeds=embeds, files=files)
         else:
-            await interaction.followup.send(embed=e)
+            await interaction.followup.send(embeds=embeds)
 
     @app_commands.command(name="invocation_pool", description="Affiche quelques personnages invocables.")
     async def invocation_pool(self, interaction: discord.Interaction):
