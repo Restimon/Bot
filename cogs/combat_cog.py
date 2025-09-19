@@ -31,6 +31,9 @@ from effects_db import (
 from economy_db import add_balance, get_balance
 from inventory_db import get_item_qty, remove_item, add_item
 
+# Passifs
+from passifs import trigger
+
 # Objets (emoji -> caractéristiques)
 try:
     from utils import OBJETS, get_random_item  # type: ignore
@@ -156,6 +159,10 @@ class CombatCog(commands.Cog):
             ko_txt = "\n💥 **Cible mise KO** (réanimée en PV/PB)."
 
         hp, _ = await get_hp(target.id)
+
+        # Passifs (ex: vampirisme 50%)
+        await trigger("on_attack", user_id=attacker.id, target_id=target.id, damage_done=dmg)
+
         e = discord.Embed(
             title="⚔️ Attaque",
             description=(
@@ -180,12 +187,19 @@ class CombatCog(commands.Cog):
         r1 = await deal_damage(attacker.id, target.id, d1)
         r2 = await deal_damage(attacker.id, target.id, d2)
 
+        tot = d1 + d2
+
+        # KO → revive full (règle interne)
         ko_txt = ""
         if await is_dead(target.id):
             await revive_full(target.id)
             ko_txt = "\n💥 **Cible mise KO** (réanimée en PV/PB)."
 
         hp, _ = await get_hp(target.id)
+
+        # Passifs
+        await trigger("on_attack", user_id=attacker.id, target_id=target.id, damage_done=tot)
+
         e = discord.Embed(
             title="⚔️ Attaque en chaîne",
             description=(
@@ -201,8 +215,15 @@ class CombatCog(commands.Cog):
         """Soin direct."""
         heal = int(info.get("soin", 0) or 0)
         who = target or user
+
+        # (si un passif doit augmenter la valeur de soin AVANT application, fais-le ici)
+
         await heal_user(who.id, heal)
         hp, mx = await get_hp(who.id)
+
+        # Passifs (ex: PB=soin 2x/j)
+        await trigger("on_heal", user_id=user.id, target_id=who.id, healed=heal)
+
         e = discord.Embed(
             title="❤️ Soin",
             description=f"{user.mention} utilise {emoji} sur {who.mention}.\n➕ PV rendus: **{heal}** → ❤️ **{hp}/{mx}**",
@@ -357,7 +378,7 @@ class CombatCog(commands.Cog):
         if not info:
             return await inter.response.send_message("Objet inconnu.", ephemeral=True)
 
-        # vérif & conso inventaire
+        # vérif & conso inventaire (Marn Velk peut rembourser après)
         if not await self._consume_item(inter.user.id, objet):
             return await inter.response.send_message(f"Tu n’as pas **{objet}** dans ton inventaire.", ephemeral=True)
 
@@ -412,12 +433,18 @@ class CombatCog(commands.Cog):
                 description=f"{inter.user.mention} obtient **{got}** !",
                 color=discord.Color.gold()
             )
+            # Hook passif "box_plus_un_objet"
+            res = await trigger("on_box_open", user_id=inter.user.id, items_added=[got])
+            if res.get("extra_item"):
+                embed.description += f"\n🎁 Bonus: **{res['extra_item']}**"
 
         elif typ == "vol":
             # version simple: 25% d’avoir un item aléatoire (sans cible)
             if isinstance(cible, discord.Member):
-                # (Place pour vraie logique de vol ciblé si tu veux plus tard)
-                pass
+                # anti-vol (Lyss Tenra) si cible fournie
+                res = await trigger("on_theft_attempt", attacker_id=inter.user.id, target_id=cible.id)
+                if res.get("blocked"):
+                    return await inter.followup.send(f"🛡 {cible.mention} est **intouchable** (anti-vol).")
             success = (random.random() < 0.25)
             if success:
                 got = get_random_item(debug=False)
@@ -452,11 +479,14 @@ class CombatCog(commands.Cog):
                 color=discord.Color.dark_grey()
             )
 
+        # Hook post-conso (ex: Marn Velk — ne pas consommer)
+        await trigger("on_use_after", user_id=inter.user.id, emoji=objet)
+
         await inter.followup.send(embed=embed)
         await self._maybe_update_leaderboard(inter.guild.id, "use")
 
     # ─────────────────────────────────────────────────────────
-    # Commandes de test déjà présentes (gardées)
+    # Commandes de test (gardées)
     # ─────────────────────────────────────────────────────────
     @app_commands.command(name="hit", description="(test) Inflige des dégâts directs à une cible.")
     @app_commands.describe(target="Cible", amount="Dégâts directs (appliquent réduc/bouclier/PV)")
@@ -474,6 +504,10 @@ class CombatCog(commands.Cog):
             await revive_full(target.id)
 
         hp, _ = await get_hp(target.id)
+
+        # passifs
+        await trigger("on_attack", user_id=inter.user.id, target_id=target.id, damage_done=final_dmg)
+
         embed = discord.Embed(
             title="GotValis : impact confirmé",
             description=f"{inter.user.mention} inflige **{final_dmg}** à {target.mention}.\n"
@@ -488,7 +522,6 @@ class CombatCog(commands.Cog):
     async def cmd_poison(self, inter: discord.Interaction, target: discord.Member):
         await inter.response.defer(thinking=True)
         remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
-        # valeurs “par défaut” si pas d’OBJETS
         cfg = {"value": 2, "interval": 60, "duration": 600}
         await add_or_refresh_effect(
             user_id=target.id,
