@@ -1,283 +1,225 @@
 # cogs/daily_cog.py
+from __future__ import annotations
+
+import random
 import time
-from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import Dict, List, Optional, Tuple
 
 import discord
-from discord import app_commands
 from discord.ext import commands
-import aiosqlite
+from discord import app_commands
 
-# --- DB projets
+# ── Économie & Inventaire (SQLite)
 from economy_db import add_balance, get_balance
 from inventory_db import add_item
 
-# --- Catalogue & tirage utils.py (items = emojis)
-# Priorité à OBJETS (ton utils.py), fallback sur ITEMS si présent.
+# ── Passifs
+from passifs import trigger
+
+# ── Objets (emoji) + tirage tolérant
 try:
-    from utils import OBJETS as ITEM_CATALOG  # dict: { "🛡": {...}, ... }
+    from utils import OBJETS, get_random_item  # type: ignore
 except Exception:
+    OBJETS = {}
+    def get_random_item(debug: bool = False):
+        return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
+
+# ── Storage JSON optionnel (tickets + cooldowns)
+try:
+    from data import storage  # type: ignore
+except Exception:
+    storage = None  # type: ignore
+
+
+# ======================================================================
+# Helpers storage : tickets & cooldowns
+# ======================================================================
+
+def _now() -> int:
+    return int(time.time())
+
+def _ensure_map(obj, name: str):
+    if not hasattr(obj, name) or not isinstance(getattr(obj, name), dict):
+        setattr(obj, name, {})
+
+def _get_guild_map(root: Dict, gid: int) -> Dict:
+    root.setdefault(str(gid), {})
+    return root[str(gid)]
+
+def _get_user_int(map_: Dict, uid: int, default: int = 0) -> int:
     try:
-        from utils import ITEMS as ITEM_CATALOG  # compat si ton utils expose ITEMS
+        return int(map_.get(str(uid), default))
     except Exception:
-        ITEM_CATALOG: Dict[str, Dict[str, Any]] = {}
+        return default
 
-# On accepte get_random_items(n) OU get_random_item()
-try:
-    from utils import get_random_items as _get_random_items  # type: ignore
-except Exception:
-    _get_random_items = None  # type: ignore
+def _set_user_int(map_: Dict, uid: int, value: int):
+    map_[str(uid)] = int(value)
 
-try:
-    from utils import get_random_item as _get_random_item  # type: ignore
-except Exception:
-    _get_random_item = None  # type: ignore
+def _save_storage():
+    try:
+        if storage and hasattr(storage, "save_data"):
+            storage.save_data()
+    except Exception:
+        pass
 
+# Tickets
+def get_tickets(gid: int, uid: int) -> int:
+    if not storage:
+        return 0
+    _ensure_map(storage, "tickets")                # storage.tickets = {}
+    gmap = _get_guild_map(storage.tickets, gid)    # storage.tickets[gid] = {}
+    return _get_user_int(gmap, uid, 0)
 
-# ===============================
-# Config
-# ===============================
-DAILY_COOLDOWN_H = 24
-STREAK_WINDOW_H = 48
-TICKET_EMOJI = "🎟️"
+def add_tickets(gid: int, uid: int, delta: int) -> int:
+    if not storage:
+        return 0
+    _ensure_map(storage, "tickets")
+    gmap = _get_guild_map(storage.tickets, gid)
+    cur = _get_user_int(gmap, uid, 0)
+    cur += int(delta or 0)
+    _set_user_int(gmap, uid, cur)
+    _save_storage()
+    return cur
 
-# Même DB que le reste
-try:
-    from economy_db import DB_PATH as DB_PATH  # type: ignore
-except Exception:
-    DB_PATH = "gotvalis.sqlite3"
+# Cooldown daily
+def get_last_daily_ts(gid: int, uid: int) -> int:
+    if not storage:
+        return 0
+    _ensure_map(storage, "cooldowns")                          # storage.cooldowns = {}
+    cdm = storage.cooldowns
+    cdm.setdefault("daily", {})
+    d_gmap = _get_guild_map(cdm["daily"], gid)                 # storage.cooldowns["daily"][gid] = {}
+    return _get_user_int(d_gmap, uid, 0)
 
-CREATE_DAILIES_SQL = """
-CREATE TABLE IF NOT EXISTS dailies (
-    user_id    INTEGER PRIMARY KEY,
-    last_ts    REAL NOT NULL,
-    streak     INTEGER NOT NULL
-);
-"""
+def set_last_daily_ts(gid: int, uid: int, ts: int):
+    if not storage:
+        return
+    _ensure_map(storage, "cooldowns")
+    cdm = storage.cooldowns
+    cdm.setdefault("daily", {})
+    d_gmap = _get_guild_map(cdm["daily"], gid)
+    _set_user_int(d_gmap, uid, ts)
+    _save_storage()
 
-# Tickets stockés séparément (pas en inventaire)
-CREATE_TICKETS_SQL = """
-CREATE TABLE IF NOT EXISTS tickets (
-    user_id INTEGER PRIMARY KEY,
-    count   INTEGER NOT NULL
-);
-"""
-
-# Valeurs à filtrer si jamais le tirage renvoie un "ticket"
-TICKET_NAMES = {"🎟️", "🎟️ Ticket", "Ticket", "ticket", "Daily Ticket", "daily ticket"}
-
-
-# ===============================
-# Helpers SQL
-# ===============================
-def _now() -> float:
-    return time.time()
-
-async def _ensure_tables():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(CREATE_DAILIES_SQL)
-        await db.execute(CREATE_TICKETS_SQL)
-        await db.commit()
-
-async def _get_daily_row(uid: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT last_ts, streak FROM dailies WHERE user_id = ?", (uid,))
-        row = await cur.fetchone()
-        await cur.close()
-    return row  # (last_ts, streak) or None
-
-async def _set_daily_row(uid: int, last_ts: float, streak: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO dailies(user_id, last_ts, streak) VALUES(?,?,?) "
-            "ON CONFLICT(user_id) DO UPDATE SET last_ts=excluded.last_ts, streak=excluded.streak",
-            (uid, last_ts, streak)
-        )
-        await db.commit()
-
-async def _add_tickets(uid: int, amount: int = 1):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO tickets(user_id, count) VALUES(?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET count = tickets.count + ?",
-            (uid, amount, amount)
-        )
-        await db.commit()
-
-async def _get_tickets(uid: int) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT count FROM tickets WHERE user_id = ?", (uid,))
-        row = await cur.fetchone()
-        await cur.close()
-    return int(row[0]) if row else 0
+def fmt_duration(seconds: int) -> str:
+    if seconds <= 0:
+        return "0s"
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    if m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
 
 
-# ===============================
-# Tirage / formatage items
-# ===============================
-def _short_desc(emoji_key: str) -> str:
-    """Fabrique une courte description à partir des métadonnées (types utils.py)."""
-    meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
-    t = meta.get("type", "")
+# ======================================================================
+# DAILY
+# ======================================================================
 
-    if t == "attaque":
-        dmg = meta.get("degats");        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
-    if t == "attaque_chaine":
-        dp = meta.get("degats_principal"); ds = meta.get("degats_secondaire")
-        return f"Chaîne {dp}/{ds}" if dp is not None and ds is not None else "Attaque en chaîne"
-    if t == "virus":
-        dmg = meta.get("degats");        return f"Virus {dmg} sur durée" if dmg is not None else "Virus"
-    if t == "poison":
-        dmg = meta.get("degats");        return f"Poison {dmg}/tick" if dmg is not None else "Poison"
-    if t == "infection":
-        dmg = meta.get("degats");        return f"Infection {dmg}/tick" if dmg is not None else "Infection"
-    if t == "soin":
-        heal = meta.get("soin");         return f"Soigne {heal} PV" if heal is not None else "Soin"
-    if t == "regen":
-        val = meta.get("valeur");        return f"Régén {val}/tick" if val is not None else "Régénération"
-    if t == "mysterybox":                return "Mystery Box"
-    if t == "vol":                       return "Vol"
-    if t == "vaccin":                    return "Immunise contre statut"
-    if t == "bouclier":
-        val = meta.get("valeur");        return f"Bouclier {val}" if val is not None else "Bouclier"
-    if t == "esquive+":
-        val = meta.get("valeur");        return f"Esquive +{int(val*100)}%" if isinstance(val, (int, float)) else "Esquive +"
-    if t == "reduction":
-        val = meta.get("valeur");        return f"Réduction {int(val*100)}%" if isinstance(val, (int, float)) else "Réduction"
-    if t == "immunite":                  return "Immunité"
-    return emoji_key
+DAILY_BASE_SECONDS = 24 * 3600  # CD de base (Nyra Kell le divise par 2)
+COINS_MIN, COINS_MAX = 8, 25
+TICKETS_MIN, TICKETS_MAX = 0, 1
+ITEMS_MIN, ITEMS_MAX = 0, 3
 
-def _pick_items(n: int) -> List[str]:
-    """Tire n items (émoticônes) en excluant toute forme de ticket."""
-    result: List[str] = []
-    # get_random_items prioritaire
-    if _get_random_items:
-        try:
-            cand = _get_random_items(n)
-            if isinstance(cand, list):
-                result = [e for e in cand if isinstance(e, str) and e not in TICKET_NAMES]
-        except Exception:
-            result = []
-    # sinon on boucle sur get_random_item
-    if not result and _get_random_item:
-        try:
-            for _ in range(n):
-                e = _get_random_item()
-                if isinstance(e, str) and e not in TICKET_NAMES:
-                    result.append(e)
-        except Exception:
-            pass
-    # Complète depuis le catalogue si besoin
-    if len(result) < n:
-        pool = [k for k in ITEM_CATALOG.keys() if k not in result and k not in TICKET_NAMES]
-        result += pool[: max(0, n - len(result))]
-    return result[:n]
+class DailyCog(commands.Cog):
+    """Récompense quotidienne : GotCoins, Tickets, Objets (emoji)."""
 
-def _compress_items(items: List[str]) -> List[tuple[str, int]]:
-    """Garde l'ordre tiré, mais regroupe les doublons → [('🔥', 2), ('🍀', 1)]"""
-    counts: Dict[str, int] = {}
-    order: List[str] = []
-    for e in items:
-        if not e or e in TICKET_NAMES:
-            continue
-        if e not in counts:
-            order.append(e)
-            counts[e] = 1
-        else:
-            counts[e] += 1
-    return [(e, counts[e]) for e in order]
-
-def _format_items_block(pairs: List[tuple[str, int]]) -> str:
-    """[(emoji, qty)] → '2x 🔥 [Dégâts 5]\n1x 🍀 [Soigne 1 PV]'"""
-    if not pairs:
-        return "—"
-    lines = [f"{qty}x {emoji} [{_short_desc(emoji)}]" for emoji, qty in pairs]
-    return "\n".join(lines)
-
-
-# ===============================
-# Cog
-# ===============================
-class Daily(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # ---------------------------------------------------------
+    # /daily
+    # ---------------------------------------------------------
     @app_commands.command(name="daily", description="Récupère ta récompense quotidienne.")
     async def daily(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=False, thinking=False)
-        await _ensure_tables()
+        if not interaction.guild:
+            return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
+        gid = interaction.guild.id
         uid = interaction.user.id
         now = _now()
 
-        # Cooldown / streak
-        row = await _get_daily_row(uid)
-        last_ts = row[0] if row else None
-        prev_streak = row[1] if row else 0
+        # Cooldown (avec passifs)
+        last_ts = get_last_daily_ts(gid, uid)
+        base_cd = DAILY_BASE_SECONDS
+        cooldown = {"mult": 1.0}
 
-        if last_ts is not None:
-            elapsed_h = (now - last_ts) / 3600
-            if elapsed_h < DAILY_COOLDOWN_H:
-                remaining = DAILY_COOLDOWN_H - elapsed_h
-                hours = int(remaining)
-                minutes = int((remaining - hours) * 60)
-                embed = discord.Embed(
-                    title="⏳ Daily non disponible",
-                    description=f"Reviens dans **{hours}h {minutes}m**.",
-                    color=discord.Color.orange()
-                )
-                await interaction.followup.send(embed=embed)
-                return
+        # Tirage préliminaire
+        coins = random.randint(COINS_MIN, COINS_MAX)
+        tickets = random.randint(TICKETS_MIN, TICKETS_MAX)
+        nb_items = random.randint(ITEMS_MIN, ITEMS_MAX)
+        items: List[str] = [get_random_item(debug=False) for _ in range(nb_items)]
 
-        if last_ts is None:
-            streak = 1
-        else:
-            since_last_h = (now - last_ts) / 3600
-            streak = (max(1, prev_streak) + 1) if since_last_h <= STREAK_WINDOW_H else 1
+        # Passifs (peuvent modifier rewards ET cooldown)
+        rewards = {"coins": coins, "tickets": tickets, "items": list(items)}
+        await trigger("on_daily", user_id=uid, rewards=rewards, cooldown=cooldown)
+        coins = int(rewards.get("coins", coins))
+        tickets = int(rewards.get("tickets", tickets))
+        items = list(rewards.get("items", items))
 
-        # Récompenses
-        base_coins = 20
-        streak_bonus = min(streak, 25)
-        coins_gain = base_coins + streak_bonus
+        # CD effectif
+        effective_cd = int(base_cd * float(cooldown.get("mult", 1.0)))
+        remain = (last_ts + effective_cd) - now
+        if remain > 0:
+            return await interaction.response.send_message(
+                f"⏱️ Tu pourras reprendre un daily dans **{fmt_duration(remain)}**.",
+                ephemeral=True
+            )
 
-        # Items tirés (2) → compress pour éviter 🔥 🔥
-        raw_items = _pick_items(2)
-        pairs = _compress_items(raw_items)   # ex: [('🔥', 2)] ou [('🛡',1),('🩹',1)]
+        await interaction.response.defer(thinking=True)
 
-        # Écritures
-        await add_balance(uid, coins_gain, reason="daily")
-        await _add_tickets(uid, 1)
-        for emoji, qty in pairs:
-            await add_item(uid, emoji, qty)
+        # Appliquer les gains
+        await add_balance(uid, coins)           # GotCoins
+        if tickets > 0:
+            add_tickets(gid, uid, tickets)      # Tickets (JSON)
+        # Objets → inventaire DB
+        # Agrège et ajoute
+        bag: Dict[str, int] = {}
+        for it in items:
+            bag[it] = bag.get(it, 0) + 1
+        for emo, qty in bag.items():
+            await add_item(uid, emo, qty)
 
-        await _set_daily_row(uid, now, streak)
+        # Sauvegarde du CD
+        set_last_daily_ts(gid, uid, now)
 
-        coins_after = await get_balance(uid)
-        tickets_after = await _get_tickets(uid)
+        # Leaderboard live (si dispo)
+        try:
+            from cogs.leaderboard_live import schedule_lb_update
+            schedule_lb_update(self.bot, gid, "daily")
+        except Exception:
+            pass
 
-        # --- Embed
-        embed = discord.Embed(
+        # Construction de l'embed
+        emb = discord.Embed(
             title="🎁 Récompense quotidienne",
-            description=f"Streak : **{streak}** (bonus +{streak_bonus})",
-            color=discord.Color.green()
+            color=discord.Color.gold()
         )
+        # Ligne Coins + Tickets (sur la même ligne)
+        coins_txt = f"💰 **{coins}**"
+        tickets_txt = f" • 🎟️ **{tickets}**" if tickets > 0 else ""
+        emb.add_field(name="Ressources", value=f"{coins_txt}{tickets_txt}", inline=False)
 
-        # Ligne 1 : coins (pleine largeur)
-        embed.add_field(name="GotCoins gagnés", value=f"+{coins_gain}", inline=False)
+        # Objets : affichage en colonnes à partir de 6 lignes, sinon 1/ligne
+        if bag:
+            lines = [f"{emo} ×{qty}" if qty > 1 else f"{emo} ×1" for emo, qty in bag.items()]
+            if len(lines) >= 6:
+                # 2 colonnes, remplissage colonne par colonne
+                half = (len(lines) + 1) // 2
+                col1 = "\n".join(lines[:half])
+                col2 = "\n".join(lines[half:])
+                emb.add_field(name="Objets", value=col1, inline=True)
+                emb.add_field(name="\u200b", value=col2 or "\u200b", inline=True)
+            else:
+                emb.add_field(name="Objets", value="\n".join(lines), inline=False)
+        else:
+            emb.add_field(name="Objets", value="—", inline=False)
 
-        # Ligne 2 : 2 colonnes bien alignées (Tickets | Objets)
-        embed.add_field(name="🎟️ Tickets", value=f"+1 (total: {tickets_after})", inline=True)
-        embed.add_field(name="Objets", value=_format_items_block(pairs), inline=True)
+        emb.set_footer(text=f"Prochain daily dans ~{fmt_duration(effective_cd)}.")
 
-        # Ligne suivante : solde actuel (pleine largeur)
-        embed.add_field(name="Solde actuel", value=str(coins_after), inline=False)
-
-        if last_ts:
-            dt = datetime.fromtimestamp(last_ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            embed.set_footer(text=f"Dernier daily: {dt}")
-
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=emb)
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Daily(bot))
+    await bot.add_cog(DailyCog(bot))
