@@ -57,7 +57,7 @@ for key in ("CHARACTERS", "PERSONNAGES"):
 
 # ---- Catalogue objets (pour l'inventaire)
 try:
-    from utils import OBJETS as ITEM_CATALOG  # dict: { "🛡": {...}, ... }
+    from utils import OBJETS as ITEM_CATALOG
 except Exception:
     try:
         from utils import ITEMS as ITEM_CATALOG
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS equipped_character (
 TICKET_NAMES = {"🎟️", "🎟️ Ticket", "Ticket", "ticket", "Daily Ticket", "daily ticket"}
 
 # ─────────────────────────────────────────────────────────
-# LECTURE CLASSEMENT comme ton leaderboard_cog.py (storage JSON)
+# LECTURE CLASSEMENT “points” comme ton leaderboard_cog.py (storage JSON)
 # ─────────────────────────────────────────────────────────
 _storage = None
 try:
@@ -98,18 +98,12 @@ except Exception:
     _storage = None
 
 def _lb_get_leaderboard(gid: int) -> Dict[str, Dict[str, int]]:
-    """
-    Retourne dict user_id -> {points, kills, deaths} pour CE serveur
-    (structure identique à leaderboard_cog.py).
-    """
     if _storage is not None:
         if not hasattr(_storage, "leaderboard") or not isinstance(getattr(_storage, "leaderboard"), dict):
             setattr(_storage, "leaderboard", {})
         lb = getattr(_storage, "leaderboard")
         lb.setdefault(str(gid), {})
         return lb[str(gid)]
-
-    # Fallback RAM si storage indisponible
     if not hasattr(_lb_get_leaderboard, "_mem"):
         _lb_get_leaderboard._mem: Dict[str, Dict[str, Dict[str, int]]] = {}
     mem = _lb_get_leaderboard._mem  # type: ignore
@@ -286,6 +280,35 @@ async def _get_career_total(uid: int, min_floor: int) -> int:
         return max(dbv, min_floor)
     return max(min_floor, 0)
 
+# ---------- NOUVEAU : RANG PAR COINS ----------
+async def _get_coin_rank(uid: int) -> Optional[Tuple[int, int, int]]:
+    """
+    Retourne (rang, total_joueurs, balance) trié par balance DESC, à partir de la table balances.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            # balance utilisateur
+            cur = await db.execute("SELECT balance FROM balances WHERE user_id=?", (uid,))
+            row = await cur.fetchone(); await cur.close()
+            if not row or row[0] is None:
+                return None
+            my_balance = int(row[0])
+
+            # joueurs avec plus que lui
+            cur = await db.execute("SELECT COUNT(*) FROM balances WHERE balance > ?", (my_balance,))
+            higher = await cur.fetchone(); await cur.close()
+            higher_count = int(higher[0]) if higher and higher[0] is not None else 0
+
+            # total
+            cur = await db.execute("SELECT COUNT(*) FROM balances")
+            tot = await cur.fetchone(); await cur.close()
+            total_players = int(tot[0]) if tot and tot[0] is not None else 0
+
+            rank = higher_count + 1
+            return (rank, total_players, my_balance)
+    except Exception:
+        return None
+
 # ---------- Cog ----------
 class Info(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -347,16 +370,23 @@ class Info(commands.Cog):
         # Personnage équipé
         embed.add_field(name="🧬 Personnage équipé", value=char_label, inline=False)
 
-        # ===== NOUVEAU : CLASSEMENT SERVEUR =====
-        rank_text = "Non classé"
+        # ===== CLASSEMENT (Coins & Points) =====
+        classements: List[str] = []
+        # Coins
+        coin_rank = await _get_coin_rank(uid)
+        if coin_rank:
+            r, tot, bal = coin_rank
+            classements.append(f"💰 Coins : **#{r}** sur **{tot}** — {bal}")
+        # Points (storage leaderboard)
         if guild is not None:
             rows = _lb_rank_sorted(guild.id)
-            if rows:
-                pos = _lb_find_rank(rows, uid)
-                if pos:
-                    stats = next((s for (u, s) in rows if u == uid), {"points": 0, "kills": 0, "deaths": 0})
-                    rank_text = f"#{pos} — {stats.get('points',0)} pts • 🗡 {stats.get('kills',0)} / 💀 {stats.get('deaths',0)}"
-        embed.add_field(name="🏅 Classement (serveur)", value=rank_text, inline=False)
+            pos = _lb_find_rank(rows, uid)
+            if pos:
+                stats = next((s for (u, s) in rows if u == uid), {"points": 0, "kills": 0, "deaths": 0})
+                classements.append(f"🎯 Points : **#{pos}** — {stats.get('points',0)} pts • 🗡 {stats.get('kills',0)} / 💀 {stats.get('deaths',0)}")
+        if not classements:
+            classements.append("Non classé")
+        embed.add_field(name="🏅 Classement (serveur)", value="\n".join(classements), inline=False)
 
         # Inventaire
         if len(lines) >= 6:
