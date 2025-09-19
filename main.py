@@ -98,7 +98,7 @@ class GotValisBot(commands.Bot):
             "cogs.inventory_cog",
             "cogs.shop_cog",
             "cogs.daily_cog",
-            "cogs.gacha_cog",
+            "cogs.invocation_cog",
             "cogs.economy_cog",
             "cogs.ravitaillement",
             "cogs.supply_special",
