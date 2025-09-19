@@ -1,7 +1,6 @@
 # cogs/invocation_cog.py
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -10,31 +9,49 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-# Pool & tirage depuis data/personnage.py (tes fonctions/données)
+# ── données & tirage depuis data/personnage.py (OBLIGATOIRE) ────────────────
 try:
-    from data.personnage import tirage_personnage  # -> (rarete: str, perso: dict)
-except Exception as e:
-    tirage_personnage = None  # type: ignore
+    from data.personnage import (
+        PERSONNAGES_LIST,
+        tirage_personnage,      # -> (rarete: str, perso: dict)
+        generer_slug,           # -> str
+    )
+except Exception:
+    PERSONNAGES_LIST = None      # type: ignore
+    tirage_personnage = None     # type: ignore
+    generer_slug = lambda s: s   # type: ignore
 
-# DB partagée avec le reste du bot
+# ── DB partagée ─────────────────────────────────────────────────────────────
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-# ──────────────────────────────────────────────────────────────
-# Tickets (même table que /daily)
-# ──────────────────────────────────────────────────────────────
 CREATE_TICKETS_SQL = """
 CREATE TABLE IF NOT EXISTS tickets (
     user_id INTEGER PRIMARY KEY,
     count   INTEGER NOT NULL
 );
 """
+CREATE_OWNED_SQL = """
+CREATE TABLE IF NOT EXISTS gacha_owned (
+    user_id INTEGER NOT NULL,
+    char_id TEXT    NOT NULL,
+    PRIMARY KEY (user_id, char_id)
+);
+"""
+CREATE_EQUIPPED_SQL = """
+CREATE TABLE IF NOT EXISTS equipped_character (
+    user_id INTEGER PRIMARY KEY,
+    char_id TEXT NOT NULL
+);
+"""
 
 async def _ensure_tables():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(CREATE_TICKETS_SQL)
+        await db.execute(CREATE_OWNED_SQL)
+        await db.execute(CREATE_EQUIPPED_SQL)
         await db.commit()
 
 async def _get_tickets(uid: int) -> int:
@@ -45,7 +62,6 @@ async def _get_tickets(uid: int) -> int:
         return int(row[0]) if row else 0
 
 async def _add_tickets(uid: int, delta: int) -> int:
-    """Ajoute (ou retire) des tickets et retourne le nouveau total."""
     await _ensure_tables()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -59,43 +75,78 @@ async def _add_tickets(uid: int, delta: int) -> int:
         row = await cur.fetchone(); await cur.close()
         return int(row[0]) if row else 0
 
-# ──────────────────────────────────────────────────────────────
-# Utilitaire image locale -> pièce jointe
-# ──────────────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent  # racine du projet (où se trouve /assets généralement)
+async def _own_char(uid: int, char_slug: str) -> bool:
+    await _ensure_tables()
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            await db.execute("INSERT INTO gacha_owned(user_id, char_id) VALUES (?, ?)", (uid, char_slug))
+            await db.commit()
+            return True
+        except Exception:
+            return False
 
-def _image_file_for_character(perso: dict) -> Optional[discord.File]:
+async def _count_owned(uid: int) -> int:
+    await _ensure_tables()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT COUNT(*) FROM gacha_owned WHERE user_id=?", (uid,))
+        row = await cur.fetchone(); await cur.close()
+        return int(row[0]) if row else 0
+
+async def _get_equipped(uid: int) -> Optional[str]:
+    await _ensure_tables()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT char_id FROM equipped_character WHERE user_id=?", (uid,))
+        row = await cur.fetchone(); await cur.close()
+        return str(row[0]) if row and row[0] else None
+
+async def _set_equipped(uid: int, char_slug: str):
+    await _ensure_tables()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO equipped_character(user_id, char_id) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET char_id=excluded.char_id",
+            (uid, char_slug),
+        )
+        await db.commit()
+
+# ── images (assets/personnage/*.png en local OU URL) ────────────────────────
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+def _image_attachment_for(perso: dict) -> tuple[Optional[discord.File], Optional[str]]:
     """
-    Si 'image' dans le dict du personnage pointe vers un fichier local existant,
-    on renvoie un discord.File pour l'attacher et pouvoir set_image(attachment://...).
+    Retourne (file, url) :
+      - si 'image' est un chemin local existant → (discord.File, attachment://...)
+      - si 'image' est une URL http(s)        → (None, url)
+      - sinon                                  → (None, None)
     """
-    path_str = str(perso.get("image") or "").strip()
-    if not path_str:
-        return None
-    # Chemin relatif à la racine du projet
-    img_path = (PROJECT_ROOT / path_str).resolve()
-    # Sécurité: l'image doit rester dans le projet
+    img = str(perso.get("image") or "").strip()
+    if not img:
+        return None, None
+    if img.startswith("http://") or img.startswith("https://"):
+        return None, img
+    img_path = (PROJECT_ROOT / img).resolve()
     try:
         project_real = PROJECT_ROOT.resolve()
         if project_real not in img_path.parents and img_path != project_real:
-            return None
+            return None, None
     except Exception:
-        pass
+        return None, None
     if not img_path.exists() or not img_path.is_file():
-        return None
-    # Nom de fichier sûr pour l'attachment
-    safe_name = img_path.name
-    try:
-        return discord.File(str(img_path), filename=safe_name)
-    except Exception:
-        return None
+        return None, None
+    f = discord.File(str(img_path), filename=img_path.name)
+    return f, f"attachment://{img_path.name}"
 
-# ──────────────────────────────────────────────────────────────
-# Cog
-# ──────────────────────────────────────────────────────────────
+# ── sécurité : on REFUSE si data/personnage.py n’est pas lisible ────────────
+def _must_have_personnages() -> Optional[str]:
+    if PERSONNAGES_LIST is None or not isinstance(PERSONNAGES_LIST, list) or len(PERSONNAGES_LIST) == 0:
+        return "Le module `data/personnage.py` est introuvable ou la liste `PERSONNAGES_LIST` est vide."
+    if tirage_personnage is None or not callable(tirage_personnage):
+        return "La fonction `tirage_personnage()` est introuvable dans `data/personnage.py`."
+    return None
+
+# ============================================================================
+
 class Invocation(commands.Cog):
-    """Invoque un personnage défini dans data/personnage.py en consommant des tickets."""
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -103,10 +154,11 @@ class Invocation(commands.Cog):
     @app_commands.describe(tirages="Nombre d'invocations (1–10)")
     async def invocation(self, interaction: discord.Interaction, tirages: app_commands.Range[int, 1, 10] = 1):
         if not interaction.guild:
-            return await interaction.response.send_message("Commande utilisable en serveur uniquement.", ephemeral=True)
+            return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
-        if tirage_personnage is None:
-            return await interaction.response.send_message("⚠️ Le module `data/personnage.py` est introuvable ou invalide.", ephemeral=True)
+        err = _must_have_personnages()
+        if err:
+            return await interaction.response.send_message(f"⚠️ {err}", ephemeral=True)
 
         await interaction.response.defer(ephemeral=False)
 
@@ -117,38 +169,88 @@ class Invocation(commands.Cog):
                 f"❌ Pas assez de tickets. Il te faut **{tirages}**, tu en as **{have}**."
             )
 
-        # Consomme d'abord (anti double-clic)
+        # anti double-clic
         await _add_tickets(uid, -tirages)
 
-        # Tirages
-        results: List[Tuple[str, dict]] = []
+        results: List[Tuple[str, dict, bool]] = []
+        new_count = 0
         for _ in range(tirages):
-            r, p = tirage_personnage()  # r = "Rare/Épique/..." ; p = dict perso
-            if not p:  # sécurité
+            rarete, perso = tirage_personnage()  # -> ("Rare", { "nom": ..., "image": ..., "passif": {...} })
+            if not perso or not perso.get("nom"):
                 continue
-            results.append((r, p))
+            slug = generer_slug(perso["nom"])
+            is_new = await _own_char(uid, slug)
+            if is_new:
+                new_count += 1
+            results.append((rarete, perso, is_new))
 
         remaining = await _get_tickets(uid)
+        owned_total = await _count_owned(uid)
 
-        # Embed résultat
+        # auto-equip si rien
+        equip_line = "🧬 Personnage équipé inchangé."
+        if results and (await _get_equipped(uid)) is None:
+            first_slug = generer_slug(results[0][1]["nom"])
+            await _set_equipped(uid, first_slug)
+            equip_line = f"🧬 **Équipé automatiquement** : {results[0][1]['nom']}"
+
+        # embed
         e = discord.Embed(title="🔮 Résultat de l’invocation", color=discord.Color.purple())
-        lines = [f"• **{p.get('nom', 'Inconnu')}** — *{r}*" for (r, p) in results]
-        e.description = "\n".join(lines) if lines else "Aucun résultat."
 
-        e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
-
-        # Image si tirage unique et image dispo
+        # Tirage unique → on affiche nom + description + capacité + image
         files: List[discord.File] = []
         if len(results) == 1:
-            img_file = _image_file_for_character(results[0][1])
-            if img_file:
-                files.append(img_file)
-                e.set_image(url=f"attachment://{img_file.filename}")
+            rarete, p, is_new = results[0]
+            nom = p.get("nom", "Inconnu")
+            faction = p.get("faction", "—")
+            desc = p.get("description", "—")
+            passif = p.get("passif") or {}
+            cap_nom = passif.get("nom", "Capacité")
+            cap_effet = passif.get("effet", "—")
+
+            nouveau = " — 🆕" if is_new else ""
+            e.description = f"**{nom}** — *{rarete}* ({faction}){nouveau}"
+            e.add_field(name="Description", value=desc, inline=False)
+            e.add_field(name="Capacité", value=f"**{cap_nom}**\n{cap_effet}", inline=False)
+
+            f, url = _image_attachment_for(p)
+            if f:
+                files.append(f); e.set_image(url=url)
+            elif url:
+                e.set_image(url=url)
+
+        else:
+            # Multi → liste compacte
+            lines = []
+            for rarete, p, is_new in results:
+                tag = " — 🆕" if is_new else ""
+                lines.append(f"{p.get('nom','Inconnu')} — *{rarete}*{tag}")
+            e.description = "\n".join(lines) if lines else "Aucun résultat."
+
+        # Infos tickets / collection / équipement
+        e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
+        e.add_field(name="📚 Collection", value=f"{owned_total} possédés (+{new_count} nouveaux)", inline=True)
+        e.add_field(name="Équipement", value=equip_line, inline=False)
+        e.set_footer(text="Astuce: /invocation 10 pour une multi.")
 
         if files:
             await interaction.followup.send(embed=e, files=files)
         else:
             await interaction.followup.send(embed=e)
+
+    @app_commands.command(name="invocation_pool", description="Affiche quelques personnages invocables.")
+    async def invocation_pool(self, interaction: discord.Interaction):
+        err = _must_have_personnages()
+        if err:
+            return await interaction.response.send_message(f"⚠️ {err}", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        sample = [p.get("nom") for p in PERSONNAGES_LIST[:10] if isinstance(p, dict) and p.get("nom")]
+        e = discord.Embed(
+            title="📜 Pool d’invocation (aperçu)",
+            description="\n".join(f"• {n}" for n in sample) if sample else "—",
+            color=discord.Color.green(),
+        )
+        await interaction.followup.send(embed=e, ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Invocation(bot))
