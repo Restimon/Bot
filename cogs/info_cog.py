@@ -10,10 +10,9 @@ from datetime import timezone
 from economy_db import get_balance
 from inventory_db import get_all_items
 
-# ---- Total carrière (optionnel selon ton projet)
+# ---- Total carrière (optionnel)
 _get_total_career: Optional[callable] = None
 try:
-    # Essaie d'importer une fonction de total carrière si tu en as une
     from economy_db import get_total_earned as _get_total_career  # type: ignore
 except Exception:
     try:
@@ -28,7 +27,26 @@ try:
 except Exception:
     _get_effects = None
 
-# ---- Catalogue depuis utils.py (priorité à OBJETS, fallback ITEMS)
+# ---- Personnage équipé (source prioritaire: gacha_db si dispo)
+_gacha_get_equipped: Optional[callable] = None
+try:
+    from gacha_db import get_equipped_character as _gacha_get_equipped  # type: ignore
+except Exception:
+    _gacha_get_equipped = None
+
+# ---- Catalogue personnages (pour joli rendu)
+CHAR_CATALOG: Dict[str, Dict[str, Any]] = {}
+for key in ("CHARACTERS", "PERSONNAGES"):
+    if not CHAR_CATALOG:
+        try:
+            from utils import __dict__ as _u  # type: ignore
+            maybe = _u.get(key)
+            if isinstance(maybe, dict):
+                CHAR_CATALOG = maybe  # type: ignore
+        except Exception:
+            pass
+
+# ---- Catalogue objets (pour l'inventaire)
 try:
     from utils import OBJETS as ITEM_CATALOG  # dict: { "🛡": {...}, ... }
 except Exception:
@@ -43,30 +61,82 @@ try:
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-# ---- Tickets dans une table dédiée (comme /inv & /daily)
+# ---- Tickets (même table que /inv & /daily)
 CREATE_TICKETS_SQL = """
 CREATE TABLE IF NOT EXISTS tickets (
     user_id INTEGER PRIMARY KEY,
     count   INTEGER NOT NULL
 );
 """
+
+# ---- Personnage équipé (fallback si gacha_db absent)
+CREATE_EQUIPPED_SQL = """
+CREATE TABLE IF NOT EXISTS equipped_character (
+    user_id INTEGER PRIMARY KEY,
+    char_id TEXT NOT NULL
+);
+"""
+
 TICKET_NAMES = {"🎟️", "🎟️ Ticket", "Ticket", "ticket", "Daily Ticket", "daily ticket"}
 
-async def _ensure_tickets_table():
+async def _ensure_tables():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(CREATE_TICKETS_SQL)
+        await db.execute(CREATE_EQUIPPED_SQL)
         await db.commit()
 
 async def _get_tickets(uid: int) -> int:
-    await _ensure_tickets_table()
+    await _ensure_tables()
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT count FROM tickets WHERE user_id = ?", (uid,))
         row = await cur.fetchone()
         await cur.close()
     return int(row[0]) if row else 0
 
+async def _get_equipped_char_id(uid: int) -> Optional[str]:
+    """Essaie gacha_db, sinon notre table equipped_character."""
+    # 1) gacha_db prioritaire
+    if _gacha_get_equipped:
+        try:
+            r = await _gacha_get_equipped(uid)  # type: ignore
+            # accepte différents formats: str | dict | tuple
+            if isinstance(r, str):
+                return r
+            if isinstance(r, dict):
+                return str(r.get("char_id") or r.get("id") or r.get("key") or "") or None
+            if isinstance(r, (list, tuple)) and r:
+                return str(r[0])
+        except Exception:
+            pass
+    # 2) fallback table locale
+    await _ensure_tables()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT char_id FROM equipped_character WHERE user_id = ?", (uid,))
+        row = await cur.fetchone()
+        await cur.close()
+    return str(row[0]) if row and row[0] else None
 
-# ---------- Helpers d'affichage ----------
+def _pretty_character(char_id: Optional[str]) -> str:
+    if not char_id:
+        return "Aucun"
+    meta = None
+    # accède par clé directe
+    meta = CHAR_CATALOG.get(char_id)
+    # sinon cherche par champ id
+    if not meta:
+        for k, v in CHAR_CATALOG.items():
+            if isinstance(v, dict) and str(v.get("id")) == str(char_id):
+                meta = v
+                break
+    if isinstance(meta, dict):
+        emoji = meta.get("emoji") or meta.get("icon") or ""
+        name = meta.get("name") or meta.get("nom") or str(char_id)
+        if emoji:
+            return f"{emoji} {name}"
+        return name
+    return str(char_id)
+
+# ---------- Helpers d'affichage (inventaire) ----------
 def _short_desc(emoji_key: str) -> str:
     meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
@@ -99,7 +169,6 @@ def _short_desc(emoji_key: str) -> str:
     return emoji_key
 
 def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
-    """(emoji, qty) -> '1x 🛡 [Bouclier 20]' ; filtre tickets au cas où."""
     return [
         f"{qty}x {emoji} [{_short_desc(emoji)}]"
         for emoji, qty in items
@@ -107,10 +176,6 @@ def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
     ]
 
 def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
-    """
-    Répartition LIGNE PAR LIGNE :
-      1er -> col1, 2e -> col2, 3e -> col1, 4e -> col2, ...
-    """
     if not lines:
         return ["—"]
     cols: List[List[str]] = [[] for _ in range(n_cols)]
@@ -138,6 +203,10 @@ class Info(commands.Cog):
             except Exception:
                 career_total = 0
 
+        # Personnage équipé
+        char_id = await _get_equipped_char_id(uid)
+        char_label = _pretty_character(char_id)
+
         # Inventaire
         inv_items = await get_all_items(uid)  # List[Tuple[str(emoji), int]]
         lines = _format_items_lines(inv_items)
@@ -157,10 +226,9 @@ class Info(commands.Cog):
             try:
                 effs = await _get_effects(uid)  # type: ignore
                 if effs:
-                    # Effets attendus: liste de dicts ou tuples, adaptatif
                     pretty: List[str] = []
                     for e in effs:
-                        name = str(getattr(e, "name", None) or e.get("name", "Effet"))
+                        name = str(getattr(e, "name", None) or (isinstance(e, dict) and e.get("name")) or "Effet")
                         pretty.append(f"• {name}")
                     effects_text = "\n".join(pretty)
             except Exception:
@@ -181,10 +249,8 @@ class Info(commands.Cog):
         embed.add_field(name="💰 Solde actuel (dépensable)", value=str(coins_now), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
-        # Date d'arrivée
-        if isinstance(member, discord.Member) and member.joined_at:
-            joined = member.joined_at.astimezone(timezone.utc).strftime("%d %B %Y à %Hh%M")
-            embed.add_field(name="📅 Membre depuis", value=joined, inline=False)
+        # Personnage équipé
+        embed.add_field(name="🧬 Personnage équipé", value=char_label, inline=False)
 
         # Inventaire : 1 col < 6, sinon 2 colonnes remplies ligne par ligne
         if len(lines) >= 6:
@@ -196,12 +262,22 @@ class Info(commands.Cog):
             block = "\n".join(lines) if lines else "Aucun objet"
             embed.add_field(name="📦 Inventaire", value=block, inline=False)
 
-        # Effets/pathologies
-        embed.add_field(name="🩺 État pathologique", value=effects_text, inline=False)
-
         # Avatar
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
+
+        # Si le catalogue a une image dédiée pour ce personnage, on la met en bannière
+        # (optionnel, n'affecte pas si None)
+        try:
+            meta = CHAR_CATALOG.get(char_id or "", {})
+            banner = meta.get("image") or meta.get("banner") or meta.get("icon_url")
+            if banner:
+                embed.set_image(url=banner)
+        except Exception:
+            pass
+
+        # Effets/pathologies
+        embed.add_field(name="🩺 État pathologique", value=effects_text, inline=False)
 
         return embed
 
