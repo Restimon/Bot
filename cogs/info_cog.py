@@ -94,12 +94,10 @@ async def _get_tickets(uid: int) -> int:
     return int(row[0]) if row else 0
 
 async def _get_equipped_char_id(uid: int) -> Optional[str]:
-    """Essaie gacha_db, sinon notre table equipped_character."""
     # 1) gacha_db prioritaire
     if _gacha_get_equipped:
         try:
             r = await _gacha_get_equipped(uid)  # type: ignore
-            # accepte différents formats: str | dict | tuple
             if isinstance(r, str):
                 return r
             if isinstance(r, dict):
@@ -119,21 +117,16 @@ async def _get_equipped_char_id(uid: int) -> Optional[str]:
 def _pretty_character(char_id: Optional[str]) -> str:
     if not char_id:
         return "Aucun"
-    meta = None
-    # accède par clé directe
     meta = CHAR_CATALOG.get(char_id)
-    # sinon cherche par champ id
     if not meta:
-        for k, v in CHAR_CATALOG.items():
+        for _, v in CHAR_CATALOG.items():
             if isinstance(v, dict) and str(v.get("id")) == str(char_id):
                 meta = v
                 break
     if isinstance(meta, dict):
         emoji = meta.get("emoji") or meta.get("icon") or ""
         name = meta.get("name") or meta.get("nom") or str(char_id)
-        if emoji:
-            return f"{emoji} {name}"
-        return name
+        return f"{emoji} {name}".strip()
     return str(char_id)
 
 # ---------- Helpers d'affichage (inventaire) ----------
@@ -183,6 +176,11 @@ def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
         cols[i % n_cols].append(line)
     return ["\n".join(c) if c else "—" for c in cols]
 
+def _fmt_dt_utc(dt) -> str:
+    try:
+        return dt.astimezone(timezone.utc).strftime("%d %B %Y à %Hh%M UTC")
+    except Exception:
+        return str(dt)
 
 # ---------- Cog ----------
 class Info(commands.Cog):
@@ -249,6 +247,16 @@ class Info(commands.Cog):
         embed.add_field(name="💰 Solde actuel (dépensable)", value=str(coins_now), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
+        # Dates (ajouté : date de création du compte Discord)
+        try:
+            created = getattr(member, "created_at", None)
+            if created:
+                embed.add_field(name="🗓️ Sur Discord depuis", value=_fmt_dt_utc(created), inline=False)
+        except Exception:
+            pass
+        if isinstance(member, discord.Member) and member.joined_at:
+            embed.add_field(name="📅 Membre du serveur depuis", value=_fmt_dt_utc(member.joined_at), inline=False)
+
         # Personnage équipé
         embed.add_field(name="🧬 Personnage équipé", value=char_label, inline=False)
 
@@ -266,8 +274,7 @@ class Info(commands.Cog):
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
 
-        # Si le catalogue a une image dédiée pour ce personnage, on la met en bannière
-        # (optionnel, n'affecte pas si None)
+        # Image perso si fournie par le catalogue
         try:
             meta = CHAR_CATALOG.get(char_id or "", {})
             banner = meta.get("image") or meta.get("banner") or meta.get("icon_url")
