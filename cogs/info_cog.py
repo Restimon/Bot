@@ -10,7 +10,7 @@ from datetime import timezone
 from economy_db import get_balance
 from inventory_db import get_all_items
 
-# ---- Total carrière (optionnels)
+# ---- Total carrière (optionnels, s'ils existent dans ton projet)
 _get_total_career: Optional[callable] = None
 try:
     from economy_db import get_total_earned as _get_total_career  # type: ignore
@@ -34,7 +34,16 @@ try:
 except Exception:
     _gacha_get_equipped = None
 
-# ---- Catalogue personnages (pour joli rendu)
+# ---- Bouclier (si shields_db est présent)
+_get_shield: Optional[callable] = None
+_get_max_shield: Optional[callable] = None
+try:
+    from shields_db import get_shield as _get_shield, get_max_shield as _get_max_shield  # type: ignore
+except Exception:
+    _get_shield = None
+    _get_max_shield = None
+
+# ---- Catalogue personnages (pour joli rendu facultatif)
 CHAR_CATALOG: Dict[str, Dict[str, Any]] = {}
 for key in ("CHARACTERS", "PERSONNAGES"):
     if not CHAR_CATALOG:
@@ -133,6 +142,7 @@ def _pretty_character(char_id: Optional[str]) -> str:
 def _short_desc(emoji_key: str) -> str:
     meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
+
     if t == "attaque":
         dmg = meta.get("degats");        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
     if t == "attaque_chaine":
@@ -271,6 +281,15 @@ class Info(commands.Cog):
         except Exception:
             pass
 
+        # Bouclier
+        shield_now = shield_max = 0
+        if _get_shield and _get_max_shield:
+            try:
+                shield_now = int(await _get_shield(uid))           # type: ignore
+                shield_max = int(await _get_max_shield(uid))       # type: ignore
+            except Exception:
+                pass
+
         # Effets actifs (optionnel)
         effects_text = "Aucun effet négatif détecté."
         if _get_effects:
@@ -292,15 +311,16 @@ class Info(commands.Cog):
             color=discord.Color.blurple()
         )
 
-        # PV
+        # PV & bouclier
         embed.add_field(name="❤️ Points de vie", value=f"{hp} / {hp_max}", inline=False)
+        embed.add_field(name="🛡 Bouclier", value=f"{shield_now} / {shield_max}", inline=False)
 
         # Ressources (ligne de 3)
         embed.add_field(name="🏆 GotCoins totaux (carrière)", value=str(career_total), inline=True)
         embed.add_field(name="💰 Solde actuel (dépensable)", value=str(coins_now), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
-        # Dates — on GARDE uniquement l'entrée serveur (on retire "Sur Discord depuis")
+        # Dates — on GARDE uniquement l'entrée serveur (pas "Sur Discord depuis")
         if isinstance(member, discord.Member) and member.joined_at:
             embed.add_field(name="📅 Membre du serveur depuis", value=_fmt_dt_utc(member.joined_at), inline=False)
 
