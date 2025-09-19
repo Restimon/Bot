@@ -11,13 +11,14 @@ from discord import app_commands, Interaction, Embed, Colour
 from discord.ext import commands
 
 from economy_db import init_economy_db, get_balance, add_balance
+from passifs import trigger  # ← bonus passifs "on_gain_coins"
 
 DB_PATH = "gotvalis.sqlite3"
 
 # ─────────────────────────────────────────────────────────────
 # Réglages généraux
 # ─────────────────────────────────────────────────────────────
-ECON_MULTIPLIER = 0.5  # ÷2 pour messages et vocal comme demandé
+ECON_MULTIPLIER = 0.5  # ÷2 pour messages et vocal (comme demandé)
 
 # Messages
 MSG_MIN_LEN = 6            # longueur minimale pour compter
@@ -36,15 +37,13 @@ VC_REWARD_MAX = 20
 # Leaderboard
 TOP_LIMIT = 10
 
-# ─────────────────────────────────────────────────────────────
-# Cog
-# ─────────────────────────────────────────────────────────────
+
 class Economie(commands.Cog):
     """Économie : gains par messages & vocal, /wallet, /give, /top, /earnings."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Messages : suivi par user (global par guild)
+        # Messages : suivi par user (global)
         self._last_msg_ts: Dict[int, float] = {}           # user_id -> last ts
         self._msg_counts: Dict[int, int] = {}              # user_id -> compteur valid msgs
         self._msg_threshold: Dict[int, int] = {}           # user_id -> palier 2..5
@@ -65,6 +64,29 @@ class Economie(commands.Cog):
             self._vc_task.cancel()
 
     # ─────────────────────────────────────────────────────────
+    # Helpers internes
+    # ─────────────────────────────────────────────────────────
+    async def _apply_passif_gain(self, user_id: int, amount: int) -> int:
+        """Applique les bonus de passif pour un gain positif (on_gain_coins)."""
+        if amount <= 0:
+            return amount
+        try:
+            res = await trigger("on_gain_coins", user_id=user_id, delta=amount)
+            extra = int((res or {}).get("extra", 0))
+            return amount + extra
+        except Exception:
+            return amount
+
+    async def _maybe_update_lb(self, guild_id: Optional[int], reason: str):
+        if not guild_id:
+            return
+        try:
+            from cogs.leaderboard_live import schedule_lb_update
+            schedule_lb_update(self.bot, int(guild_id), reason)
+        except Exception:
+            pass
+
+    # ─────────────────────────────────────────────────────────
     # Messages → gains
     # ─────────────────────────────────────────────────────────
     @commands.Cog.listener()
@@ -76,6 +98,7 @@ class Economie(commands.Cog):
             return
 
         user_id = message.author.id
+        gid = message.guild.id
 
         # anti-spam : cooldown et longueur minimale
         now = time.time()
@@ -100,7 +123,10 @@ class Economie(commands.Cog):
         if n >= thr:
             base = random.randint(MSG_REWARD_MIN, MSG_REWARD_MAX)
             reward = max(1, int(base * ECON_MULTIPLIER))
+            # passif (ex: +1 pièce Silien Dorr) — on n’applique PAS sur valeurs ≤ 0
+            reward = await self._apply_passif_gain(user_id, reward)
             await add_balance(user_id, reward, "msg_reward")
+            await self._maybe_update_lb(gid, "msg_reward")
             # reset le compteur et nouveau palier
             self._msg_counts[user_id] = 0
             self._msg_threshold[user_id] = random.randint(MSG_STREAK_MIN, MSG_STREAK_MAX)
@@ -120,14 +146,13 @@ class Economie(commands.Cog):
     async def _voice_tick(self):
         # Parcourt tous les membres en vocal sur toutes les guilds
         for guild in self.bot.guilds:
-            if not guild.voice_client and not guild.members:
+            if not guild.members:
                 continue
 
             # Identifie le canal AFK (si existe) pour ignorer
             afk_channel_id = guild.afk_channel.id if guild.afk_channel else None
 
             for member in guild.members:
-                # membre en vocal ?
                 vs = member.voice
                 if not vs or not vs.channel:
                     continue
@@ -146,7 +171,9 @@ class Economie(commands.Cog):
                     self._vc_accum[uid] -= VC_AWARD_INTERVAL
                     base = random.randint(VC_REWARD_MIN, VC_REWARD_MAX)
                     reward = max(1, int(base * ECON_MULTIPLIER))
+                    reward = await self._apply_passif_gain(uid, reward)
                     await add_balance(uid, reward, "voice_reward")
+                    await self._maybe_update_lb(guild.id, "voice_reward")
 
     # ─────────────────────────────────────────────────────────
     # Slash commands
@@ -176,9 +203,13 @@ class Economie(commands.Cog):
                 f"❌ Solde insuffisant. Tu as **{sender_bal}** GV.", ephemeral=True
             )
 
-        # Effectue le transfert (on clampe à 0 côté add_balance, mais on a déjà vérifié l'avoir)
+        # Transfert : on n'applique PAS les passifs sur /give (évite l'abus).
         await add_balance(itx.user.id, -amount, "give_transfer_out")
         await add_balance(user.id, amount, "give_transfer_in")
+
+        # Rafraîchir le LB pour la guilde courante
+        gid = itx.guild.id if itx.guild else None
+        await self._maybe_update_lb(gid, "give")
 
         emb = Embed(
             title="🤝 Transfert réussi",
@@ -225,7 +256,7 @@ class Economie(commands.Cog):
     # ─────────────────────────────────────────────────────────
     # Helpers DB (lecture leaderboard & logs)
     # ─────────────────────────────────────────────────────────
-    async def _fetch_top(self, limit: int) -> List[Tuple[str, int]]:
+    async def _fetch_top(self, limit: int) -> List[Tuple[str, int]]]:
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.execute(
                 "SELECT user_id, balance FROM wallets ORDER BY balance DESC LIMIT ?",
