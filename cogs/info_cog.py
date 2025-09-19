@@ -43,7 +43,7 @@ except Exception:
     _get_shield = None
     _get_max_shield = None
 
-# ---- Catalogue personnages (pour joli rendu facultatif)
+# ---- Catalogue personnages (joli rendu facultatif)
 CHAR_CATALOG: Dict[str, Dict[str, Any]] = {}
 for key in ("CHARACTERS", "PERSONNAGES"):
     if not CHAR_CATALOG:
@@ -88,6 +88,60 @@ CREATE TABLE IF NOT EXISTS equipped_character (
 
 TICKET_NAMES = {"🎟️", "🎟️ Ticket", "Ticket", "ticket", "Daily Ticket", "daily ticket"}
 
+# ─────────────────────────────────────────────────────────
+# LECTURE CLASSEMENT comme ton leaderboard_cog.py (storage JSON)
+# ─────────────────────────────────────────────────────────
+_storage = None
+try:
+    from data import storage as _storage  # type: ignore
+except Exception:
+    _storage = None
+
+def _lb_get_leaderboard(gid: int) -> Dict[str, Dict[str, int]]:
+    """
+    Retourne dict user_id -> {points, kills, deaths} pour CE serveur
+    (structure identique à leaderboard_cog.py).
+    """
+    if _storage is not None:
+        if not hasattr(_storage, "leaderboard") or not isinstance(getattr(_storage, "leaderboard"), dict):
+            setattr(_storage, "leaderboard", {})
+        lb = getattr(_storage, "leaderboard")
+        lb.setdefault(str(gid), {})
+        return lb[str(gid)]
+
+    # Fallback RAM si storage indisponible
+    if not hasattr(_lb_get_leaderboard, "_mem"):
+        _lb_get_leaderboard._mem: Dict[str, Dict[str, Dict[str, int]]] = {}
+    mem = _lb_get_leaderboard._mem  # type: ignore
+    mem.setdefault(str(gid), {})
+    return mem[str(gid)]
+
+def _lb_rank_sorted(gid: int) -> List[Tuple[int, Dict[str, int]]]:
+    lb = _lb_get_leaderboard(gid)
+    items: List[Tuple[int, Dict[str, int]]] = []
+    for uid_str, stats in lb.items():
+        try:
+            uid = int(uid_str)
+        except Exception:
+            continue
+        if not isinstance(stats, dict):
+            continue
+        pts = int(stats.get("points", 0) or 0)
+        k = int(stats.get("kills", 0) or 0)
+        d = int(stats.get("deaths", 0) or 0)
+        items.append((uid, {"points": pts, "kills": k, "deaths": d}))
+    items.sort(key=lambda x: (-x[1]["points"], -x[1]["kills"], x[1]["deaths"], x[0]))
+    return items
+
+def _lb_find_rank(sorted_list: List[Tuple[int, Dict[str, int]]], uid: int) -> Optional[int]:
+    for i, (u, _) in enumerate(sorted_list, start=1):
+        if u == uid:
+            return i
+    return None
+
+# ─────────────────────────────────────────────────────────
+# Helpers tickets / inventaire / texte
+# ─────────────────────────────────────────────────────────
 async def _ensure_tables():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(CREATE_TICKETS_SQL)
@@ -103,7 +157,6 @@ async def _get_tickets(uid: int) -> int:
     return int(row[0]) if row else 0
 
 async def _get_equipped_char_id(uid: int) -> Optional[str]:
-    # 1) gacha_db prioritaire
     if _gacha_get_equipped:
         try:
             r = await _gacha_get_equipped(uid)  # type: ignore
@@ -115,7 +168,6 @@ async def _get_equipped_char_id(uid: int) -> Optional[str]:
                 return str(r[0])
         except Exception:
             pass
-    # 2) fallback table locale
     await _ensure_tables()
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT char_id FROM equipped_character WHERE user_id = ?", (uid,))
@@ -138,11 +190,9 @@ def _pretty_character(char_id: Optional[str]) -> str:
         return f"{emoji} {name}".strip()
     return str(char_id)
 
-# ---------- Helpers d'affichage (inventaire) ----------
 def _short_desc(emoji_key: str) -> str:
     meta: Dict[str, Any] = ITEM_CATALOG.get(emoji_key, {})
     t = meta.get("type", "")
-
     if t == "attaque":
         dmg = meta.get("degats");        return f"Dégâts {dmg}" if dmg is not None else "Attaque"
     if t == "attaque_chaine":
@@ -196,32 +246,21 @@ USER_COLS = ("user_id", "uid", "member_id", "author_id", "player_id")
 AMOUNT_COLS = ("amount", "delta", "change", "value", "coins", "gotcoins", "gc", "balance_change")
 
 async def _career_total_from_db(uid: int) -> Optional[int]:
-    """
-    Essaie d'inférer le total gagné dans l'historique de la DB
-    en scannant les tables et colonnes probables.
-    """
     try:
         async with aiosqlite.connect(DB_PATH) as db:
-            # Lister les tables
             cur = await db.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = [r[0] for r in await cur.fetchall()]
             await cur.close()
-
             for t in tables:
-                # Cherche un couple (user_col, amount_col)
                 cur = await db.execute(f"PRAGMA table_info({t})")
                 cols = [r[1].lower() for r in await cur.fetchall()]
                 await cur.close()
-
                 user_candidates = [c for c in cols if c in USER_COLS]
                 amount_candidates = [c for c in cols if c in AMOUNT_COLS]
                 if not user_candidates or not amount_candidates:
                     continue
-
                 ucol = user_candidates[0]
                 acol = amount_candidates[0]
-
-                # somme des montants POSITIFS pour ce user
                 q = f"SELECT COALESCE(SUM(CASE WHEN {acol} > 0 THEN {acol} ELSE 0 END), 0) FROM {t} WHERE {ucol}=?"
                 cur = await db.execute(q, (uid,))
                 v = await cur.fetchone()
@@ -235,7 +274,6 @@ async def _career_total_from_db(uid: int) -> Optional[int]:
     return None
 
 async def _get_career_total(uid: int, min_floor: int) -> int:
-    # 1) fonction dédiée si dispo
     if _get_total_career:
         try:
             v = int(await _get_total_career(uid))  # type: ignore
@@ -243,11 +281,9 @@ async def _get_career_total(uid: int, min_floor: int) -> int:
                 return v
         except Exception:
             pass
-    # 2) heuristique DB
     dbv = await _career_total_from_db(uid)
     if dbv is not None and dbv >= 0:
         return max(dbv, min_floor)
-    # 3) fallback minimal: au moins le solde actuel
     return max(min_floor, 0)
 
 # ---------- Cog ----------
@@ -255,7 +291,7 @@ class Info(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def _render_info_embed(self, member: discord.Member | discord.User) -> discord.Embed:
+    async def _render_info_embed(self, member: discord.Member | discord.User, guild: Optional[discord.Guild] = None) -> discord.Embed:
         uid = member.id
         username = member.display_name if isinstance(member, discord.Member) else member.name
 
@@ -269,10 +305,10 @@ class Info(commands.Cog):
         char_label = _pretty_character(char_id)
 
         # Inventaire
-        inv_items = await get_all_items(uid)  # List[Tuple[str(emoji), int]]
+        inv_items = await get_all_items(uid)
         lines = _format_items_lines(inv_items)
 
-        # Points de vie (si DB dispo, sinon défaut 100/100)
+        # PV & bouclier
         hp, hp_max = 100, 100
         try:
             from stats_db import get_hp, get_max_hp  # type: ignore
@@ -280,27 +316,11 @@ class Info(commands.Cog):
             hp_max = int(await get_max_hp(uid))      # type: ignore
         except Exception:
             pass
-
-        # Bouclier
         shield_now = shield_max = 0
         if _get_shield and _get_max_shield:
             try:
                 shield_now = int(await _get_shield(uid))           # type: ignore
                 shield_max = int(await _get_max_shield(uid))       # type: ignore
-            except Exception:
-                pass
-
-        # Effets actifs (optionnel)
-        effects_text = "Aucun effet négatif détecté."
-        if _get_effects:
-            try:
-                effs = await _get_effects(uid)  # type: ignore
-                if effs:
-                    pretty: List[str] = []
-                    for e in effs:
-                        name = str(getattr(e, "name", None) or (isinstance(e, dict) and e.get("name")) or "Effet")
-                        pretty.append(f"• {name}")
-                    effects_text = "\n".join(pretty)
             except Exception:
                 pass
 
@@ -320,14 +340,25 @@ class Info(commands.Cog):
         embed.add_field(name="💰 Solde actuel (dépensable)", value=str(coins_now), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
-        # Dates — on GARDE uniquement l'entrée serveur (pas "Sur Discord depuis")
+        # Date serveur uniquement
         if isinstance(member, discord.Member) and member.joined_at:
             embed.add_field(name="📅 Membre du serveur depuis", value=_fmt_dt_utc(member.joined_at), inline=False)
 
         # Personnage équipé
         embed.add_field(name="🧬 Personnage équipé", value=char_label, inline=False)
 
-        # Inventaire : 1 col < 6, sinon 2 colonnes remplies ligne par ligne
+        # ===== NOUVEAU : CLASSEMENT SERVEUR =====
+        rank_text = "Non classé"
+        if guild is not None:
+            rows = _lb_rank_sorted(guild.id)
+            if rows:
+                pos = _lb_find_rank(rows, uid)
+                if pos:
+                    stats = next((s for (u, s) in rows if u == uid), {"points": 0, "kills": 0, "deaths": 0})
+                    rank_text = f"#{pos} — {stats.get('points',0)} pts • 🗡 {stats.get('kills',0)} / 💀 {stats.get('deaths',0)}"
+        embed.add_field(name="🏅 Classement (serveur)", value=rank_text, inline=False)
+
+        # Inventaire
         if len(lines) >= 6:
             cols = _columns_rowwise(lines, n_cols=2)
             embed.add_field(name="📦 Inventaire", value=cols[0], inline=True)
@@ -341,7 +372,19 @@ class Info(commands.Cog):
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
 
-        # Effets/pathologies
+        # Effets / pathologies (si disponibles)
+        effects_text = "Aucun effet négatif détecté."
+        if _get_effects:
+            try:
+                effs = await _get_effects(uid)  # type: ignore
+                if effs:
+                    pretty: List[str] = []
+                    for e in effs:
+                        name = str(getattr(e, "name", None) or (isinstance(e, dict) and e.get("name")) or "Effet")
+                        pretty.append(f"• {name}")
+                    effects_text = "\n".join(pretty)
+            except Exception:
+                pass
         embed.add_field(name="🩺 État pathologique", value=effects_text, inline=False)
 
         return embed
@@ -351,14 +394,14 @@ class Info(commands.Cog):
     async def info(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
         await interaction.response.defer(ephemeral=False, thinking=False)
         target = membre or interaction.user
-        embed = await self._render_info_embed(target)
+        embed = await self._render_info_embed(target, guild=interaction.guild)
         await interaction.followup.send(embed=embed)
 
     # ===== Préfixé (fallback) =====
     @commands.command(name="info")
     async def info_prefix(self, ctx: commands.Context, member: Optional[discord.Member] = None):
         target = member or ctx.author
-        embed = await self._render_info_embed(target)
+        embed = await self._render_info_embed(target, guild=ctx.guild)
         await ctx.reply(embed=embed, mention_author=False)
 
 
