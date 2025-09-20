@@ -2,7 +2,6 @@
 from __future__ import annotations
 from typing import Optional, Dict, List
 import math
-import random
 
 import discord
 from discord import app_commands
@@ -40,7 +39,7 @@ try:
 except Exception:
     ITEMS_CATALOGUE: Dict[str, Dict] = {}
     RARETE_SELL_VALUES: Dict[object, int] = {}
-    CURRENCY_NAME = "GotCoins"
+    CURRENCY_NAME = "GoldValis"
 
 # ──────────────────────────────────────────────
 # Monnaie & Inventaire (SQLite)
@@ -85,10 +84,8 @@ def _sell_price_for(emoji: str) -> int:
     r = info.get("rarete")
     price: Optional[int] = None
     if r is not None:
-        # essaie int puis str
         price = RARETE_SELL_VALUES.get(r) or RARETE_SELL_VALUES.get(str(r))
     if price is None:
-        # fallback heuristique par rareté
         try:
             rv = int(r)
         except Exception:
@@ -155,7 +152,12 @@ class ShopCog(commands.Cog):
 
         q_req = int(quantite or 1)
         q = max(1, min(q_req, int(it.get("max_per_buy", 20))))
-        price_total = int(it.get("price", 0)) * q
+
+        unit_price = int(it.get("price", 0))
+        if unit_price <= 0:
+            return await inter.followup.send("❌ Cet item n'est pas disponible (prix invalide).")
+
+        price_total = unit_price * q
 
         bal = await get_balance(inter.user.id)
         if bal < price_total:
@@ -175,18 +177,22 @@ class ShopCog(commands.Cog):
             total = _add_tickets(gid, inter.user.id, q)
             add_msg = f"🎟️ **{label} ×{q}** (total: {total})"
         else:
+            if not emoji:
+                return await inter.followup.send("❌ Item mal configuré (emoji manquant).")
             if callable(inv_add_item):
                 await inv_add_item(inter.user.id, emoji, q)  # type: ignore
                 add_msg = f"{emoji} **{label} ×{q}**"
             else:
-                # Fallback data.json (désactivable si tu n'en veux pas)
+                if storage is None:
+                    return await inter.followup.send(
+                        "❌ Inventaire indisponible (DB et storage absents). Réessaie plus tard."
+                    )
                 try:
-                    if storage is not None:
-                        inv, _, _ = storage.get_user_data(str(gid), str(inter.user.id))
-                        inv.extend([emoji] * q)
-                        storage.save_data()
+                    inv, _, _ = storage.get_user_data(str(gid), str(inter.user.id))
+                    inv.extend([emoji] * q)
+                    storage.save_data()
                 except Exception:
-                    pass
+                    return await inter.followup.send("❌ Impossible d’ajouter l’objet à l’inventaire.")
                 add_msg = f"{emoji} **{label} ×{q}** (⚠️ inventaire non lié)"
 
         # Rafraîchir le leaderboard live (solde a changé)
@@ -251,6 +257,7 @@ class ShopCog(commands.Cog):
         # Bonus générique d’argent (ex: Silien Dorr +1)
         res = await trigger("on_gain_coins", user_id=inter.user.id, delta=total)
         total += int((res or {}).get("extra", 0))
+        total = max(1, int(total))
 
         # Retirer les items puis créditer
         await remove_item(inter.user.id, emoji, q)
@@ -281,7 +288,6 @@ class ShopCog(commands.Cog):
     async def autocomplete_sell_obj(self, itx: discord.Interaction, current: str):
         cur = (current or "").strip()
         candidates = list(OBJETS.keys())
-        # tri simple : commence par 'cur' en premier
         pref = [e for e in candidates if e.startswith(cur)]
         rest = [e for e in candidates if e not in pref and (not cur or cur in e)]
         lst = (pref + rest)[:25]
