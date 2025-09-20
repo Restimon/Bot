@@ -31,7 +31,7 @@ from effects_db import (
 from economy_db import add_balance, get_balance
 from inventory_db import get_item_qty, remove_item, add_item
 
-# Passifs
+# Passifs (routeur d’événements)
 from passifs import trigger
 
 # Objets (emoji -> caractéristiques)
@@ -136,15 +136,49 @@ class CombatCog(commands.Cog):
     async def _apply_attack(self, inter: discord.Interaction, attacker: discord.Member, target: discord.Member, emoji: str, info: Dict) -> discord.Embed:
         """Attaque avec un objet de type 'attaque'."""
         base = int(info.get("degats", 0) or 0)
-        crit_chance = float(info.get("crit", 0.0) or 0.0)
+
         # malus d’attaque (ex: poison)
         penalty = await get_outgoing_damage_penalty(attacker.id)
-        dmg = max(0, base - penalty)
+        base_after_penalty = max(0, base - penalty)
 
-        # critique x2
+        # critique (x2 par défaut)
+        crit_chance = float(info.get("crit", 0.0) or 0.0)
         is_crit = (random.random() < crit_chance)
-        if is_crit:
-            dmg = int(dmg * 2)
+        crit_mul = 2.0 if is_crit else 1.0
+
+        # Hook passifs OPTIONNEL avant les dégâts (exécuté, bonus, crit mult…)
+        try:
+            pre = await trigger(
+                "before_damage",
+                attacker_id=attacker.id,
+                target_id=target.id,
+                base_damage=base_after_penalty,
+                is_crit=is_crit,
+                crit_multiplier=crit_mul,
+                emoji=emoji,
+                meta=info,
+            ) or {}
+        except Exception:
+            pre = {}
+
+        # mise à jour du multiplicateur de crit si fourni
+        try:
+            cm = float(pre.get("crit_multiplier", crit_mul))
+            crit_mul = max(0.0, cm)
+        except Exception:
+            pass
+
+        # dommage final (peut être override)
+        dmg = int(base_after_penalty * crit_mul)
+        if "damage" in pre:
+            try:
+                dmg = max(0, int(pre["damage"]))
+            except Exception:
+                pass
+
+        # “execute” (ex: Le Roi) → on force un gros dégât brut
+        if pre.get("execute"):
+            dmg = max(dmg, 10_000_000)
 
         # transfert de virus éventuel (si l’attaquant le porte)
         await transfer_virus_on_attack(attacker.id, target.id)
@@ -160,7 +194,7 @@ class CombatCog(commands.Cog):
 
         hp, _ = await get_hp(target.id)
 
-        # Passifs (ex: vampirisme 50%)
+        # Passifs (post-attaque)
         await trigger("on_attack", user_id=attacker.id, target_id=target.id, damage_done=dmg)
 
         e = discord.Embed(
@@ -172,6 +206,9 @@ class CombatCog(commands.Cog):
             ),
             color=discord.Color.red()
         )
+        # petite note retour des passifs si besoin
+        if isinstance(pre.get("note"), str) and pre["note"]:
+            e.set_footer(text=str(pre["note"])[:200])
         return e
 
     async def _apply_chain_attack(self, inter: discord.Interaction, attacker: discord.Member, target: discord.Member, emoji: str, info: Dict) -> discord.Embed:
@@ -183,13 +220,35 @@ class CombatCog(commands.Cog):
         d1 = max(0, d1 - penalty)
         d2 = max(0, d2 - penalty)
 
-        await transfer_virus_on_attack(attacker.id, target.id)
-        r1 = await deal_damage(attacker.id, target.id, d1)
-        r2 = await deal_damage(attacker.id, target.id, d2)
+        # Hook optionnel global pour la chaîne (tu peux affiner côté passifs)
+        try:
+            pre = await trigger(
+                "before_damage",
+                attacker_id=attacker.id,
+                target_id=target.id,
+                base_damage=d1 + d2,
+                is_crit=False,
+                crit_multiplier=1.0,
+                emoji=emoji,
+                meta=info,
+            ) or {}
+        except Exception:
+            pre = {}
 
         tot = d1 + d2
+        if "damage" in pre:
+            try:
+                tot = max(0, int(pre["damage"]))
+            except Exception:
+                pass
+        if pre.get("execute"):
+            tot = max(tot, 10_000_000)
 
-        # KO → revive full (règle interne)
+        await transfer_virus_on_attack(attacker.id, target.id)
+        r1 = await deal_damage(attacker.id, target.id, tot)
+        absorbed = int(r1.get("absorbed", 0) or 0)
+
+        # KO → revive full
         ko_txt = ""
         if await is_dead(target.id):
             await revive_full(target.id)
@@ -204,11 +263,13 @@ class CombatCog(commands.Cog):
             title="⚔️ Attaque en chaîne",
             description=(
                 f"{attacker.mention} utilise {emoji} sur {target.mention}.\n"
-                f"🎯 Dégâts: **{d1} + {d2}** • 🛡 Absorbés: {int(r1.get('absorbed',0))+int(r2.get('absorbed',0))} • "
+                f"🎯 Dégâts totaux: **{tot}** • 🛡 Absorbés: {absorbed} • "
                 f"❤️ PV restants: **{hp}**{ko_txt}"
             ),
             color=discord.Color.red()
         )
+        if isinstance(pre.get("note"), str) and pre["note"]:
+            e.set_footer(text=str(pre["note"])[:200])
         return e
 
     async def _apply_heal(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: Dict, target: Optional[discord.Member] = None) -> discord.Embed:
@@ -216,12 +277,28 @@ class CombatCog(commands.Cog):
         heal = int(info.get("soin", 0) or 0)
         who = target or user
 
-        # (si un passif doit augmenter la valeur de soin AVANT application, fais-le ici)
+        # Hook optionnel avant heal (Tessa +1, multiplicateurs, caps…)
+        try:
+            pre = await trigger(
+                "before_heal",
+                user_id=user.id,
+                target_id=who.id,
+                base_heal=heal,
+                emoji=emoji,
+                meta=info,
+            ) or {}
+        except Exception:
+            pre = {}
+        if "heal" in pre:
+            try:
+                heal = max(0, int(pre["heal"]))
+            except Exception:
+                pass
 
         await heal_user(who.id, heal)
         hp, mx = await get_hp(who.id)
 
-        # Passifs (ex: PB=soin 2x/j)
+        # Passifs (ex: PB=soin 2x/j…)
         await trigger("on_heal", user_id=user.id, target_id=who.id, healed=heal)
 
         e = discord.Embed(
@@ -229,6 +306,8 @@ class CombatCog(commands.Cog):
             description=f"{user.mention} utilise {emoji} sur {who.mention}.\n➕ PV rendus: **{heal}** → ❤️ **{hp}/{mx}**",
             color=discord.Color.green()
         )
+        if isinstance(pre.get("note"), str) and pre["note"]:
+            e.set_footer(text=str(pre["note"])[:200])
         return e
 
     async def _apply_regen(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: Dict, target: Optional[discord.Member] = None) -> discord.Embed:
@@ -238,6 +317,21 @@ class CombatCog(commands.Cog):
         val = int(info.get("valeur", 0) or 0)
         interval = int(info.get("intervalle", 60) or 60)
         duration = int(info.get("duree", 3600) or 3600)
+
+        # Hook optionnel sur l’application d’effet
+        try:
+            mod = await trigger(
+                "before_apply_effect",
+                applier_id=user.id, target_id=who.id,
+                effect_type="regen", value=val, interval=interval, duration=duration,
+                emoji=emoji, meta=info
+            ) or {}
+        except Exception:
+            mod = {}
+        val = int(mod.get("value", val))
+        interval = int(mod.get("interval", interval))
+        duration = int(mod.get("duration", duration))
+
         await add_or_refresh_effect(
             user_id=who.id, eff_type="regen", value=val,
             duration=duration, interval=interval,
@@ -246,7 +340,7 @@ class CombatCog(commands.Cog):
         e = discord.Embed(
             title="🌿 Régénération",
             description=f"{user.mention} applique {emoji} sur {who.mention}.\n"
-                        f"➕ **{val} PV** toutes les **{interval//60} min** pendant **{duration//3600} h**.",
+                        f"➕ **{val} PV** toutes les **{max(1,interval)//60} min** pendant **{max(1,duration)//3600} h**.",
             color=discord.Color.green()
         )
         return e
@@ -257,6 +351,21 @@ class CombatCog(commands.Cog):
         val = int(info.get("degats", 0) or 0)
         interval = int(info.get("intervalle", 60) or 60)
         duration = int(info.get("duree", 3600) or 3600)
+
+        # Hook optionnel (ex: Anna +1 sur infection)
+        try:
+            mod = await trigger(
+                "before_apply_effect",
+                applier_id=user.id, target_id=target.id,
+                effect_type=eff_type, value=val, interval=interval, duration=duration,
+                emoji=emoji, meta=info
+            ) or {}
+        except Exception:
+            mod = {}
+        val = int(mod.get("value", val))
+        interval = int(mod.get("interval", interval))
+        duration = int(mod.get("duration", duration))
+
         await add_or_refresh_effect(
             user_id=target.id, eff_type=eff_type, value=val,
             duration=duration, interval=interval,
@@ -265,7 +374,7 @@ class CombatCog(commands.Cog):
         e = discord.Embed(
             title=f"{label}",
             description=f"{user.mention} applique {emoji} sur {target.mention}.\n"
-                        f"⏳ Effet: **{val}** toutes les **{interval//60} min** pendant **{duration//3600} h**.",
+                        f"⏳ Effet: **{val}** toutes les **{max(1,interval)//60} min** pendant **{max(1,duration)//3600} h**.",
             color=discord.Color.orange()
         )
         return e
@@ -298,7 +407,7 @@ class CombatCog(commands.Cog):
                 ok = False
 
         if not ok:
-            # fallback: on passe par un effet neutre “pb”
+            # fallback: effet “pb” qui devra être interprété côté moteur (sinon visuel seulement)
             try:
                 remember_tick_channel(who.id, inter.guild.id, inter.channel.id)
                 await add_or_refresh_effect(
@@ -378,7 +487,7 @@ class CombatCog(commands.Cog):
         if not info:
             return await inter.response.send_message("Objet inconnu.", ephemeral=True)
 
-        # vérif & conso inventaire (Marn Velk peut rembourser après)
+        # vérif & conso inventaire (remboursement possible post-use via passif)
         if not await self._consume_item(inter.user.id, objet):
             return await inter.response.send_message(f"Tu n’as pas **{objet}** dans ton inventaire.", ephemeral=True)
 
@@ -436,7 +545,9 @@ class CombatCog(commands.Cog):
             # Hook passif "box_plus_un_objet"
             res = await trigger("on_box_open", user_id=inter.user.id, items_added=[got])
             if res.get("extra_item"):
-                embed.description += f"\n🎁 Bonus: **{res['extra_item']}**"
+                extra = str(res["extra_item"])
+                await add_item(inter.user.id, extra, 1)
+                embed.description += f"\n🎁 Bonus: **{extra}**"
 
         elif typ == "vol":
             # version simple: 25% d’avoir un item aléatoire (sans cible)
@@ -456,10 +567,24 @@ class CombatCog(commands.Cog):
 
         elif typ in ("esquive+", "reduction", "immunite"):
             # on applique un effet “buff” générique avec la durée/valeur
-            remember_tick_channel((cible or inter.user).id, inter.guild.id, inter.channel.id)
             who = cible or inter.user
+            remember_tick_channel(who.id, inter.guild.id, inter.channel.id)
             val = int(info.get("valeur", 0) or 0)
             dur = int(info.get("duree", 3600) or 3600)
+
+            # Hook optionnel
+            try:
+                mod = await trigger(
+                    "before_apply_effect",
+                    applier_id=inter.user.id, target_id=who.id,
+                    effect_type=str(typ), value=val, interval=0, duration=dur,
+                    emoji=objet, meta=info
+                ) or {}
+            except Exception:
+                mod = {}
+            val = int(mod.get("value", val))
+            dur = int(mod.get("duration", dur))
+
             await add_or_refresh_effect(
                 user_id=who.id, eff_type=str(typ), value=val,
                 duration=dur, interval=0,
@@ -468,7 +593,7 @@ class CombatCog(commands.Cog):
             labels = {"esquive+": "👟 Esquive+", "reduction": "🪖 Réduction de dégâts", "immunite": "⭐️ Immunité"}
             embed = discord.Embed(
                 title=labels.get(typ, "Buff"),
-                description=f"{inter.user.mention} applique **{objet}** sur {(cible or inter.user).mention}.",
+                description=f"{inter.user.mention} applique **{objet}** sur {who.mention}.",
                 color=discord.Color.blurple()
             )
 
@@ -479,8 +604,16 @@ class CombatCog(commands.Cog):
                 color=discord.Color.dark_grey()
             )
 
-        # Hook post-conso (ex: Marn Velk — ne pas consommer)
-        await trigger("on_use_after", user_id=inter.user.id, emoji=objet)
+        # Hook post-conso (ex: Marn Velk — ne pas consommer → refund)
+        try:
+            post = await trigger("on_use_after", user_id=inter.user.id, emoji=objet) or {}
+        except Exception:
+            post = {}
+        if post.get("refund"):
+            try:
+                await add_item(inter.user.id, objet, 1)
+            except Exception:
+                pass  # silencieux si inventaire indispo
 
         await inter.followup.send(embed=embed)
         await self._maybe_update_leaderboard(inter.guild.id, "use")
@@ -496,9 +629,34 @@ class CombatCog(commands.Cog):
 
         await inter.response.defer(thinking=True)
         penalty = await get_outgoing_damage_penalty(inter.user.id)
-        final_dmg = max(0, amount - penalty)
+        base_after_penalty = max(0, int(amount) - penalty)
+
+        # Hook optionnel
+        try:
+            pre = await trigger(
+                "before_damage",
+                attacker_id=inter.user.id,
+                target_id=target.id,
+                base_damage=base_after_penalty,
+                is_crit=False,
+                crit_multiplier=1.0,
+                emoji="(hit)",
+                meta={"type":"test"}
+            ) or {}
+        except Exception:
+            pre = {}
+
+        dmg = base_after_penalty
+        if "damage" in pre:
+            try:
+                dmg = max(0, int(pre["damage"]))
+            except Exception:
+                pass
+        if pre.get("execute"):
+            dmg = max(dmg, 10_000_000)
+
         await transfer_virus_on_attack(inter.user.id, target.id)
-        res = await deal_damage(inter.user.id, target.id, final_dmg)
+        res = await deal_damage(inter.user.id, target.id, dmg)
 
         if await is_dead(target.id):
             await revive_full(target.id)
@@ -506,11 +664,11 @@ class CombatCog(commands.Cog):
         hp, _ = await get_hp(target.id)
 
         # passifs
-        await trigger("on_attack", user_id=inter.user.id, target_id=target.id, damage_done=final_dmg)
+        await trigger("on_attack", user_id=inter.user.id, target_id=target.id, damage_done=dmg)
 
         embed = discord.Embed(
             title="GotValis : impact confirmé",
-            description=f"{inter.user.mention} inflige **{final_dmg}** à {target.mention}.\n"
+            description=f"{inter.user.mention} inflige **{dmg}** à {target.mention}.\n"
                         f"🛡 Absorbé: {res.get('absorbed', 0)} | ❤️ PV restants: **{hp}**",
             color=discord.Color.red()
         )
@@ -523,12 +681,27 @@ class CombatCog(commands.Cog):
         await inter.response.defer(thinking=True)
         remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
         cfg = {"value": 2, "interval": 60, "duration": 600}
+
+        # Hook optionnel
+        try:
+            mod = await trigger(
+                "before_apply_effect",
+                applier_id=inter.user.id, target_id=target.id,
+                effect_type="poison", value=cfg["value"], interval=cfg["interval"], duration=cfg["duration"],
+                emoji="🧪", meta={"type":"test"}
+            ) or {}
+        except Exception:
+            mod = {}
+        v = int(mod.get("value", cfg["value"]))
+        itv = int(mod.get("interval", cfg["interval"]))
+        dur = int(mod.get("duration", cfg["duration"]))
+
         await add_or_refresh_effect(
             user_id=target.id,
             eff_type="poison",
-            value=cfg["value"],
-            duration=cfg["duration"],
-            interval=cfg["interval"],
+            value=v,
+            duration=dur,
+            interval=itv,
             source_id=inter.user.id,
             meta_json=json.dumps({"applied_in": inter.channel.id})
         )
@@ -557,12 +730,27 @@ class CombatCog(commands.Cog):
         await inter.response.defer(thinking=True)
         remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
         cfg = {"value": 2, "interval": 60, "duration": 600}
+
+        # Hook optionnel (Anna +1)
+        try:
+            mod = await trigger(
+                "before_apply_effect",
+                applier_id=inter.user.id, target_id=target.id,
+                effect_type="infection", value=cfg["value"], interval=cfg["interval"], duration=cfg["duration"],
+                emoji="🧟", meta={"type":"test"}
+            ) or {}
+        except Exception:
+            mod = {}
+        v = int(mod.get("value", cfg["value"]))
+        itv = int(mod.get("interval", cfg["interval"]))
+        dur = int(mod.get("duration", cfg["duration"]))
+
         await add_or_refresh_effect(
             user_id=target.id,
             eff_type="infection",
-            value=cfg["value"],
-            duration=cfg["duration"],
-            interval=cfg["interval"],
+            value=v,
+            duration=dur,
+            interval=itv,
             source_id=inter.user.id,
             meta_json=json.dumps({"applied_in": inter.channel.id})
         )
