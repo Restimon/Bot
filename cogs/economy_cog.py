@@ -123,8 +123,7 @@ class Economie(commands.Cog):
         if n >= thr:
             base = random.randint(MSG_REWARD_MIN, MSG_REWARD_MAX)
             reward = max(1, int(base * ECON_MULTIPLIER))
-            # passif (ex: +1 pièce Silien Dorr) — on n’applique PAS sur valeurs ≤ 0
-            reward = await self._apply_passif_gain(user_id, reward)
+            reward = await self._apply_passif_gain(user_id, reward)  # passifs (Silien/Alphonse…)
             await add_balance(user_id, reward, "msg_reward")
             await self._maybe_update_lb(gid, "msg_reward")
             # reset le compteur et nouveau palier
@@ -159,7 +158,7 @@ class Economie(commands.Cog):
                 # ignore AFK, self-deafened, self-muted, server-deafened
                 if afk_channel_id and vs.channel.id == afk_channel_id:
                     continue
-                if vs.self_deaf or vs.self_mute or vs.deaf:  # deaf = server-deafened
+                if vs.self_deaf or vs.self_mute or vs.deaf:
                     continue
 
                 # cumule 60 sec
@@ -256,7 +255,7 @@ class Economie(commands.Cog):
     # ─────────────────────────────────────────────────────────
     # Helpers DB (lecture leaderboard & logs)
     # ─────────────────────────────────────────────────────────
-    async def _fetch_top(self, limit: int) -> List[Tuple[str, int]]]:
+    async def _fetch_top(self, limit: int) -> List[Tuple[str, int]]:
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.execute(
                 "SELECT user_id, balance FROM wallets ORDER BY balance DESC LIMIT ?",
