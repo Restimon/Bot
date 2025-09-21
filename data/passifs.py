@@ -4,14 +4,14 @@ from __future__ import annotations
 import aiosqlite
 import random
 import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
-# Imports “tardifs” (dans les fonctions) pour éviter les cycles :
+# Imports "tardifs" (dans les fonctions) pour éviter les cycles:
 # - from stats_db import get_hp, get_shield, heal_user, add_shield
 # - from effects_db import add_or_refresh_effect, remove_effect, list_effects, has_effect
 # - from economy_db import add_balance
 # - from inventory_db import add_item, remove_item, get_item_qty
-# - from utils import OBJETS, get_random_item
+# - from utils import OBJETS
 
 from personnage import PERSONNAGES, PASSIF_CODE_MAP
 
@@ -22,8 +22,8 @@ PRAGMA journal_mode=WAL;
 
 -- Personnage équipé par joueur
 CREATE TABLE IF NOT EXISTS player_equipment(
-  user_id    TEXT PRIMARY KEY,
-  char_name  TEXT NOT NULL,
+  user_id TEXT PRIMARY KEY,
+  char_name TEXT NOT NULL,
   passif_code TEXT NOT NULL
 );
 
@@ -43,84 +43,84 @@ CREATE TABLE IF NOT EXISTS passive_counters(
 _code = PASSIF_CODE_MAP.get
 
 # Commun (Gouvernement)
-CODE_CASSIANE    = _code("Éloquence officielle 🕊️") or "stack_resistance_par_attaque"
-CODE_DARIN       = _code("Volonté mal orientée 💼") or "chance_reduc_moitie_degats"
-CODE_ELWIN_JARR  = _code("Archivage parfait 📑") or "vol_double_chance"
-CODE_LIORA       = _code("Protection implicite 👑") or "buff_esquive_apres_coup"
-CODE_MAELIS      = _code("Mémoire d'État 📚") or "purge_chance_horaire"
+CODE_CASSIANE   = _code("Éloquence officielle 🕊️") or "stack_resistance_par_attaque"
+CODE_DARIN      = _code("Volonté mal orientée 💼") or "chance_reduc_moitie_degats"
+CODE_ELWIN_JARR = _code("Archivage parfait 📑")    or "vol_double_chance"
+CODE_LIORA      = _code("Protection implicite 👑")  or "buff_esquive_apres_coup"
+CODE_MAELIS     = _code("Mémoire d'État 📚")        or "purge_chance_horaire"
 
 # Commun (Citoyens)
-CODE_LIOR        = _code("Récompense fantôme 📦") or "daily_double_chance"
-CODE_NAEL        = _code("Écho de Grâce 🎁") or "boost_rarete_prochain_tirage"
-CODE_NIV         = _code("Vol opportuniste 🪙") or "double_vol_niv_kress"
-CODE_LYSS        = _code("Intouchable 🛡") or "anti_vol_total"
-CODE_MIRA        = _code("Éclats recyclés 🔪") or "loot_objet_survie"
-CODE_SEL         = _code("Vendeur rusé 💰") or "shop_sell_bonus"
+CODE_LIOR       = _code("Récompense fantôme 📦")    or "daily_double_chance"
+CODE_NAEL       = _code("Écho de Grâce 🎁")         or "boost_rarete_prochain_tirage"
+CODE_NIV        = _code("Vol opportuniste 🪙")       or "double_vol_niv_kress"
+CODE_LYSS       = _code("Intouchable 🛡")           or "anti_vol_total"
+CODE_MIRA       = _code("Éclats recyclés 🔪")       or "loot_objet_survie"
+CODE_SEL        = _code("Vendeur rusé 💰")          or "shop_sell_bonus"
 
 # Commun (GotValis)
-CODE_CIELYA      = _code("Filtrage actif 🎧") or "reduc_degats_si_pb"
-CODE_KEVAR       = _code("Zone propre 🧼") or "bonus_degats_vs_infectes"
-CODE_LYSHA       = _code("Champ brouillé 📡") or "gain_pb_quand_soigne"
-CODE_KERIN       = _code("Observation continue 📹") or "chance_self_heal_si_soin_autrui"
-CODE_NOVA        = _code("Réflexes Accélérés 🚗💨") or "bonus_esquive_constant"
-CODE_RAYA        = _code("Cadence de surcharge 🛡") or "max_pb_25"
-CODE_TESSA       = _code("Injection stabilisante 💉") or "soins_plus_un"
+CODE_CIELYA     = _code("Filtrage actif 🎧")        or "reduc_degats_si_pb"
+CODE_KEVAR      = _code("Zone propre 🧼")           or "bonus_degats_vs_infectes"
+CODE_LYSHA      = _code("Champ brouillé 📡")        or "gain_pb_quand_soigne"
+CODE_KERIN      = _code("Observation continue 📹")  or "chance_self_heal_si_soin_autrui"
+CODE_NOVA       = _code("Réflexes Accélérés 🚗💨")   or "bonus_esquive_constant"
+CODE_RAYA       = _code("Cadence de surcharge 🛡")  or "max_pb_25"
+CODE_TESSA      = _code("Injection stabilisante 💉") or "soins_plus_un"
 
 # Commun (Hôtel Dormant)
-CODE_ALEN        = _code("Bénédiction des Bagages 🧳") or "chance_reduc_moitie_degats"
-CODE_VEYLOR      = _code("Faveur de l’Hôte 🌙") or "reduc_degats_fixe_et_chance_sup"
+CODE_ALEN       = _code("Bénédiction des Bagages 🧳") or "chance_reduc_moitie_degats"
+CODE_VEYLOR     = _code("Faveur de l’Hôte 🌙")        or "reduc_degats_fixe_et_chance_sup"
 
 # Commun (La Fracture)
-CODE_DARN        = _code("Éclats utiles ⚙️") or "self_heal_on_damage"
-CODE_KARA        = _code("Frappe discrète 🗡️") or "bonus_degats_si_cible_<25"
-CODE_NEHRA       = _code("Fracture brute 🦴") or "ignore_helmet_33pct"
-CODE_LIANE       = _code("Tactique primitive 🔥") or "ignore_helmet_always"
-CODE_SIVE        = _code("Trouvaille impromptue 🪙") or "chance_plus1_coin_post_attack"
+CODE_DARN       = _code("Éclats utiles ⚙️")          or "self_heal_on_damage"
+CODE_KARA       = _code("Frappe discrète 🗡️")        or "bonus_degats_si_cible_<25"
+CODE_NEHRA      = _code("Fracture brute 🦴")         or "ignore_helmet_33pct"
+CODE_LIANE      = _code("Tactique primitive 🔥")     or "ignore_helmet_always"
+CODE_SIVE       = _code("Trouvaille impromptue 🪙")  or "chance_plus1_coin_post_attack"
 
 # Rare (GotValis)
-CODE_AELRAN      = _code("Amplificateur vital ⚙️") or "soin_recu_x1_5"
-CODE_NYRA        = _code("Connexion réinitialisée 🧷") or "daily_cd_halved"
-CODE_KIERAN      = _code("Bonus de Coursier 📦") or "box_plus_un_objet"
-CODE_SEREN       = _code("Rétro-projection vitale 🔁") or "pb_egal_soin_limite"
+CODE_AELRAN     = _code("Amplificateur vital ⚙️")    or "soin_recu_x1_5"
+CODE_NYRA       = _code("Connexion réinitialisée 🧷") or "daily_cd_halved"
+CODE_KIERAN     = _code("Bonus de Coursier 📦")      or "box_plus_un_objet"
+CODE_SEREN      = _code("Rétro-projection vitale 🔁") or "pb_egal_soin_limite"
 
 # Rare (Gouvernement)
-CODE_SILIEN      = _code("Marges invisibles 💰") or "plus_un_coin_sur_gains"
+CODE_SILIEN     = _code("Marges invisibles 💰")      or "plus_un_coin_sur_gains"
 
 # Rare (Hôtel Dormant)
-CODE_NEYRA_V     = _code("Marque de l’Hôte 📜") or "reduc_degats_perma_et_stacks"
-CODE_ROUVEN      = _code("Roulette de minuit 🎲") or "proc_roulette_minuit"
+CODE_NEYRA_V    = _code("Marque de l’Hôte 📜")       or "reduc_degats_perma_et_stacks"
+CODE_ROUVEN     = _code("Roulette de minuit 🎲")     or "proc_roulette_minuit"
 
 # Rare (Infection)
-CODE_ANNA        = _code("Émanation Fétide 🦠") or "infection_buff_source_pas_degats"
+CODE_ANNA       = _code("Émanation Fétide 🦠")       or "infection_buff_source_pas_degats"
 
 # Rare (La Fracture)
-CODE_KAEL_DRIS   = _code("Rétribution organique 🩸") or "vampirisme_50pct"
-CODE_MARN        = _code("Rémanence d’usage ♻️") or "chance_ne_pas_consommer_objet"
-CODE_YANN        = _code("Feu rampant 🔥") or "chance_brule_1h_x3"
+CODE_KAEL_DRIS  = _code("Rétribution organique 🩸")  or "vampirisme_50pct"
+CODE_MARN       = _code("Rémanence d’usage ♻️")      or "chance_ne_pas_consommer_objet"
+CODE_YANN       = _code("Feu rampant 🔥")            or "chance_brule_1h_x3"
 
 # Épique (GotValis)
-CODE_ELWIN_KAAS  = _code("Interface de Renforcement 🛡️") or "pb_plus_un_par_heure_anti_poison"
-CODE_SELINA      = _code("Régénérateur Cellulaire 🌿") or "pv_plus_deux_par_heure_purge_chance"
+CODE_ELWIN_KAAS = _code("Interface de Renforcement 🛡️") or "pb_plus_un_par_heure_anti_poison"
+CODE_SELINA     = _code("Régénérateur Cellulaire 🌿")    or "pv_plus_deux_par_heure_purge_chance"
 
 # Épique (Gouvernement)
-CODE_ALPHONSE    = _code("Dividende occulte 🧾") or "chance_double_gain_et_leech"
-CODE_NATHANIEL   = _code("Aura d’Autorité Absolue 🏛️") or "chance_reduc_moitie_malus_attaquant_resist_status"
+CODE_ALPHONSE   = _code("Dividende occulte 🧾")          or "chance_double_gain_et_leech"
+CODE_NATHANIEL  = _code("Aura d’Autorité Absolue 🏛️")    or "chance_reduc_moitie_malus_attaquant_resist_status"
 
 # Épique (Hôtel Dormant)
-CODE_ELIRA       = _code("Clé du Dédale Miroir 🗝️") or "redirect_si_esquive_et_gain_pb"
+CODE_ELIRA      = _code("Clé du Dédale Miroir 🗝️")       or "redirect_si_esquive_et_gain_pb"
 
 # Épique (Infection)
-CODE_ABOMI       = _code("Faim Dévorante 🧟‍♂️") or "infection_chance_et_bonus_vs_infecte_kill_heal"
+CODE_ABOMI      = _code("Faim Dévorante 🧟‍♂️")           or "infection_chance_et_bonus_vs_infecte_kill_heal"
 
 # Épique (La Fracture)
-CODE_VARKHEL     = _code("Intensification sanglante 🩸") or "bonus_degats_par_10pv_perdus"
-CODE_ELYA        = _code("Frénésie chirurgicale ✴️") or "bonus_crit_par_10pv_perdus"
+CODE_VARKHEL    = _code("Intensification sanglante 🩸")  or "bonus_degats_par_10pv_perdus"
+CODE_ELYA       = _code("Frénésie chirurgicale ✴️")      or "bonus_crit_par_10pv_perdus"
 
 # Légendaires
-CODE_ROI         = _code("Finisher Royal 👑⚔️") or "execute_a_10pv_ignores_et_heal"
-CODE_VALEN       = _code("Domaine de Contrôle Absolu 🧠") or "drastique_reduc_chance_scaling_pb_dr_immune"
-CODE_MAHD        = _code("Règle d’Or de l’Hospitalité 🎩✨") or "annule_ou_contrattaque_resist_esquive_redirect"
-CODE_ZEYRA       = _code("Volonté de Fracture 💥") or "undying_1pv_jour_scaling_dmg_half_crit_flat_reduc"
+CODE_ROI        = _code("Finisher Royal 👑⚔️")            or "execute_a_10pv_ignores_et_heal"
+CODE_VALEN      = _code("Domaine de Contrôle Absolu 🧠")  or "drastique_reduc_chance_scaling_pb_dr_immune"
+CODE_MAHD       = _code("Règle d’Or de l’Hospitalité 🎩✨") or "annule_ou_contrattaque_resist_esquive_redirect"
+CODE_ZEYRA      = _code("Volonté de Fracture 💥")         or "undying_1pv_jour_scaling_dmg_half_crit_flat_reduc"
 
 # ─────────────────────────────────────────────────────────────
 # INIT (lazy)
@@ -250,6 +250,7 @@ async def get_extra_reduction_percent(user_id: int) -> float:
         sh = await get_shield(user_id)
         if sh > 0:
             bonus += 0.25
+    # Valen : bonus additionnel dynamique (via valen_reduction_bonus)
     bonus += await valen_reduction_bonus(user_id)
     return min(bonus, 0.90)
 
@@ -313,14 +314,14 @@ async def undying_zeyra_check_and_mark(user_id: int) -> bool:
     return True
 
 async def maybe_preserve_consumable(user_id: int, item_key: str) -> bool:
-    """Marn Velk 5% : ne pas consommer l’objet utilisé (pré-consommation)."""
+    """Marn Velk 5% : ne pas consommer l’objet utilisé."""
     code = await get_equipped_code(user_id)
     if code == CODE_MARN:
         return random.random() < 0.05
     return False
 
 async def bonus_damage_vs_infected(attacker_id: int) -> int:
-    """Kevar Rin : +3 dégâts contre les infectés (si cible infectée ; à vérifier côté moteur)."""
+    """Kevar Rin : +3 dégâts contre les infectés (si cible est infectée à vérifier côté moteur)."""
     code = await get_equipped_code(attacker_id)
     return 3 if code == CODE_KEVAR else 0
 
@@ -350,41 +351,68 @@ async def should_block_infection_tick_damage(user_id: int) -> bool:
 # DISPATCHER D’ÉVÉNEMENTS
 # trigger(event, **ctx) → dict (variables à exploiter par les cogs/moteur)
 # ─────────────────────────────────────────────────────────────
-def _k(ctx: dict, *names, default=None):
-    """Compat: récupère le 1er key présent parmi names."""
-    for n in names:
-        if n in ctx and ctx[n] is not None:
-            return ctx[n]
-    return default
-
 async def trigger(event: str, **ctx) -> Dict[str, Any]:
     """
     Événements supportés (retours attendus) :
 
-      • on_gain_coins(user_id, delta>0) -> {"extra": int}
-      • on_daily(user_id, rewards:dict, cooldown:int|dict{"mult"}) -> {"rewards","cooldown"}
-      • on_box_open(user_id) -> {"extra_item": "emoji", "extra_items": 1}
-      • on_theft_attempt(attacker_id, target_id) -> {"blocked": bool, "reason": str}
-      • on_theft_success(attacker_id, target_id) -> {"extra_steal": int}
-      • on_use_item(user_id, item_emoji, item_type) -> {"dont_consume": bool}
-      • on_use_after(user_id, emoji) -> {"refund": bool}
-      • on_gacha_roll(user_id, rarity) -> {"rarity": str}
-      • on_attack_pre(attacker_id, target_id) -> flags divers (casques, infect, bonus)
-      • on_attack(attacker_id|user_id, target_id, damage_done|dealt, item_emoji) -> effets post
-      • on_kill(attacker_id, target_id, damage_last) -> {}
-      • on_heal_pre(healer_id, target_id, amount) -> {"heal_bonus","mult_target"}
-      • on_heal(healer_id|user_id, target_id, healed) -> {}
-      • on_any_heal(healer_id, target_id, healed) -> {}
-      • on_effect_pre_apply(user_id, eff_type) -> {"blocked": bool, "reason": str}
-      • on_defense_pre(defender_id, attacker_id, incoming) -> {"cancel","half","flat_reduce", ...}
-      • on_defense_after(defender_id, attacker_id, final_taken, dodged) -> {"redirect","redirect_gain_pb"}
-      • on_hourly_tick(user_id) -> {}
-      • on_half_hour_tick(user_id) -> {}
+      • on_gain_coins(user_id, delta>0)
+          -> {"extra": int}
+
+      • on_daily(user_id, rewards:dict{"coins","tickets","items"}, cooldown:int)
+          -> {"rewards": dict, "cooldown": int}
+
+      • on_box_open(user_id)
+          -> {"extra_items": int}
+
+      • on_theft_attempt(attacker_id, target_id)
+          -> {"blocked": bool, "reason": str}
+
+      • on_theft_success(attacker_id, target_id)
+          -> {"extra_steal": int}     # tenter un vol supplémentaire
+
+      • on_use_item(user_id, item_emoji, item_type)
+          -> {"dont_consume": bool}   # pour Marn, + (optionnellement Rouven via roulette)
+
+      • on_gacha_roll(user_id, rarity:str in ["Commun","Rare","Épique","Légendaire"])
+          -> {"rarity": str}          # possibilité de booster la rareté
+
+      • on_attack_pre(attacker_id, target_id)
+          -> {"bonus_damage": int, "ignore_helmet": bool, "ignore_helmet_chance": float, "infect_chance_bonus": float, "vs_infected_bonus_pct": float}
+
+      • on_attack(attacker_id, target_id, damage_done:int, item_emoji:str|None)
+          -> {"roulette": dict, ...}  # effets post-dégâts, Kael vampirisme, Yann brûlure, Sive +1 coin
+
+      • on_kill(attacker_id, target_id, damage_last:int)
+          -> {}
+
+      • on_heal_pre(healer_id, target_id, amount:int)
+          -> {"heal_bonus": int, "mult_target": float}
+
+      • on_heal(healer_id, target_id, healed:int)
+          -> {}
+
+      • on_any_heal(healer_id, target_id, healed:int)
+          -> {}  # pour Kerin (5% self heal)
+
+      • on_effect_pre_apply(user_id, eff_type:str)
+          -> {"blocked": bool, "reason": str}
+
+      • on_defense_pre(defender_id, attacker_id, incoming:int)
+          -> {"cancel": bool, "half": bool, "flat_reduce": int, "counter_frac": float|None}
+
+      • on_defense_after(defender_id, attacker_id, final_taken:int, dodged:bool)
+          -> {"redirect": bool, "redirect_gain_pb": int}
+
+      • on_hourly_tick(user_id)
+          -> {}  # ticks : +PB, +PV, purge chance, etc.
+
+      • on_half_hour_tick(user_id)
+          -> {}
     """
     # 1) Argent
     if event == "on_gain_coins":
-        user_id = int(_k(ctx, "user_id"))
-        delta   = int(_k(ctx, "delta", default=0))
+        user_id = int(ctx.get("user_id"))
+        delta   = int(ctx.get("delta", 0))
         if delta <= 0:
             return {}
         code = await get_equipped_code(user_id)
@@ -398,6 +426,7 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
         if code == CODE_ALPHONSE:
             if random.random() < 0.10:
                 extra += delta  # double
+            # +10% arrondi sup.
             import math
             extra += max(1, math.ceil(delta * 0.10))
 
@@ -405,23 +434,16 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 2) Daily
     elif event == "on_daily":
-        user_id  = int(_k(ctx, "user_id"))
-        rewards  = dict(ctx.get("rewards") or {})
-        cooldown = ctx.get("cooldown")  # peut être int (ancien) ou dict (nouveau)
+        user_id   = int(ctx.get("user_id"))
+        rewards   = dict(ctx.get("rewards") or {})
+        cooldown  = int(ctx.get("cooldown", 0))
         code = await get_equipped_code(user_id)
 
-        # Nyra Kell : CD ÷ 2
-        if isinstance(cooldown, dict):
-            # daily_cog attend cooldown["mult"]
-            if code == CODE_NYRA:
-                cooldown["mult"] = float(cooldown.get("mult", 1.0)) * 0.5
-        else:
-            cd = int(cooldown or 0)
-            if code == CODE_NYRA and cd > 0:
-                cd = max(0, cd // 2)
-            cooldown = cd
+        # Nyra Kell: CD ÷2
+        if code == CODE_NYRA and cooldown > 0:
+            cooldown = max(0, cooldown // 2)
 
-        # Lior Danen : 5 % double les gains du daily
+        # Lior Danen: 5% double total
         if code == CODE_LIOR and random.random() < 0.05:
             if "coins" in rewards:   rewards["coins"]   = int(rewards["coins"]) * 2
             if "tickets" in rewards: rewards["tickets"] = int(rewards["tickets"]) * 2
@@ -430,25 +452,19 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
         return {"rewards": rewards, "cooldown": cooldown}
 
-    # 3) Box open (Kieran +1 item — ajouté et renvoyé)
+    # 3) Box open (Kieran +1 item)
     elif event == "on_box_open":
-        user_id = int(_k(ctx, "user_id"))
+        user_id = int(ctx.get("user_id"))
         code = await get_equipped_code(user_id)
         if code == CODE_KIERAN:
-            try:
-                from utils import get_random_item
-                extra = get_random_item(debug=False)
-                from inventory_db import add_item as _add
-                await _add(user_id, extra, 1)
-                return {"extra_item": extra, "extra_items": 1}
-            except Exception:
-                # au pire on indique juste qu’il y en aurait 1 de plus
-                return {"extra_items": 1}
+            # renvoie le flag ; à toi d'ajouter l'item dans le cog si tu veux un second emoji
+            return {"extra_item": True}
         return {}
 
     # 4) Vol — tentative (Lyss protège)
     elif event == "on_theft_attempt":
-        target_id = int(_k(ctx, "target_id"))
+        attacker_id = int(ctx.get("attacker_id"))
+        target_id   = int(ctx.get("target_id"))
         t_code = await get_equipped_code(target_id)
         if t_code == CODE_LYSS:
             return {"blocked": True, "reason": "La cible est intouchable (anti-vol total)."}
@@ -456,7 +472,7 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 5) Vol — réussite (Elwin Jarr / Niv : vol double 10%)
     elif event == "on_theft_success":
-        attacker_id = int(_k(ctx, "attacker_id"))
+        attacker_id = int(ctx.get("attacker_id"))
         code = await get_equipped_code(attacker_id)
         extra = 0
         if code in (CODE_ELWIN_JARR, CODE_NIV):
@@ -464,32 +480,20 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
                 extra += 1
         return {"extra_steal": extra}
 
-    # 6) Utilisation d’objet (pré-consommation Marn)
+    # 6) Utilisation d’objet (Marn: ne pas consommer 5%)
     elif event == "on_use_item":
-        user_id    = int(_k(ctx, "user_id"))
+        user_id    = int(ctx.get("user_id"))
+        item_emoji = str(ctx.get("item_emoji") or "")
+        item_type  = str(ctx.get("item_type") or "")
         code = await get_equipped_code(user_id)
         if code == CODE_MARN and random.random() < 0.05:
             return {"dont_consume": True}
         return {"dont_consume": False}
 
-    # 6b) Post-conso (refund Marn si moteur a déjà consommé)
-    elif event == "on_use_after":
-        user_id = int(_k(ctx, "user_id"))
-        emoji   = str(ctx.get("emoji") or "")
-        code = await get_equipped_code(user_id)
-        if code == CODE_MARN and random.random() < 0.05:
-            try:
-                from inventory_db import add_item as _add
-                await _add(user_id, emoji, 1)
-            except Exception:
-                pass
-            return {"refund": True}
-        return {}
-
     # 7) Gacha / Invocation (Nael : +1 palier de rareté, 1% de chance)
     elif event == "on_gacha_roll":
-        user_id = int(_k(ctx, "user_id"))
-        rarity  = str(_k(ctx, "rarity", default="Commun"))
+        user_id = int(ctx.get("user_id"))
+        rarity  = str(ctx.get("rarity") or "Commun")
         code = await get_equipped_code(user_id)
         if code == CODE_NAEL and random.random() < 0.01:
             order = ["Commun", "Rare", "Épique", "Légendaire"]
@@ -502,8 +506,8 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 8) Pré-attaque (bonus/flags avant calcul des dégâts)
     elif event == "on_attack_pre":
-        attacker_id = int(_k(ctx, "attacker_id"))
-        target_id   = int(_k(ctx, "target_id"))
+        attacker_id = int(ctx.get("attacker_id"))
+        target_id   = int(ctx.get("target_id"))
         code = await get_equipped_code(attacker_id)
 
         bonus_damage = 0
@@ -527,9 +531,13 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
         if code == CODE_NEHRA:
             ignore_helmet_chance = 0.33
 
-        # Abomination : +30% si cible est infectée, +5% chance d’infecter
+        # Kevar Rin : +3 vs infectés (applique via bonus_damage_vs_infected côté moteur)
+        if code == CODE_KEVAR:
+            pass
+
+        # Abomination : +30% si cible infectée, +5% chance d’infecter
         if code == CODE_ABOMI:
-            vs_infected_bonus_pct = max(vs_infected_bonus_pct, 0.30)
+            vs_infected_bonus_pct = 0.30
             infect_chance_bonus = 0.05
 
         return {
@@ -542,18 +550,17 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 9) Post-attaque (dégâts infligés connus)
     elif event == "on_attack":
-        attacker_id = int(_k(ctx, "attacker_id", "user_id"))
-        target_id   = int(_k(ctx, "target_id"))
-        dealt       = int(_k(ctx, "damage_done", "dealt", default=0))
+        attacker_id = int(ctx.get("attacker_id"))
+        target_id   = int(ctx.get("target_id"))
+        dealt       = int(ctx.get("damage_done", 0))
+        item_emoji  = ctx.get("item_emoji")
+
         code = await get_equipped_code(attacker_id)
 
         # Kael Dris : vampirisme 50%
         if code == CODE_KAEL_DRIS and dealt > 0:
-            try:
-                from stats_db import heal_user
-                await heal_user(attacker_id, attacker_id, max(1, dealt // 2))
-            except Exception:
-                pass
+            from stats_db import heal_user
+            await heal_user(attacker_id, attacker_id, max(1, dealt // 2))
 
         # Sive Arden : 5% chance +1 coin
         if code == CODE_SIVE and random.random() < 0.05:
@@ -563,7 +570,7 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
             except Exception:
                 pass
 
-        # Darn Kol : 10% chance +1 PV quand il inflige des dégâts
+        # Darn Kol : 10% +1 PV quand il inflige des dégâts
         if code == CODE_DARN and dealt > 0 and random.random() < 0.10:
             try:
                 from stats_db import heal_user
@@ -590,6 +597,7 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
         # Rouven Mance : roulette 25%
         roulette = {}
         if code == CODE_ROUVEN and random.random() < 0.25:
+            # Choix parmi 7 effets
             choice = random.choice(["+10dmg", "steal", "lifesteal", "+25c", "shield_eq_dmg", "lose_random", "dont_consume"])
             roulette["effect"] = choice
 
@@ -597,13 +605,13 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
                 roulette["add_damage"] = 10  # à appliquer côté moteur si possible
 
             elif choice == "steal":
-                roulette["theft_attempt"] = True  # laisser le moteur effectuer le vol réel
+                roulette["theft_attempt"] = True  # à réaliser côté moteur si tu veux
 
             elif choice == "lifesteal":
                 if dealt > 0:
                     try:
                         from stats_db import heal_user
-                        # soin de la CIBLE à hauteur des dégâts infligés
+                        # soin de la cible à hauteur des dégâts infligés
                         await heal_user(target_id, target_id, dealt)
                     except Exception:
                         pass
@@ -636,13 +644,14 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
                     pass
 
             elif choice == "dont_consume":
-                roulette["dont_consume"] = True  # à gérer côté moteur si possible
+                roulette["dont_consume"] = True  # si le moteur peut rembourser
 
         return {"roulette": roulette}
 
     # 10) Kill (fin d’un combat)
     elif event == "on_kill":
-        attacker_id = int(_k(ctx, "attacker_id"))
+        attacker_id = int(ctx.get("attacker_id"))
+        damage_last = int(ctx.get("damage_last", 0))
         code = await get_equipped_code(attacker_id)
 
         # Le Roi : +10 PV si achève
@@ -665,9 +674,9 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 11) Pré-soin (avant d’appliquer le heal)
     elif event == "on_heal_pre":
-        healer_id = int(_k(ctx, "healer_id"))
-        target_id = int(_k(ctx, "target_id"))
-        amount    = int(_k(ctx, "amount", default=0))
+        healer_id = int(ctx.get("healer_id"))
+        target_id = int(ctx.get("target_id"))
+        amount    = int(ctx.get("amount", 0))
 
         code_healer = await get_equipped_code(healer_id)
         mult_target = await get_heal_received_multiplier(target_id)
@@ -681,9 +690,9 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 12) Post-soin
     elif event == "on_heal":
-        healer_id = int(_k(ctx, "healer_id", "user_id"))
-        target_id = int(_k(ctx, "target_id"))
-        healed    = int(_k(ctx, "healed", default=0))
+        healer_id = int(ctx.get("healer_id"))
+        target_id = int(ctx.get("target_id"))
+        healed    = int(ctx.get("healed", 0))
 
         code = await get_equipped_code(healer_id)
 
@@ -710,7 +719,10 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 13) Heal global (quelqu’un a été soigné) — Kerin (5% self heal)
     elif event == "on_any_heal":
-        healer_id = int(_k(ctx, "healer_id"))
+        healer_id = int(ctx.get("healer_id"))
+        target_id = int(ctx.get("target_id"))
+        healed    = int(ctx.get("healed", 0))
+
         code = await get_equipped_code(healer_id)
         if code == CODE_KERIN and random.random() < 0.05:
             try:
@@ -722,30 +734,31 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 14) Avant application d’un statut
     elif event == "on_effect_pre_apply":
-        user_id = int(_k(ctx, "user_id"))
-        eff     = str(_k(ctx, "eff_type", default=""))
+        user_id = int(ctx.get("user_id"))
+        eff     = str(ctx.get("eff_type") or "")
         return await trigger_on_effect_pre_apply(user_id, eff)
 
     # 15) Pré-défense (procs de réduction/annulation/flat)
     elif event == "on_defense_pre":
-        defender_id = int(_k(ctx, "defender_id"))
-        attacker_id = int(_k(ctx, "attacker_id"))
-        incoming    = int(_k(ctx, "incoming", default=0))
+        defender_id = int(ctx.get("defender_id"))
+        attacker_id = int(ctx.get("attacker_id"))
+        incoming    = int(ctx.get("incoming", 0))
         code = await get_equipped_code(defender_id)
 
         cancel = False
         half   = False
         flat   = 0
+        counter_frac = None
 
-        # Alen Drave 5% moitie
+        # Alen Drave 5% moitié
         if code == CODE_ALEN and random.random() < 0.05:
             half = True
 
-        # Darin Venhal 10% moitie
+        # Darin Venhal 10% moitié
         if code == CODE_DARIN and random.random() < 0.10:
             half = True
 
-        # Nathaniel 10% moitie + malus attaquant 1h (−10% dégâts sortants)
+        # Nathaniel 10% moitié + malus attaquant 1h
         if code == CODE_NATHANIEL and random.random() < 0.10:
             half = True
             try:
@@ -774,16 +787,16 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
             if r < 0.30:
                 cancel = True
             elif r < 0.50:
-                return {"cancel": False, "half": False, "flat_reduce": 0, "counter_frac": 0.25}
+                counter_frac = 0.25  # à appliquer côté moteur si tu veux
 
-        return {"cancel": cancel, "half": half, "flat_reduce": flat}
+        return {"cancel": cancel, "half": half, "flat_reduce": flat, "counter_frac": counter_frac}
 
     # 16) Post-défense (après calcul final, savoir si esquive)
     elif event == "on_defense_after":
-        defender_id = int(_k(ctx, "defender_id"))
-        attacker_id = int(_k(ctx, "attacker_id"))
-        final_taken = int(_k(ctx, "final_taken", default=0))
-        dodged      = bool(_k(ctx, "dodged", default=False))
+        defender_id = int(ctx.get("defender_id"))
+        attacker_id = int(ctx.get("attacker_id"))
+        final_taken = int(ctx.get("final_taken", 0))
+        dodged      = bool(ctx.get("dodged", False))
         code = await get_equipped_code(defender_id)
 
         redirect = False
@@ -852,7 +865,7 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
 
     # 17) Ticks horaires / demi-heures
     elif event == "on_hourly_tick":
-        user_id = int(_k(ctx, "user_id"))
+        user_id = int(ctx.get("user_id"))
         code = await get_equipped_code(user_id)
 
         # Dr Elwin Kaas : +1 PB/h
@@ -887,7 +900,7 @@ async def trigger(event: str, **ctx) -> Dict[str, Any]:
         return {}
 
     elif event == "on_half_hour_tick":
-        user_id = int(_k(ctx, "user_id"))
+        user_id = int(ctx.get("user_id"))
         code = await get_equipped_code(user_id)
 
         # Dr Selina : chance de purge chaque 30 min (≈20%)
