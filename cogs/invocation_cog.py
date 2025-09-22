@@ -2,26 +2,73 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
 import aiosqlite
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# ── Données & tirage depuis data/personnage.py (OBLIGATOIRE) ─────────────────
-try:
-    from data.personnage import (
-        PERSONNAGES_LIST,
-        tirage_personnage,   # -> (rarete: str, perso: dict)
-        generer_slug,        # -> str
-    )
-except Exception:
-    PERSONNAGES_LIST = None      # type: ignore
-    tirage_personnage = None     # type: ignore
-    generer_slug = lambda s: s   # type: ignore
+# ─────────────────────────────────────────────────────────────
+# Chargement ROBUSTE des personnages & utilitaires de tirage
+# ─────────────────────────────────────────────────────────────
+# On essaie d'abord data/personnage.py (package "data"),
+# puis on retombe sur le fichier racine personnage.py.
+PERSONNAGES_LIST: List[Dict[str, Any]] = []
+_generer_slug = None
+_tirage_personnage = None
 
-# ── DB partagée (même fichier que /daily, /economy, etc.) ───────────────────
+# 1) Tentative: data.personnage
+try:
+    from data.personnage import PERSONNAGES_LIST as _DATA_LIST  # type: ignore
+    PERSONNAGES_LIST = list(_DATA_LIST or [])
+except Exception as e:
+    print(f"[invocation_cog] Import data.personnage KO → {e!r}")
+
+# 2) Fallback: personnage.py (racine)
+if not PERSONNAGES_LIST:
+    try:
+        from personnage import PERSONNAGES as _PERSOS_DICT  # type: ignore
+        PERSONNAGES_LIST = [dict(p) for p in _PERSOS_DICT.values()]
+        for p in PERSONNAGES_LIST:
+            p.setdefault("invocable", True)
+        print(f"[invocation_cog] Fallback OK: PERSONNAGES_LIST depuis personnage.py ({len(PERSONNAGES_LIST)})")
+    except Exception as e2:
+        print(f"[invocation_cog] Fallback personnage.py KO → {e2!r}")
+
+# 3) Utils: generer_slug / tirage_personnage (depuis personnage.py si dispo)
+try:
+    from personnage import generer_slug as _generer_slug  # type: ignore
+except Exception:
+    pass
+try:
+    from personnage import tirage_personnage as _tirage_personnage  # type: ignore
+except Exception:
+    pass
+
+def generer_slug(name: str) -> str:
+    if callable(_generer_slug):
+        return _generer_slug(name)  # type: ignore
+    # mini version locale (sans accents)
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(name))
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.lower().strip().replace(" ", "-")
+    return "".join(ch for ch in s if ch.isalnum() or ch == "-")
+
+def tirage_personnage() -> Tuple[str, Dict[str, Any]]:
+    if callable(_tirage_personnage):
+        return _tirage_personnage()  # type: ignore
+    # fallback simple: choisit un perso aléatoire et déduit sa rareté
+    import random
+    if not PERSONNAGES_LIST:
+        return "Commun", {}
+    p = random.choice(PERSONNAGES_LIST)
+    return str(p.get("rarete", "Commun")), p
+
+# ─────────────────────────────────────────────────────────────
+# DB partagée (même fichier que /daily, /economy, etc.)
+# ─────────────────────────────────────────────────────────────
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
@@ -111,8 +158,9 @@ async def _set_equipped(uid: int, char_slug: str):
         )
         await db.commit()
 
-
-# ── Utils image tolérants: assets/personnage(s)/, accents, apostrophes ──────
+# ─────────────────────────────────────────────────────────────
+# Utils image tolérants: assets/personnage(s)/, accents, apostrophes
+# ─────────────────────────────────────────────────────────────
 import unicodedata
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -175,23 +223,22 @@ def _image_file_for(perso: dict, suffix: str = "") -> Tuple[Optional[discord.Fil
 
     return None, None
 
-
-# ── Sécurité : refuser si data/personnage.py indisponible ───────────────────
+# ─────────────────────────────────────────────────────────────
+# Sanity check
+# ─────────────────────────────────────────────────────────────
 def _must_have_personnages() -> Optional[str]:
-    if PERSONNAGES_LIST is None or not isinstance(PERSONNAGES_LIST, list) or len(PERSONNAGES_LIST) == 0:
-        return "Le module `data/personnage.py` est introuvable ou la liste `PERSONNAGES_LIST` est vide."
-    if tirage_personnage is None or not callable(tirage_personnage):
-        return "La fonction `tirage_personnage()` est introuvable dans `data/personnage.py`."
+    if not isinstance(PERSONNAGES_LIST, list) or len(PERSONNAGES_LIST) == 0:
+        return "Le module `data/personnage.py` est introuvable (ou vide) **et** le fallback `personnage.py` a échoué."
     return None
-
 
 # ============================================================================
 
 class Invocation(commands.Cog):
-    """Invoque un personnage défini dans data/personnage.py en consommant des tickets."""
+    """Invoque un personnage défini dans data/personnage.py (ou fallback racine) en consommant des tickets."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        print(f"[invocation_cog] personnages chargés: {len(PERSONNAGES_LIST)}")
 
     @app_commands.command(name="invocation", description="Utilise tes tickets pour invoquer un personnage.")
     @app_commands.describe(tirages="Nombre d'invocations (1–10)")
@@ -241,7 +288,7 @@ class Invocation(commands.Cog):
         embeds: List[discord.Embed] = []
         files: List[discord.File] = []
 
-        # Tirage unique → 1 embed détaillé (avec image AU BAS de l'embed)
+        # Tirage unique → 1 embed détaillé (image en bas)
         if len(results) == 1:
             rarete, p, is_new = results[0]
             nom = p.get("nom", "Inconnu")
@@ -256,14 +303,11 @@ class Invocation(commands.Cog):
             e.description = f"**{nom}** — *{rarete}* ({faction}){nouveau}"
             e.add_field(name="Description", value=desc, inline=False)
             e.add_field(name="Capacité", value=f"**{cap_nom}**\n{cap_effet}", inline=False)
-
-            # Résumé
             e.add_field(name="🎟 Tickets", value=f"−{tirages} (reste: {remaining})", inline=True)
             e.add_field(name="📚 Collection", value=f"{owned_total} possédés (+{new_count} nouveaux)", inline=True)
             e.add_field(name="Équipement", value=equip_line, inline=False)
             e.set_footer(text="Astuce: /invocation 10 pour une multi.")
 
-            # Image en bas de l'embed (attachment ou URL)
             f, safe_name_or_url = _image_file_for(p, suffix="_1")
             if f and safe_name_or_url:
                 files.append(f)
@@ -273,7 +317,7 @@ class Invocation(commands.Cog):
 
             embeds.append(e)
 
-        # Multi → 1 embed PAR tirage (max 10). Le premier embed porte le résumé.
+        # Multi → 1 embed PAR tirage (max 10)
         else:
             for idx, (rarete, p, is_new) in enumerate(results, start=1):
                 nom = p.get("nom", "Inconnu")
@@ -295,7 +339,6 @@ class Invocation(commands.Cog):
                     e.add_field(name="Équipement", value=equip_line, inline=False)
                     e.set_footer(text="Astuce: /invocation 10 pour une multi.")
 
-                # Image (suffix différent pour éviter les collisions d'attachment)
                 f, safe_name_or_url = _image_file_for(p, suffix=f"_{idx}")
                 if f and safe_name_or_url:
                     files.append(f)
