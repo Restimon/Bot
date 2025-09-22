@@ -191,6 +191,36 @@ class CombatCog(commands.Cog):
         buffs = await self._sum_effect_value(user_id, "reduction", "reduction_temp", "reduction_valen")
         return min(base + float(buffs), 0.90)
 
+    async def _calc_outgoing_penalty(self, attacker_id: int, base: int) -> int:
+        """
+        Compat adapter: certaines versions de get_outgoing_damage_penalty(uid, base=..),
+        d'autres: get_outgoing_damage_penalty(uid) → int OU dict {"flat":x,"percent":y}.
+        """
+        try:
+            # 1) Essai variante positionnelle (ancienne API)
+            try:
+                res = await get_outgoing_damage_penalty(attacker_id, base)  # type: ignore
+                return max(0, int(res or 0))
+            except TypeError:
+                pass
+
+            # 2) Variante "base=" keyword
+            try:
+                res = await get_outgoing_damage_penalty(attacker_id, base=base)  # type: ignore
+                return max(0, int(res or 0))
+            except TypeError:
+                pass
+
+            # 3) Variante 1 argument
+            res = await get_outgoing_damage_penalty(attacker_id)  # type: ignore
+            if isinstance(res, dict):
+                flat = int(res.get("flat", 0) or 0)
+                pct = float(res.get("percent", 0) or 0.0)
+                return max(0, int(flat + round(base * pct)))
+            return max(0, int(res or 0))
+        except Exception:
+            return 0
+
     # ─────────────────────────────────────────────────────────
     # Pipeline dégâts / soins / effets
     # ─────────────────────────────────────────────────────────
@@ -278,8 +308,8 @@ class CombatCog(commands.Cog):
         if await king_execute_ready(attacker.id, target.id):
             base = max(base, 10_000_000)
 
-        # 1) malus attaque (positionnel)
-        penalty = await get_outgoing_damage_penalty(attacker.id, base)
+        # 1) malus attaque (compat)
+        penalty = await self._calc_outgoing_penalty(attacker.id, base)
         base = max(0, base - int(penalty))
 
         # 2) crit
@@ -316,7 +346,7 @@ class CombatCog(commands.Cog):
         if await king_execute_ready(attacker.id, target.id):
             base = max(base, 10_000_000)
 
-        penalty = await get_outgoing_damage_penalty(attacker.id, base)
+        penalty = await self._calc_outgoing_penalty(attacker.id, base)
         base = max(0, base - int(penalty))
 
         await transfer_virus_on_attack(attacker.id, target.id)
@@ -713,7 +743,7 @@ class CombatCog(commands.Cog):
         if await king_execute_ready(inter.user.id, target.id):
             base = max(base, 10_000_000)
 
-        base -= int(await get_outgoing_damage_penalty(inter.user.id, base))
+        base -= int(await self._calc_outgoing_penalty(inter.user.id, base))
         base = max(0, base)
 
         await transfer_virus_on_attack(inter.user.id, target.id)
