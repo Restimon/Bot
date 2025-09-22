@@ -26,7 +26,7 @@ from effects_db import (
     effects_loop,
     set_broadcaster,
     transfer_virus_on_attack,
-    get_outgoing_damage_penalty,  # renvoie un malus total à soustraire (flat/équivalent)
+    get_outgoing_damage_penalty,   # gère flat + % (avec base)
 )
 
 # monnaie / inventaire
@@ -38,6 +38,7 @@ from passifs import (
     trigger,
     get_extra_dodge_chance,
     get_extra_reduction_percent,
+    king_execute_ready,
     undying_zeyra_check_and_mark,
 )
 
@@ -48,7 +49,6 @@ except Exception:
     OBJETS = {}
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
-
 
 # ─────────────────────────────────────────────────────────────
 # MAPPING des salons de ticks : user_id -> (guild_id, channel_id)
@@ -64,7 +64,6 @@ def get_all_tick_targets() -> List[Tuple[int, int]]:
     for pair in _tick_channels.values():
         seen.add(pair)
     return list(seen)
-
 
 # ─────────────────────────────────────────────────────────────
 # Broadcaster des ticks (appelé par effects_db)
@@ -90,12 +89,11 @@ async def _effects_broadcaster(bot: commands.Bot, guild_id: int, channel_id: int
         embed.description = "\n".join(lines)
     await channel.send(embed=embed)
 
-
 # ─────────────────────────────────────────────────────────────
 # Le COG
 # ─────────────────────────────────────────────────────────────
 class CombatCog(commands.Cog):
-    """Système de combat : /fight /heal /use + commandes de test."""
+    """Système de combat : /fight /heal /use + commandes de test (poison, virus, etc.)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -157,19 +155,68 @@ class CombatCog(commands.Cog):
         return out
 
     async def _compute_dodge_chance(self, user_id: int) -> float:
-        """Esquive = passif (Nova/Elira/...) + effets 'esquive' cumulés. Cap 95%."""
+        """Esquive = passif + effets 'esquive' cumulés. Cap 95%."""
         base = await get_extra_dodge_chance(user_id)
         buffs = await self._sum_effect_value(user_id, "esquive")
         return min(base + float(buffs), 0.95)
 
     async def _compute_reduction_pct(self, user_id: int) -> float:
-        """DR% = passif (Cielya/Nathaniel/Veylor/Valen) + effets 'reduction*' cumulés. Cap 90%."""
+        """DR% = passif + effets 'reduction*' cumulés. Cap 90%."""
         base = await get_extra_reduction_percent(user_id)
         buffs = await self._sum_effect_value(user_id, "reduction", "reduction_temp", "reduction_valen")
         return min(base + float(buffs), 0.90)
 
     # ─────────────────────────────────────────────────────────
-    # Pipeline de dégâts
+    # AUTOCOMPLÉTION /fight objet
+    # ─────────────────────────────────────────────────────────
+    async def _format_choice_label(self, emoji: str, info: Dict) -> str:
+        typ = info.get("type")
+        label = emoji
+        try:
+            if typ == "attaque":
+                d = int(info.get("degats", 0) or 0)
+                if d:
+                    label += f"  [Dégâts {d}]"
+            elif typ == "attaque_chaine":
+                d1 = int(info.get("degats_principal", 0) or 0)
+                d2 = int(info.get("degats_secondaire", 0) or 0)
+                if d1 or d2:
+                    label += f"  [Dégâts {d1}+{d2}]"
+        except Exception:
+            pass
+        return label
+
+    async def _autocomplete_items(self, user_id: int, current: str, wanted_types: Tuple[str, ...]) -> List[app_commands.Choice[str]]:
+        current = (current or "").strip().lower()
+        rows: List[Tuple[int, str, str]] = []  # (prio, display_name, value)
+
+        # 1) prioriser les items possédés (qty>0)
+        for emo, info in OBJETS.items():
+            if not isinstance(info, dict):
+                continue
+            if info.get("type") not in wanted_types:
+                continue
+            try:
+                qty = int(await get_item_qty(user_id, emo) or 0)
+            except Exception:
+                qty = 0
+            display = await self._format_choice_label(emo, info)
+            if current and (current not in display.lower()):
+                continue
+            prio = 0 if qty > 0 else 1
+            # si possédé, l’indiquer
+            if qty > 0:
+                display = f"{display}  (x{qty})"
+            rows.append((prio, display, emo))
+
+        # 2) tri: possédés d’abord, puis alpha
+        rows.sort(key=lambda r: (r[0], r[1]))
+        rows = rows[:25]
+
+        return [app_commands.Choice(name=disp, value=val) for _, disp, val in rows]
+
+    # ─────────────────────────────────────────────────────────
+    # Application des objets (effets et dégâts)
     # ─────────────────────────────────────────────────────────
     async def _resolve_hit(
         self,
@@ -191,10 +238,10 @@ class CombatCog(commands.Cog):
             await trigger("on_defense_after",
                           defender_id=target.id, attacker_id=attacker.id,
                           final_taken=0, dodged=True)
-            # Elira: redirection & PB est géré côté passifs.trigger
+            # Elira: redirect & PB géré côté passifs.trigger
             return 0, 0, True, "\n🛰️ **Esquive !**"
 
-        # 1) pre-defense procs (Alen, Darin, Nathaniel, Veylor, Mahd…)
+        # 1) pre-defense procs
         predef = await trigger("on_defense_pre",
                                defender_id=target.id,
                                attacker_id=attacker.id,
@@ -204,7 +251,7 @@ class CombatCog(commands.Cog):
         flat   = int(predef.get("flat_reduce", 0))
         counter_frac = float(predef.get("counter_frac", 0.0) or 0.0)
 
-        # 2) DR % cumulée
+        # 2) DR %
         dr_pct = await self._compute_reduction_pct(target.id)
 
         # 3) appliquer annulations / moitiés / DR / flat
@@ -215,7 +262,7 @@ class CombatCog(commands.Cog):
             dmg_final = int(dmg_final * (1.0 - dr_pct))  # DR pré-PB
             dmg_final = max(0, dmg_final - flat)
 
-        # 4) appliquer les dégâts (gère PB/PV)
+        # 4) appliquer les dégâts
         res = await deal_damage(attacker.id, target.id, int(dmg_final))
         absorbed = int(res.get("absorbed", 0) or 0)
 
@@ -244,38 +291,28 @@ class CombatCog(commands.Cog):
 
         return int(dmg_final), absorbed, False, ko_txt
 
-    # ─────────────────────────────────────────────────────────
-    # Application des objets (effets et dégâts)
-    # ─────────────────────────────────────────────────────────
     async def _apply_attack(self, inter: discord.Interaction, attacker: discord.Member, target: discord.Member, emoji: str, info: Dict) -> discord.Embed:
         """Attaque avec un objet de type 'attaque'."""
         base = int(info.get("degats", 0) or 0)
 
-        # Pré-attaque (Kara/Liane/Nehra/Abomi…)
-        pre = await trigger("on_attack_pre", attacker_id=attacker.id, target_id=target.id) or {}
-        base += int(pre.get("bonus_damage", 0))
+        # 0) execute du Roi
+        if await king_execute_ready(attacker.id, target.id):
+            base = max(base, 10_000_000)
 
-        # +% vs infectés (Abomi)
-        try:
-            if float(pre.get("vs_infected_bonus_pct", 0.0)) > 0 and await has_effect(target.id, "infection"):
-                base = int(round(base * (1.0 + float(pre["vs_infected_bonus_pct"]))))
-        except Exception:
-            pass
-
-        # Malus d’attaque (poison/outgoing_penalty…)
-        penalty = await get_outgoing_damage_penalty(attacker.id)
+        # 1) malus d’attaque (poison etc.) — % + flat
+        penalty = await get_outgoing_damage_penalty(attacker.id, base=base)
         base = max(0, base - int(penalty))
 
-        # critique (x2 par défaut si info.crit > 0)
+        # 2) critique (x2 par défaut)
         crit_chance = float(info.get("crit", 0.0) or 0.0)
         is_crit = (random.random() < crit_chance)
-        if is_crit:
-            base = int(base * 2)
+        crit_mul = 2.0 if is_crit else 1.0
+        base = int(base * crit_mul)
 
-        # transfert de virus (si l’attaquant le porte)
+        # 3) transfert de virus (si l’attaquant le porte)
         await transfer_virus_on_attack(attacker.id, target.id)
 
-        # pipeline complet
+        # 4) pipeline complet
         dmg_final, absorbed, dodged, ko_txt = await self._resolve_hit(
             inter, attacker, target, base, is_crit, None
         )
@@ -296,24 +333,24 @@ class CombatCog(commands.Cog):
         return e
 
     async def _apply_chain_attack(self, inter: discord.Interaction, attacker: discord.Member, target: discord.Member, emoji: str, info: Dict) -> discord.Embed:
-        """Attaque à deux composantes (on somme, simple)."""
+        """Attaque à deux composantes (on somme, plus simple/clair)."""
         d1 = int(info.get("degats_principal", 0) or 0)
         d2 = int(info.get("degats_secondaire", 0) or 0)
         base = d1 + d2
 
-        # Pré-attaque (bonus plat éventuel)
-        pre = await trigger("on_attack_pre", attacker_id=attacker.id, target_id=target.id) or {}
-        base += int(pre.get("bonus_damage", 0))
-        if float(pre.get("vs_infected_bonus_pct", 0.0)) > 0 and await has_effect(target.id, "infection"):
-            base = int(round(base * (1.0 + float(pre["vs_infected_bonus_pct"]))))
+        # 0) execute du Roi
+        if await king_execute_ready(attacker.id, target.id):
+            base = max(base, 10_000_000)
 
-        # Malus d’attaque
-        base = max(0, base - int(await get_outgoing_damage_penalty(attacker.id)))
+        # 1) malus d’attaque
+        penalty = await get_outgoing_damage_penalty(attacker.id, base=base)
+        base = max(0, base - int(penalty))
 
-        # Pas de crit spécial ici (à adapter si besoin)
+        # 2) pas de crit spécifique
+        # 3) transfert de virus
         await transfer_virus_on_attack(attacker.id, target.id)
 
-        # pipeline
+        # 4) pipeline
         dmg_final, absorbed, dodged, ko_txt = await self._resolve_hit(
             inter, attacker, target, base, False, None
         )
@@ -335,8 +372,11 @@ class CombatCog(commands.Cog):
         heal = int(info.get("soin", 0) or 0)
         who = target or user
 
-        # hook pré-soin (Tessa +1, mult. Aelran, etc.)
-        pre = await trigger("on_heal_pre", healer_id=user.id, target_id=who.id, amount=heal) or {}
+        # hook pré-soin
+        try:
+            pre = await trigger("on_heal_pre", healer_id=user.id, target_id=who.id, amount=heal) or {}
+        except Exception:
+            pre = {}
         heal += int(pre.get("heal_bonus", 0))
         mult = float(pre.get("mult_target", 1.0))
         heal = max(0, int(round(heal * mult)))
@@ -363,7 +403,7 @@ class CombatCog(commands.Cog):
         interval = int(info.get("intervalle", 60) or 60)
         duration = int(info.get("duree", 3600) or 3600)
 
-        # blocage d’effets ? (immunité Valen, etc.)
+        # blocage d’effets ?
         block = await trigger("on_effect_pre_apply", user_id=who.id, eff_type="regen") or {}
         if block.get("blocked"):
             return discord.Embed(
@@ -392,7 +432,7 @@ class CombatCog(commands.Cog):
         interval = int(info.get("intervalle", 60) or 60)
         duration = int(info.get("duree", 3600) or 3600)
 
-        # blocage d’effets ? (Valen immunités, Dr Elwin poison, Nathaniel 5%…)
+        # blocage d’effets ?
         block = await trigger("on_effect_pre_apply", user_id=target.id, eff_type=eff_type) or {}
         if block.get("blocked"):
             return discord.Embed(
@@ -401,7 +441,7 @@ class CombatCog(commands.Cog):
                 color=discord.Color.orange()
             )
 
-        # Bonus Anna (+1) si disponible
+        # petit bonus Anna: +1 infection
         if eff_type == "infection":
             try:
                 from passifs import modify_infection_application
@@ -473,7 +513,7 @@ class CombatCog(commands.Cog):
     # /fight — attaque (nécessite un objet d’attaque)
     # ─────────────────────────────────────────────────────────
     @app_commands.command(name="fight", description="Attaquer un joueur avec un objet d’attaque.")
-    @app_commands.describe(cible="La cible", objet="Emoji de l'objet (ex: 🔫, 🔥, 🪓, ❄️...)")
+    @app_commands.describe(cible="La cible", objet="Choisis un objet d’attaque")
     async def fight(self, inter: discord.Interaction, cible: discord.Member, objet: str):
         if inter.user.id == cible.id:
             return await inter.response.send_message("Tu ne peux pas t’attaquer toi-même.", ephemeral=True)
@@ -495,6 +535,11 @@ class CombatCog(commands.Cog):
 
         await inter.followup.send(embed=embed)
         await self._maybe_update_leaderboard(inter.guild.id, "fight")
+
+    # ⇩⇩ Autocomplétion pour le paramètre `objet` de /fight ⇩⇩
+    @fight.autocomplete("objet")
+    async def ac_fight_objet(self, inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        return await self._autocomplete_items(inter.user.id, current, ("attaque", "attaque_chaine"))
 
     # ─────────────────────────────────────────────────────────
     # /heal — soin (objet de soin direct ou régénération)
@@ -593,7 +638,6 @@ class CombatCog(commands.Cog):
                 embed.description += f"\n🎁 Bonus: **{extra}**"
 
         elif typ == "vol":
-            # version simple: 25% d’avoir un item aléatoire (sans cible)
             if isinstance(cible, discord.Member):
                 # anti-vol (Lyss Tenra) si cible fournie
                 res = await trigger("on_theft_attempt", attacker_id=inter.user.id, target_id=cible.id)
@@ -654,7 +698,7 @@ class CombatCog(commands.Cog):
         await self._maybe_update_leaderboard(inter.guild.id, "use")
 
     # ─────────────────────────────────────────────────────────
-    # Commandes de test (gardées)
+    # Commandes de test
     # ─────────────────────────────────────────────────────────
     @app_commands.command(name="hit", description="(test) Inflige des dégâts directs à une cible.")
     @app_commands.describe(target="Cible", amount="Dégâts directs (appliquent esquive/DR/PB/PV)")
@@ -663,19 +707,13 @@ class CombatCog(commands.Cog):
             return await inter.response.send_message("Le montant doit être > 0.", ephemeral=True)
 
         await inter.response.defer(thinking=True)
-
         base = int(amount)
+        if await king_execute_ready(inter.user.id, target.id):
+            base = max(base, 10_000_000)
 
-        # Pré-attaque (bonus éventuels)
-        pre = await trigger("on_attack_pre", attacker_id=inter.user.id, target_id=target.id) or {}
-        base += int(pre.get("bonus_damage", 0))
-        if float(pre.get("vs_infected_bonus_pct", 0.0)) > 0 and await has_effect(target.id, "infection"):
-            base = int(round(base * (1.0 + float(pre["vs_infected_bonus_pct"]))))
+        base -= int(await get_outgoing_damage_penalty(inter.user.id, base=base))
+        base = max(0, base)
 
-        # malus d’attaque
-        base = max(0, base - int(await get_outgoing_damage_penalty(inter.user.id)))
-
-        # transfert virus
         await transfer_virus_on_attack(inter.user.id, target.id)
 
         dmg_final, absorbed, dodged, ko_txt = await self._resolve_hit(
