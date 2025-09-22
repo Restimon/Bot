@@ -3,15 +3,20 @@ from __future__ import annotations
 from typing import Dict, Any, List, Optional
 
 """
-Pont vers le fichier racine `personnage.py`.
+Bridge vers le fichier racine `personnage.py`.
 
-- Importe PERSONNAGES (dict {nom: fiche}) et divers helpers.
-- Construit PERSONNAGES_LIST (liste de fiches), pour compatibilité
-  avec les anciens cogs qui l’attendent depuis data.personnage.
+Expose :
+- PERSONNAGES_LIST : List[Dict[str, Any]] (normalisée)
+- PERSONNAGES, PASSIF_CODE_MAP, trouver, get_tous_les_noms
+
+La normalisation ajoute des champs manquants et met invocable=True
+par défaut pour éviter que certains cogs filtrent tout à vide.
 """
 
+# ─────────────────────────────────────────────────────────────
+# Import source (racine)
+# ─────────────────────────────────────────────────────────────
 try:
-    # Ton module racine avec toutes les définitions
     from personnage import (
         PERSONNAGES,         # Dict[str, Dict[str, Any]]
         PASSIF_CODE_MAP,     # Dict[str, str]
@@ -19,7 +24,7 @@ try:
         get_tous_les_noms,   # () -> List[str]
     )
 except Exception:
-    # Fallback ultra minimal (au cas où le module racine n'est pas dispo au runtime)
+    # Fallback minimal si le module racine n'est pas dispo
     PERSONNAGES: Dict[str, Dict[str, Any]] = {}
     PASSIF_CODE_MAP: Dict[str, str] = {}
 
@@ -35,25 +40,52 @@ except Exception:
     def get_tous_les_noms() -> List[str]:
         return list(PERSONNAGES.keys())
 
+# ─────────────────────────────────────────────────────────────
+# Normalisation des fiches
+# ─────────────────────────────────────────────────────────────
+def _normalize_fiche(nom: str, raw: Any) -> Dict[str, Any]:
+    """
+    S’assure que chaque fiche a :
+      - nom (str)
+      - rarete (str, défaut "Commun")
+      - faction (str, défaut "GotValis")
+      - passif: {nom:str, effet:str}
+      - invocable: bool (défaut True)
+      - key interne optionnelle (identique au nom), utile à certains cogs
+    """
+    f: Dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
+    f.setdefault("nom", nom)
+    f.setdefault("rarete", "Commun")
+    f.setdefault("faction", "GotValis")
+    # structure de passif
+    p = f.get("passif")
+    if not isinstance(p, dict):
+        p = {}
+    p.setdefault("nom", f.get("passif_nom", "Passif"))
+    p.setdefault("effet", f.get("passif_effet", ""))
+    f["passif"] = p
+    # clé interne et invocabilité
+    f.setdefault("key", nom)
+    f.setdefault("invocable", True)  # <— important : défaut True
+    return f
 
 def _to_list(src: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Convertit le dict PERSONNAGES {nom: {...}} en liste de fiches
-    [{nom, rarete, faction, passif, ...}] comme certains cogs l’attendent.
-    Garantit que la clé 'nom' est toujours présente dans chaque fiche.
-    """
     out: List[Dict[str, Any]] = []
     for nom, p in (src or {}).items():
-        fiche = dict(p) if isinstance(p, dict) else {}
-        fiche.setdefault("nom", nom)
-        out.append(fiche)
+        out.append(_normalize_fiche(nom, p))
     return out
 
-
-# Ce que des cogs importent depuis data.personnage :
+# ─────────────────────────────────────────────────────────────
+# Exports
+# ─────────────────────────────────────────────────────────────
 PERSONNAGES_LIST: List[Dict[str, Any]] = _to_list(PERSONNAGES)
 
-# On ré-exporte aussi ces symboles pour convenance
+# petit log de debug (facultatif) : combien de persos chargés
+if not PERSONNAGES_LIST:
+    # Utilise print pour qu'on voie quelque chose dans les logs Render
+    print("[data.personnage] ATTENTION: PERSONNAGES_LIST est vide. "
+          "Vérifie `personnage.py` (PERSONNAGES) ou les chemins d'import.")
+
 __all__ = [
     "PERSONNAGES_LIST",
     "PERSONNAGES",
