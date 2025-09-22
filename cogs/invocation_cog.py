@@ -12,8 +12,6 @@ from discord.ext import commands
 # ─────────────────────────────────────────────────────────────
 # Chargement ROBUSTE des personnages & utilitaires de tirage
 # ─────────────────────────────────────────────────────────────
-# On essaie d'abord data/personnage.py (package "data"),
-# puis on retombe sur le fichier racine personnage.py.
 PERSONNAGES_LIST: List[Dict[str, Any]] = []
 _generer_slug = None
 _tirage_personnage = None
@@ -49,7 +47,6 @@ except Exception:
 def generer_slug(name: str) -> str:
     if callable(_generer_slug):
         return _generer_slug(name)  # type: ignore
-    # mini version locale (sans accents)
     import unicodedata
     s = unicodedata.normalize("NFKD", str(name))
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
@@ -59,7 +56,6 @@ def generer_slug(name: str) -> str:
 def tirage_personnage() -> Tuple[str, Dict[str, Any]]:
     if callable(_tirage_personnage):
         return _tirage_personnage()  # type: ignore
-    # fallback simple: choisit un perso aléatoire et déduit sa rareté
     import random
     if not PERSONNAGES_LIST:
         return "Commun", {}
@@ -74,12 +70,6 @@ try:
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-CREATE_TICKETS_SQL = """
-CREATE TABLE IF NOT EXISTS tickets (
-    user_id INTEGER PRIMARY KEY,
-    count   INTEGER NOT NULL
-);
-"""
 CREATE_OWNED_SQL = """
 CREATE TABLE IF NOT EXISTS gacha_owned (
     user_id INTEGER NOT NULL,
@@ -96,32 +86,12 @@ CREATE TABLE IF NOT EXISTS equipped_character (
 
 async def _ensure_tables():
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(CREATE_TICKETS_SQL)
         await db.execute(CREATE_OWNED_SQL)
         await db.execute(CREATE_EQUIPPED_SQL)
         await db.commit()
 
-async def _get_tickets(uid: int) -> int:
-    await _ensure_tables()
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT count FROM tickets WHERE user_id=?", (uid,))
-        row = await cur.fetchone(); await cur.close()
-        return int(row[0]) if row else 0
-
-async def _add_tickets(uid: int, delta: int) -> int:
-    """Ajoute (ou retire) des tickets et retourne le nouveau total."""
-    await _ensure_tables()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO tickets(user_id, count) VALUES(?, 0) "
-            "ON CONFLICT(user_id) DO NOTHING",
-            (uid,),
-        )
-        await db.execute("UPDATE tickets SET count = MAX(0, count + ?) WHERE user_id=?", (delta, uid))
-        await db.commit()
-        cur = await db.execute("SELECT count FROM tickets WHERE user_id=?", (uid,))
-        row = await cur.fetchone(); await cur.close()
-        return int(row[0]) if row else 0
+# Tickets: on utilise le même module que le daily
+from tickets_db import get_tickets as _get_tickets, add_tickets as _add_tickets
 
 async def _own_char(uid: int, char_slug: str) -> bool:
     """Enregistre un perso possédé ; True si nouveau, False si doublon."""
@@ -159,7 +129,7 @@ async def _set_equipped(uid: int, char_slug: str):
         await db.commit()
 
 # ─────────────────────────────────────────────────────────────
-# Utils image tolérants: assets/personnage(s)/, accents, apostrophes
+# Utils image tolérants
 # ─────────────────────────────────────────────────────────────
 import unicodedata
 
@@ -195,16 +165,14 @@ def _image_file_for(perso: dict, suffix: str = "") -> Tuple[Optional[discord.Fil
     """
     Retourne (file, safe_filename_or_url).
     - URL http(s) -> (None, url)
-    - Fichier local -> (discord.File, 'inv{suffix or _1}.png') pour set_image('attachment://...')
+    - Fichier local -> (discord.File, 'inv{suffix or _1}.png')
     """
     img = str(perso.get("image") or "").strip()
     name = str(perso.get("nom") or "").strip()
 
-    # URL directe
     if img.startswith("http://") or img.startswith("https://"):
         return None, img
 
-    # Chemin exact (+ correction 'personnage' -> 'personnages')
     candidate: Optional[Path] = None
     if img:
         p = (PROJECT_ROOT / img).resolve()
@@ -213,12 +181,11 @@ def _image_file_for(perso: dict, suffix: str = "") -> Tuple[Optional[discord.Fil
             p2 = (PROJECT_ROOT / img.replace("/personnage/", "/personnages/")).resolve()
             candidate = _try_file(p2)
 
-    # Fallback par nom
     if not candidate and name:
         candidate = _find_by_name(name)
 
     if candidate:
-        safe = f"inv{suffix or '_1'}.png"  # nom garanti sans espace/accent
+        safe = f"inv{suffix or '_1'}.png"
         return discord.File(str(candidate), filename=safe), safe
 
     return None, None
@@ -259,14 +226,14 @@ class Invocation(commands.Cog):
                 f"❌ Pas assez de tickets. Il te faut **{tirages}**, tu en as **{have}**."
             )
 
-        # anti double-clic
+        # Anti double-clic
         await _add_tickets(uid, -tirages)
 
         # Tirages
         results: List[Tuple[str, dict, bool]] = []
         new_count = 0
         for _ in range(tirages):
-            rarete, perso = tirage_personnage()  # -> ("Rare", { "nom": ..., "image": ..., "passif": {...} })
+            rarete, perso = tirage_personnage()
             if not perso or not perso.get("nom"):
                 continue
             slug = generer_slug(perso["nom"])
@@ -348,7 +315,7 @@ class Invocation(commands.Cog):
 
                 embeds.append(e)
 
-        # Envoi (≤10 embeds et ≤10 fichiers par message)
+        # Envoi
         if files:
             await interaction.followup.send(embeds=embeds, files=files)
         else:
