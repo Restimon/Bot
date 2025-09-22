@@ -74,14 +74,20 @@ except Exception:
     async def undying_zeyra_check_and_mark(*args, **kwargs) -> bool:
         return False
 
-# Objets (emoji -> caractéristiques) + GIFs d’attaque
+# Objets (emoji -> caractéristiques) ; on fabrique un petit mapping local pour les GIFs
 try:
-    from utils import OBJETS, get_random_item, FIGHT_GIFS  # type: ignore
+    from utils import OBJETS, get_random_item  # type: ignore
 except Exception:
     OBJETS = {}
-    FIGHT_GIFS = {}
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
+
+def _gif_for(emoji: str) -> Optional[str]:
+    info = OBJETS.get(emoji) or {}
+    url = info.get("gif") or info.get("gif_attack") or info.get("gif_heal")
+    if isinstance(url, str) and (url.startswith("http://") or url.startswith("https://")):
+        return url
+    return None
 
 # ─────────────────────────────────────────────────────────────
 # MAPPING des salons de ticks : user_id -> (guild_id, channel_id)
@@ -330,8 +336,8 @@ class CombatCog(commands.Cog):
             e.description = "\n".join(lines)
 
         # GIF en bas de l'embed
-        gif = FIGHT_GIFS.get(emoji)
-        if isinstance(gif, str) and (gif.startswith("http://") or gif.startswith("https://")):
+        gif = _gif_for(emoji)
+        if gif:
             e.set_image(url=gif)
         return e
 
@@ -349,7 +355,7 @@ class CombatCog(commands.Cog):
         penalty = await self._calc_outgoing_penalty(attacker.id, base)
         base = max(0, base - int(penalty))
 
-        # (on garde le crit mécaniquement mais on ne l'affiche pas dans le style ancien)
+        # crit (gardé pour les calculs, pas d’affichage spécifique ici)
         crit_chance = float(info.get("crit", 0.0) or 0.0)
         is_crit = (random.random() < crit_chance)
         base = int(base * (2.0 if is_crit else 1.0))
@@ -420,7 +426,6 @@ class CombatCog(commands.Cog):
         except Exception:
             pass
 
-        # Style simple, clair
         e = discord.Embed(
             title=f"{emoji} Soin",
             description=(
@@ -429,8 +434,8 @@ class CombatCog(commands.Cog):
             ),
             color=discord.Color.green()
         )
-        gif = FIGHT_GIFS.get(emoji)
-        if isinstance(gif, str) and (gif.startswith("http://") or gif.startswith("https://")):
+        gif = _gif_for(emoji)
+        if gif:
             e.set_image(url=gif)
         return e
 
@@ -438,8 +443,12 @@ class CombatCog(commands.Cog):
         who = target or user
         remember_tick_channel(who.id, inter.guild.id, inter.channel.id)
         val = int(info.get("valeur", 0) or 0)
-        interval = int(info.get("intervalle", 60) or 60)
+        interval = int(info.get("intervalle", 0) or 0)
         duration = int(info.get("duree", 3600) or 3600)
+
+        # Fallbacks sains
+        if interval <= 0:
+            interval = 60
 
         block = await trigger("on_effect_pre_apply", user_id=who.id, eff_type="regen") or {}
         if block.get("blocked"):
@@ -460,16 +469,22 @@ class CombatCog(commands.Cog):
                         f"➕ **{val} PV** toutes les **{max(1,interval)//60} min** pendant **{max(1,duration)//3600} h**.",
             color=discord.Color.green()
         )
-        gif = FIGHT_GIFS.get(emoji)
-        if isinstance(gif, str) and (gif.startswith("http://") or gif.startswith("https://")):
+        gif = _gif_for(emoji)
+        if gif:
             e.set_image(url=gif)
         return e
 
     async def _apply_dot(self, inter: discord.Interaction, user: discord.Member, target: discord.Member, emoji: str, info: Dict, eff_type: str, label: str) -> discord.Embed:
         remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
         val = int(info.get("degats", 0) or 0)
-        interval = int(info.get("intervalle", 60) or 60)
+        interval = int(info.get("intervalle", 0) or 0)
         duration = int(info.get("duree", 3600) or 3600)
+
+        # ✅ virus = 1 tick / heure si non spécifié
+        if eff_type == "virus" and interval <= 0:
+            interval = 3600
+        if interval <= 0:
+            interval = 60  # fallback sûr
 
         block = await trigger("on_effect_pre_apply", user_id=target.id, eff_type=eff_type) or {}
         if block.get("blocked"):
@@ -497,8 +512,8 @@ class CombatCog(commands.Cog):
                         f"⏳ Effet: **{val}** toutes les **{max(1,interval)//60} min** pendant **{max(1,duration)//3600} h**.",
             color=discord.Color.orange()
         )
-        gif = FIGHT_GIFS.get(emoji)
-        if isinstance(gif, str) and (gif.startswith("http://") or gif.startswith("https://")):
+        gif = _gif_for(emoji)
+        if gif:
             e.set_image(url=gif)
         return e
 
@@ -823,7 +838,7 @@ class CombatCog(commands.Cog):
     async def cmd_virus(self, inter: discord.Interaction, target: discord.Member):
         await inter.response.defer(thinking=True)
         remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
-        cfg = {"value": 0, "interval": 60, "duration": 600}
+        cfg = {"value": 0, "interval": 3600, "duration": 6*3600}
         await add_or_refresh_effect(
             user_id=target.id, eff_type="virus", value=cfg["value"], duration=cfg["duration"], interval=cfg["interval"],
             source_id=inter.user.id, meta_json=json.dumps({"applied_in": inter.channel.id})
