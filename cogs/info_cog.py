@@ -22,12 +22,12 @@ except Exception:
     except Exception:
         _get_total_career = None
 
-# ---- Effets (optionnels) -----------------------------------------------------
-_get_effects: Optional[callable] = None
+# ---- Effets (utilise la même source que le combat) ---------------------------
+_list_effects: Optional[callable] = None
 try:
-    from effects_db import get_active_effects as _get_effects  # type: ignore
+    from effects_db import list_effects as _list_effects  # type: ignore
 except Exception:
-    _get_effects = None
+    _list_effects = None
 
 # ---- Personnage équipé (source prioritaire: gacha_db si dispo) ---------------
 _gacha_get_equipped: Optional[callable] = None
@@ -364,20 +364,34 @@ class Info(commands.Cog):
         inv_items = await get_all_items(uid)  # List[Tuple[str(emoji), int]]
         lines = _format_items_lines(inv_items)
 
-        # PV & bouclier
+        # PV & bouclier — mêmes sources que le COG de combat
         hp, hp_max = 100, 100
         try:
-            from stats_db import get_hp, get_max_hp  # type: ignore
-            hp = int(await get_hp(uid))              # type: ignore
-            hp_max = int(await get_max_hp(uid))      # type: ignore
+            from stats_db import get_hp  # type: ignore
+            hp, hp_max = await get_hp(uid)  # ← get_hp renvoie (hp, max_hp)
         except Exception:
             pass
 
-        shield_now = shield_max = 0
-        if _get_shield and _get_max_shield:
+        shield_now = 0
+        shield_max = 0
+        # 1) Base dédiée PB si dispo
+        if _get_shield:
             try:
-                shield_now = int(await _get_shield(uid))           # type: ignore
-                shield_max = int(await _get_max_shield(uid))       # type: ignore
+                shield_now = int(await _get_shield(uid))  # type: ignore
+            except Exception:
+                pass
+        if _get_max_shield:
+            try:
+                shield_max = int(await _get_max_shield(uid))  # type: ignore
+            except Exception:
+                pass
+        # 2) Fallback: somme de l'effet "pb" (cohérent avec /fight fallback)
+        if (shield_now == 0) and _list_effects:
+            try:
+                rows = await _list_effects(uid)  # type: ignore
+                shield_from_effects = sum(int(v or 0) for (eff_type, v, *_rest) in rows if eff_type == "pb")
+                if shield_from_effects > shield_now:
+                    shield_now = shield_from_effects
             except Exception:
                 pass
 
@@ -442,20 +456,35 @@ class Info(commands.Cog):
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
 
-        # Effets / pathologies (si disponibles)
-        effects_text = "Aucun effet négatif détecté."
-        if _get_effects:
+        # Effets / pathologies (si disponibles, via list_effects)
+        effects_text = "Aucun effet détecté."
+        if _list_effects:
             try:
-                effs = await _get_effects(uid)  # type: ignore
-                if effs:
+                rows = await _list_effects(uid)  # type: ignore
+                if rows:
+                    labels = {
+                        "regen": "🌿 Régén",
+                        "poison": "🧪 Poison",
+                        "infection": "🧟 Infection",
+                        "virus": "🦠 Virus",
+                        "brulure": "🔥 Brûlure",
+                        "esquive+": "👟 Esquive+",
+                        "reduction": "🪖 Réduction",
+                        "immunite": "⭐️ Immunité",
+                        "pb": "🛡 PB",
+                    }
                     pretty: List[str] = []
-                    for e in effs:
-                        name = str(getattr(e, "name", None) or (isinstance(e, dict) and e.get("name")) or "Effet")
-                        pretty.append(f"• {name}")
-                    effects_text = "\n".join(pretty)
+                    for eff_type, value, interval, next_ts, end_ts, source_id, meta_json in rows:
+                        label = labels.get(eff_type, eff_type)
+                        if interval and int(interval) > 0:
+                            pretty.append(f"• {label}: {value} / {max(1,int(interval)//60)} min")
+                        else:
+                            pretty.append(f"• {label}: {value}")
+                    if pretty:
+                        effects_text = "\n".join(pretty[:15])
             except Exception:
                 pass
-        embed.add_field(name="🩺 État pathologique", value=effects_text, inline=False)
+        embed.add_field(name="🩺 État (effets)", value=effects_text, inline=False)
 
         return embed
 
