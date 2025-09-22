@@ -13,6 +13,10 @@ from economy_db import add_balance, get_balance
 from inventory_db import add_item
 from passifs import trigger
 
+# → IMPORTANT : tickets persistants en DB (partagés avec /invocation)
+from tickets_db import add_tickets, get_tickets
+
+# Objets
 try:
     from utils import OBJETS, get_random_item  # type: ignore
 except Exception:
@@ -20,14 +24,14 @@ except Exception:
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
 
-# Storage JSON (tickets, cooldowns, streak)
+# Storage JSON (cooldowns + streak uniquement)
 try:
     from data import storage  # type: ignore
 except Exception:
     storage = None  # type: ignore
 
 
-# =============== Helpers storage (tickets / cooldown / streak) ===============
+# =============== Helpers storage (cooldown / streak) ===============
 
 def _now() -> int:
     return int(time.time())
@@ -56,22 +60,6 @@ def _save_storage():
     except Exception:
         pass
 
-# Tickets
-def get_tickets(gid: int, uid: int) -> int:
-    if not storage: return 0
-    _ensure_map(storage, "tickets")
-    gmap = _guild_map(storage.tickets, gid)
-    return _get_user_int(gmap, uid, 0)
-
-def add_tickets(gid: int, uid: int, delta: int) -> int:
-    if not storage: return 0
-    _ensure_map(storage, "tickets")
-    gmap = _guild_map(storage.tickets, gid)
-    cur = _get_user_int(gmap, uid, 0) + int(delta or 0)
-    _set_user_int(gmap, uid, cur)
-    _save_storage()
-    return cur
-
 # Cooldown
 def get_last_daily_ts(gid: int, uid: int) -> int:
     if not storage: return 0
@@ -88,7 +76,7 @@ def set_last_daily_ts(gid: int, uid: int, ts: int):
     _set_user_int(gmap, uid, ts)
     _save_storage()
 
-# Streak (conservé si on ne dépasse pas 48h entre deux claims)
+# Streak (conservé si ≤ 48h entre deux claims)
 STREAK_MAX_GAP = 48 * 3600
 
 def get_streak(gid: int, uid: int) -> int:
@@ -134,7 +122,7 @@ COINS_MIN, COINS_MAX = 8, 25
 STREAK_BONUS_CAP = 10
 
 class DailyCog(commands.Cog):
-    """Récompense quotidienne (coins + streak, 1 ticket garanti, 2 objets aléatoires)."""
+    """Récompense quotidienne : 1 ticket garanti + 2 objets + coins (ancien style)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -148,15 +136,15 @@ class DailyCog(commands.Cog):
         uid = interaction.user.id
         now = _now()
 
-        # Cooldown de base (modifiable par passifs via on_daily -> cooldown['mult'])
+        # Cooldown de base (modifiable par passifs via on_daily → cooldown['mult'])
         last_ts = get_last_daily_ts(gid, uid)
         base_cd = DAILY_BASE_SECONDS
         cooldown = {"mult": 1.0}
 
-        # Récompenses de base style "ancien daily"
+        # Récompenses de base (ancien daily)
         coins = random.randint(COINS_MIN, COINS_MAX)
-        tickets = 1                              # ← 1 ticket garanti
-        items: List[str] = [get_random_item(False), get_random_item(False)]  # ← 2 objets garantis
+        tickets = 1  # 1 ticket garanti
+        items: List[str] = [get_random_item(False), get_random_item(False)]  # 2 objets garantis
 
         rewards = {"coins": coins, "tickets": tickets, "items": list(items)}
 
@@ -190,11 +178,12 @@ class DailyCog(commands.Cog):
         # Appliquer les gains
         await add_balance(uid, coins)
 
-        tickets_total = None
+        # + tickets (persistants via SQLite)
+        tickets_total: Optional[int] = None
         if tickets > 0:
-            tickets_total = add_tickets(gid, uid, tickets)
+            tickets_total = await add_tickets(uid, tickets)
 
-        # Ajouter les objets (un par un) et préparer l’affichage
+        # Objets
         lines: List[str] = []
         for emo in items:
             await add_item(uid, emo, 1)
@@ -227,7 +216,7 @@ class DailyCog(commands.Cog):
         # Sauver le CD
         set_last_daily_ts(gid, uid, now)
 
-        # LB live
+        # LB live (optionnel)
         try:
             from cogs.leaderboard_live import schedule_lb_update
             schedule_lb_update(self.bot, gid, "daily")
@@ -243,7 +232,7 @@ class DailyCog(commands.Cog):
         # Tickets / Objets côte-à-côte
         if tickets > 0:
             if tickets_total is None:
-                tickets_total = get_tickets(gid, uid)
+                tickets_total = await get_tickets(uid)
             emb.add_field(name="🎟 Tickets", value=f"+{tickets} (total: {tickets_total})", inline=True)
         else:
             emb.add_field(name="🎟 Tickets", value="—", inline=True)
@@ -257,7 +246,6 @@ class DailyCog(commands.Cog):
         except Exception:
             pass
 
-        # (pas de footer “prochain daily” pour coller à l’ancien visuel)
         await interaction.followup.send(embed=emb)
 
 
