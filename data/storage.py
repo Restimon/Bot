@@ -9,31 +9,55 @@ import asyncio
 from typing import Any, Dict, Optional, List, Tuple
 from datetime import datetime
 
-# ========= Emplacements persistants =========
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                 EMPLACEMENT PERSISTANT & BACKUPS                 ║
+# ╚══════════════════════════════════════════════════════════════════╝
 PERSISTENT_PATH = "/persistent"
 DATA_FILE = os.path.join(PERSISTENT_PATH, "data.json")
 
 BACKUP_DIR = os.path.join(PERSISTENT_PATH, "backups")
 AUTO_BACKUP_DIR = os.path.join(PERSISTENT_PATH, "auto_backups")
 
-# ========= Réglages backups =========
-MAX_BACKUPS = 20                 # backups manuels conservés
-MAX_AUTO_BACKUPS = 30            # auto-backups conservés
-AUTO_BACKUP_MIN_SPACING_SEC = 300  # pas d’auto-backup plus souvent que toutes les 5 min
+MAX_BACKUPS = 20
+MAX_AUTO_BACKUPS = 30
+AUTO_BACKUP_MIN_SPACING_SEC = 300  # 5 min mini entre deux autobackups
 
-# ========= Concurrence =========
 _lock = asyncio.Lock()
 _last_auto_backup_ts: float = 0.0
 
 
-# ============ Utils fichiers ============
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                 STRUCTURE EN MÉMOIRE (GLOBAL STATE)              ║
+# ╚══════════════════════════════════════════════════════════════════╝
+# 1) Ancienne structure "players" que tes anciens cogs utilisaient
+_players: Dict[str, Dict[str, Any]] = {}
+
+# 2) Nouvelles maps "globales" attendues par /daily et d'autres cogs
+# tickets[guild_id][user_id] -> int
+tickets: Dict[str, Dict[str, int]] = {}
+# cooldowns["daily"][guild_id][user_id] -> ts
+cooldowns: Dict[str, Dict[str, Dict[str, int]]] = {}
+# streaks[guild_id][user_id] -> {"count": int}
+streaks: Dict[str, Dict[str, Dict[str, int]]] = {}
+# leaderboard_channels[guild_id] -> channel_id
+leaderboard_channels: Dict[str, int] = {}
+
+# config général: config["guilds"][guild_id] -> {...}
+_config: Dict[str, Any] = {"guilds": {}}
+
+# meta
+_meta: Dict[str, Any] = {"last_backup": None, "version": 2, "updated_at": int(time.time())}
+
+
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                         HELPERS FICHIERS                         ║
+# ╚══════════════════════════════════════════════════════════════════╝
 def _ensure_dirs() -> None:
     os.makedirs(PERSISTENT_PATH, exist_ok=True)
     os.makedirs(BACKUP_DIR, exist_ok=True)
     os.makedirs(AUTO_BACKUP_DIR, exist_ok=True)
 
 def _timestamp() -> str:
-    # format horodaté stable
     return datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
 
 def _rotate(dirpath: str, keep: int) -> None:
@@ -58,16 +82,20 @@ def _atomic_write_json(path: str, data: Dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-# ============ Schéma par défaut ============
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                       SNAPSHOT <-> GLOBALS                       ║
+# ╚══════════════════════════════════════════════════════════════════╝
 def _default_root() -> Dict[str, Any]:
     return {
-        "players": {},   # { user_id: {hp, shield, coins, tickets, stats{}, inventory{}, effects{}, cooldowns{}, equipped_character} }
-        "config": {      # global + par serveur
-            "guilds": {} # { guild_id: { leaderboard_channel, ... } }
-        },
-        "meta": {
-            "last_backup": None
-        }
+        "players": {},                 # ancienne arborescence joueurs
+        "config": {"guilds": {}},      # config serveur
+        "meta": {"last_backup": None, "version": 2, "updated_at": int(time.time())},
+
+        # nouvelles maps globales (compat /daily)
+        "tickets": {},                 # {gid: {uid: int}}
+        "cooldowns": {},               # {"daily": {gid: {uid: ts}}, ...}
+        "streaks": {},                 # {gid: {uid: {"count": int}}}
+        "leaderboard_channels": {},    # {gid: channel_id}
     }
 
 def _default_player() -> Dict[str, Any]:
@@ -75,61 +103,147 @@ def _default_player() -> Dict[str, Any]:
         "hp": 100,
         "shield": 0,
         "coins": 0,
-        "coins_total": 0,  # total cumulé gagné (classements long terme)
+        "coins_total": 0,
         "tickets": 0,
-        "equipped_character": None,  # nom exact ou None
-        "stats": {   # compteurs combats
-            "damage": 0,
-            "healing": 0,
-            "kills": 0,
-            "deaths": 0
-        },
+        "equipped_character": None,
+        "stats": {"damage": 0, "healing": 0, "kills": 0, "deaths": 0},
         "inventory": {},     # {emoji -> qty}
-        "effects": {},       # {eff_type: {value, interval, end_ts, next_ts, source_id, meta}}
-        "cooldowns": {}      # {"daily": ts, "attack": ts, ...}
+        "effects": {},       # {eff_type: {...}}
+        "cooldowns": {},     # ex: {"daily": ts}
     }
 
+def _globals_to_snapshot() -> Dict[str, Any]:
+    return {
+        "players": _players,
+        "config": _config,
+        "meta": {"last_backup": _meta.get("last_backup"),
+                 "version": 2,
+                 "updated_at": int(time.time())},
+        "tickets": tickets,
+        "cooldowns": cooldowns,
+        "streaks": streaks,
+        "leaderboard_channels": leaderboard_channels,
+    }
 
-# ============ Core IO ============
+def _load_into_globals(data: Dict[str, Any]) -> None:
+    global _players, _config, _meta, tickets, cooldowns, streaks, leaderboard_channels
+    if not isinstance(data, dict):
+        data = _default_root()
+
+    _players = data.get("players") or {}
+    if not isinstance(_players, dict):
+        _players = {}
+
+    _config = data.get("config") or {"guilds": {}}
+    if not isinstance(_config, dict):
+        _config = {"guilds": {}}
+    _config.setdefault("guilds", {})
+
+    tickets = data.get("tickets") or {}
+    if not isinstance(tickets, dict):
+        tickets = {}
+
+    cooldowns = data.get("cooldowns") or {}
+    if not isinstance(cooldowns, dict):
+        cooldowns = {}
+
+    streaks = data.get("streaks") or {}
+    if not isinstance(streaks, dict):
+        streaks = {}
+
+    leaderboard_channels = data.get("leaderboard_channels") or {}
+    if not isinstance(leaderboard_channels, dict):
+        leaderboard_channels = {}
+
+    _meta = data.get("meta") or {"last_backup": None}
+    if not isinstance(_meta, dict):
+        _meta = {"last_backup": None}
+    _meta["version"] = 2
+    _meta["updated_at"] = int(time.time())
+
+
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                            CORE I/O                              ║
+# ╚══════════════════════════════════════════════════════════════════╝
 async def init_storage() -> None:
-    """À appeler au démarrage du bot."""
+    """À appeler au démarrage (main.py)."""
     _ensure_dirs()
     async with _lock:
         if not os.path.exists(DATA_FILE):
             _atomic_write_json(DATA_FILE, _default_root())
+        # toujours recharger en mémoire
+        try:
+            with io.open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = _default_root()
+        _load_into_globals(data)
 
 async def load_all() -> Dict[str, Any]:
+    """Snapshot complet (async) — utilisé par vieux helpers."""
     async with _lock:
         _ensure_dirs()
         if not os.path.exists(DATA_FILE):
             data = _default_root()
             _atomic_write_json(DATA_FILE, data)
+            _load_into_globals(data)
             return data
         try:
             with io.open(DATA_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # garde-fous : assure présence des clés racines
             if not isinstance(data, dict):
                 data = _default_root()
-            data.setdefault("players", {})
-            data.setdefault("config", {"guilds": {}})
-            data.setdefault("meta", {"last_backup": None})
-            return data
         except Exception:
-            # si corrompu → repart propre (tu peux aussi tenter une restau auto ici)
             data = _default_root()
             _atomic_write_json(DATA_FILE, data)
-            return data
+        _load_into_globals(data)
+        return data
 
 async def save_all(data: Dict[str, Any], *, auto_backup: bool = True) -> None:
+    """Écrit un snapshot fourni (async)."""
     async with _lock:
         _ensure_dirs()
-        _atomic_write_json(DATA_FILE, data)
+        # met aussi à jour les globals pour rester cohérent
+        _load_into_globals(data)
+        _atomic_write_json(DATA_FILE, _globals_to_snapshot())
         if auto_backup:
-            await _auto_backup(data)
+            await _auto_backup()
 
 
-# ============ Backups ============
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                   WRAPPERS SYNCHRONES (compat)                   ║
+# ╚══════════════════════════════════════════════════════════════════╝
+def load_data() -> Dict[str, Any]:
+    """Lecture synchrone (utilisée par /admin pour afficher un aperçu)."""
+    _ensure_dirs()
+    try:
+        if not os.path.exists(DATA_FILE):
+            snap = _default_root()
+            _atomic_write_json(DATA_FILE, snap)
+            _load_into_globals(snap)
+            return snap
+        with io.open(DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            data = _default_root()
+    except Exception:
+        data = _default_root()
+    _load_into_globals(data)
+    return data
+
+def save_data() -> None:
+    """Écriture synchrone — sérialise l’état courant des globals."""
+    _ensure_dirs()
+    snap = _globals_to_snapshot()
+    try:
+        _atomic_write_json(DATA_FILE, snap)
+    except Exception:
+        pass
+
+
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                             BACKUPS                              ║
+# ╚══════════════════════════════════════════════════════════════════╝
 async def backup_now(tag: Optional[str] = None) -> str:
     async with _lock:
         data = await load_all()
@@ -142,18 +256,18 @@ async def backup_now(tag: Optional[str] = None) -> str:
         path = os.path.join(BACKUP_DIR, base + ".json")
         _atomic_write_json(path, data)
         _rotate(BACKUP_DIR, MAX_BACKUPS)
-        # maj meta.last_backup
+        # maj meta
         data["meta"]["last_backup"] = stamp
         _atomic_write_json(DATA_FILE, data)
         return path
 
-async def _auto_backup(current_data: Optional[Dict[str, Any]] = None) -> None:
+async def _auto_backup() -> None:
     global _last_auto_backup_ts
     now = time.time()
     if (now - _last_auto_backup_ts) < AUTO_BACKUP_MIN_SPACING_SEC:
         return
     try:
-        data = current_data if current_data is not None else await load_all()
+        data = await load_all()
         stamp = _timestamp()
         path = os.path.join(AUTO_BACKUP_DIR, f"auto_{stamp}.json")
         _atomic_write_json(path, data)
@@ -163,7 +277,9 @@ async def _auto_backup(current_data: Optional[Dict[str, Any]] = None) -> None:
         pass
 
 
-# ============ Helpers joueurs ============
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                     HELPERS JOUEURS (ANCIENS)                    ║
+# ╚══════════════════════════════════════════════════════════════════╝
 async def ensure_player(user_id: int | str) -> Dict[str, Any]:
     uid = str(user_id)
     data = await load_all()
@@ -183,9 +299,9 @@ async def set_equipped_character(user_id: int | str, name: Optional[str]) -> Non
     p["equipped_character"] = name
     await save_all(data)
 
-# ==== Coins / Tickets ====
+# Coins / Tickets (anciens, par joueur)
 async def add_coins(user_id: int | str, amount: int) -> int:
-    if amount <= 0: return 0
+    if amount <= 0: return await get_coins(user_id)
     data = await load_all()
     p = data["players"].setdefault(str(user_id), _default_player())
     p["coins"] += amount
@@ -205,8 +321,9 @@ async def get_coins(user_id: int | str) -> int:
     p = await get_player(user_id)
     return int(p.get("coins", 0))
 
-async def add_tickets(user_id: int | str, qty: int) -> int:
-    if qty <= 0: return await get_tickets(user_id)
+async def add_tickets_player(user_id: int | str, qty: int) -> int:
+    """Ancien compteur de tickets par joueur (distinct des tickets /daily par guilde)."""
+    if qty <= 0: return await get_tickets_player(user_id)
     data = await load_all()
     p = data["players"].setdefault(str(user_id), _default_player())
     p["tickets"] = int(p.get("tickets", 0)) + qty
@@ -223,11 +340,11 @@ async def use_ticket(user_id: int | str, qty: int = 1) -> bool:
     await save_all(data)
     return True
 
-async def get_tickets(user_id: int | str) -> int:
+async def get_tickets_player(user_id: int | str) -> int:
     p = await get_player(user_id)
     return int(p.get("tickets", 0))
 
-# ==== PV / PB ====
+# PV / PB
 async def get_hp(user_id: int | str) -> Tuple[int, int]:
     p = await get_player(user_id)
     return int(p.get("hp", 100)), 100
@@ -244,7 +361,7 @@ async def set_hp(user_id: int | str, hp: int) -> int:
     return p["hp"]
 
 async def set_shield(user_id: int | str, pb: int) -> int:
-    cap = 20  # par défaut (peut être modifié par passifs ailleurs)
+    cap = 20  # cap par défaut (peut être modifié ailleurs)
     data = await load_all()
     p = data["players"].setdefault(str(user_id), _default_player())
     p["shield"] = max(0, min(cap, int(pb)))
@@ -252,7 +369,7 @@ async def set_shield(user_id: int | str, pb: int) -> int:
     return p["shield"]
 
 async def damage(user_id: int | str, amount: int) -> Dict[str, int]:
-    """Inflige des dégâts → d’abord PB puis PV. Retourne dict: {'absorbed':x,'lost':y}."""
+    """Inflige des dégâts → d’abord PB puis PV."""
     if amount <= 0:
         return {"absorbed": 0, "lost": 0}
     data = await load_all()
@@ -270,7 +387,6 @@ async def damage(user_id: int | str, amount: int) -> Dict[str, int]:
     return {"absorbed": absorbed, "lost": lost}
 
 async def heal(user_id: int | str, amount: int) -> int:
-    """Soigne les PV (cap à 100). Retourne PV réellement rendus."""
     if amount <= 0:
         return 0
     data = await load_all()
@@ -287,10 +403,9 @@ async def revive_full(user_id: int | str) -> None:
     p = data["players"].setdefault(str(user_id), _default_player())
     p["hp"] = 100
     p["shield"] = 0
-    # (on peut aussi vider les effets, cf. below)
     await save_all(data)
 
-# ==== Stats (dégâts/heal/kills/morts) ====
+# Stats
 async def add_damage_stat(user_id: int | str, amount: int) -> None:
     if amount <= 0: return
     data = await load_all()
@@ -317,7 +432,7 @@ async def add_death(user_id: int | str) -> None:
     p["stats"]["deaths"] = int(p["stats"].get("deaths", 0)) + 1
     await save_all(data, auto_backup=False)
 
-# ==== Inventaire ====
+# Inventaire
 async def inv_add(user_id: int | str, emoji: str, qty: int = 1) -> int:
     if qty <= 0: return await inv_get(user_id, emoji)
     data = await load_all()
@@ -352,14 +467,13 @@ async def inv_all(user_id: int | str) -> List[Tuple[str, int]]:
     inv = p.get("inventory", {})
     return sorted([(k, int(v)) for k, v in inv.items()], key=lambda x: x[0])
 
-# ==== Effets / DOT / Buffs ====
+# Effets
 async def effects_get(user_id: int | str) -> Dict[str, Any]:
     p = await get_player(user_id)
     eff = p.get("effects", {})
     return eff if isinstance(eff, dict) else {}
 
 async def effect_set(user_id: int | str, eff_type: str, payload: Dict[str, Any]) -> None:
-    """payload peut contenir: value, interval, end_ts, next_ts, source_id, meta…"""
     data = await load_all()
     p = data["players"].setdefault(str(user_id), _default_player())
     eff = p["effects"]
@@ -379,7 +493,7 @@ async def effects_clear(user_id: int | str) -> None:
     p["effects"] = {}
     await save_all(data)
 
-# ==== Cooldowns (daily, attack, etc.) ====
+# Cooldowns (par joueur)
 async def cd_get(user_id: int | str, key: str) -> int:
     p = await get_player(user_id)
     cds = p.get("cooldowns", {})
@@ -392,10 +506,14 @@ async def cd_set(user_id: int | str, key: str, ts: int) -> None:
     cds[key] = int(ts)
     await save_all(data)
 
-# ==== Config serveur ====
+
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                        CONFIG SERVEUR (guild)                    ║
+# ╚══════════════════════════════════════════════════════════════════╝
 async def guild_cfg_get(guild_id: int | str) -> Dict[str, Any]:
     data = await load_all()
     g = data["config"]["guilds"].setdefault(str(guild_id), {})
+    await save_all(data, auto_backup=False)
     return g
 
 async def guild_cfg_update(guild_id: int | str, patch: Dict[str, Any]) -> Dict[str, Any]:
@@ -404,3 +522,47 @@ async def guild_cfg_update(guild_id: int | str, patch: Dict[str, Any]) -> Dict[s
     g.update(patch or {})
     await save_all(data)
     return g
+
+# Helpers pratiques pour les cogs leaderboard (synchros, utilisés parfois)
+def set_leaderboard_channel(guild_id: int, channel_id: Optional[int]) -> None:
+    gid = str(guild_id)
+    if channel_id is None:
+        leaderboard_channels.pop(gid, None)
+    else:
+        leaderboard_channels[gid] = int(channel_id)
+    save_data()
+
+def get_leaderboard_channel(guild_id: int) -> Optional[int]:
+    val = leaderboard_channels.get(str(guild_id))
+    try:
+        return int(val) if val is not None else None
+    except Exception:
+        return None
+
+
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║                              EXPORTS                             ║
+# ╚══════════════════════════════════════════════════════════════════╝
+__all__ = [
+    # chemins
+    "PERSISTENT_PATH", "DATA_FILE", "BACKUP_DIR", "AUTO_BACKUP_DIR",
+    # globals exposés (pour /daily)
+    "tickets", "cooldowns", "streaks", "leaderboard_channels",
+    # init/io
+    "init_storage", "load_all", "save_all", "load_data", "save_data",
+    # backups
+    "backup_now",
+    # anciens helpers joueurs
+    "ensure_player", "get_player", "set_equipped_character",
+    "add_coins", "spend_coins", "get_coins",
+    "add_tickets_player", "use_ticket", "get_tickets_player",
+    "get_hp", "get_shield", "set_hp", "set_shield",
+    "damage", "heal", "revive_full",
+    "add_damage_stat", "add_heal_stat", "add_kill", "add_death",
+    "inv_add", "inv_remove", "inv_get", "inv_all",
+    "effects_get", "effect_set", "effect_remove", "effects_clear",
+    "cd_get", "cd_set",
+    # config serveur
+    "guild_cfg_get", "guild_cfg_update",
+    "set_leaderboard_channel", "get_leaderboard_channel",
+]
