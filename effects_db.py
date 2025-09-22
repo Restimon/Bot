@@ -1,11 +1,24 @@
 # effects_db.py
 from __future__ import annotations
 
-import aiosqlite
 import asyncio
 import json
 import time
-from typing import Callable, Awaitable, Dict, List, Optional, Tuple, Any
+from typing import Callable, Dict, List, Optional, Tuple, Any
+
+import aiosqlite
+
+# Utilisé par les ticks
+from stats_db import deal_damage, heal_user, is_dead, revive_full
+
+# Optionnel: immunités/particularités définies côté passifs
+try:
+    from passifs import should_block_infection_tick_damage, trigger as passifs_trigger
+except Exception:
+    async def should_block_infection_tick_damage(user_id: int) -> bool:  # type: ignore
+        return False
+    async def passifs_trigger(event: str, **ctx) -> Dict[str, Any]:  # type: ignore
+        return {}
 
 DB_PATH = "gotvalis.sqlite3"
 
@@ -16,275 +29,357 @@ CREATE TABLE IF NOT EXISTS effects(
   user_id   TEXT NOT NULL,
   eff_type  TEXT NOT NULL,
   value     REAL NOT NULL DEFAULT 0,
-  interval  INTEGER NOT NULL DEFAULT 0,
-  next_ts   INTEGER NOT NULL DEFAULT 0,
-  end_ts    INTEGER NOT NULL DEFAULT 0,
-  source_id TEXT NOT NULL DEFAULT '0',
-  meta_json TEXT,
+  interval  INTEGER NOT NULL DEFAULT 0,     -- secondes (0 = pas de tick, buff pur)
+  next_ts   INTEGER NOT NULL DEFAULT 0,     -- prochain tick
+  end_ts    INTEGER NOT NULL,               -- expiration
+  source_id TEXT NOT NULL DEFAULT '0',      -- appliqué par qui
+  meta_json TEXT,                           -- champ libre
   PRIMARY KEY(user_id, eff_type)
 );
-CREATE INDEX IF NOT EXISTS idx_effects_time ON effects(next_ts, end_ts);
+
+CREATE INDEX IF NOT EXISTS idx_effects_end ON effects(end_ts);
+CREATE INDEX IF NOT EXISTS idx_effects_next ON effects(next_ts);
 """
 
-# Broadcaster & targets (injectés par le bot)
-_BROADCASTER: Optional[Callable[[int, int, Dict[str, Any]], Awaitable[None]]] = None
-
-def set_broadcaster(cb: Callable[[int, int, Dict[str, Any]], Awaitable[None]]) -> None:
-    global _BROADCASTER
-    _BROADCASTER = cb
-
-# Util: now
-def _now() -> int:
-    return int(time.time())
-
-# ─────────────────────────────────────────────────────────────
-# Init
-# ─────────────────────────────────────────────────────────────
-_init_done = False
-async def _ensure_init():
-    global _init_done
-    if _init_done:
-        return
+# ---------------------------------------------------------------------
+# init
+# ---------------------------------------------------------------------
+async def init_effects_db() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
         await db.commit()
-    _init_done = True
 
-# ─────────────────────────────────────────────────────────────
-# CRUD effets
-# ─────────────────────────────────────────────────────────────
-async def add_or_refresh_effect(
-    user_id: int,
-    eff_type: str,
-    value: float,
-    duration: int,
-    interval: int = 0,
-    source_id: Optional[int] = None,
-    meta_json: Optional[str] = None,
-) -> None:
-    await _ensure_init()
-    now = _now()
-    next_ts = now + int(interval) if int(interval) > 0 else 0
-    end_ts = now + max(0, int(duration))
-    sid = str(source_id or 0)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """
-            INSERT INTO effects(user_id, eff_type, value, interval, next_ts, end_ts, source_id, meta_json)
-            VALUES(?,?,?,?,?,?,?,?)
-            ON CONFLICT(user_id, eff_type) DO UPDATE SET
-              value=excluded.value,
-              interval=excluded.interval,
-              next_ts=excluded.next_ts,
-              end_ts=excluded.end_ts,
-              source_id=excluded.source_id,
-              meta_json=excluded.meta_json
-            """,
-            (str(user_id), str(eff_type), float(value), int(interval), int(next_ts), int(end_ts), sid, meta_json)
-        )
-        await db.commit()
-
-async def remove_effect(user_id: int, eff_type: str) -> None:
-    await _ensure_init()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM effects WHERE user_id=? AND eff_type=?", (str(user_id), str(eff_type)))
-        await db.commit()
+# ---------------------------------------------------------------------
+# helpers basiques
+# ---------------------------------------------------------------------
+def _now() -> int:
+    return int(time.time())
 
 async def has_effect(user_id: int, eff_type: str) -> bool:
-    await _ensure_init()
+    now = _now()
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT 1 FROM effects WHERE user_id=? AND eff_type=? AND end_ts > ?",
-            (str(user_id), str(eff_type), _now())
+            "SELECT 1 FROM effects WHERE user_id=? AND eff_type=? AND end_ts>?",
+            (str(user_id), eff_type, now)
         ) as cur:
-            row = await cur.fetchone()
-    return bool(row)
+            return (await cur.fetchone()) is not None
 
 async def list_effects(user_id: int) -> List[Tuple[str, float, int, int, int, str, Optional[str]]]:
     """
-    Retourne [(eff_type, value, interval, next_ts, end_ts, source_id, meta_json), ...]
-    (uniquement effets encore actifs)
+    Retourne une liste de tuples :
+      (eff_type, value, interval, next_ts, end_ts, source_id, meta_json)
+    pour les effets encore valides.
     """
-    await _ensure_init()
     now = _now()
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT eff_type, value, interval, next_ts, end_ts, source_id, meta_json "
-            "FROM effects WHERE user_id=? AND end_ts > ?",
+            """SELECT eff_type, value, interval, next_ts, end_ts, source_id, meta_json
+               FROM effects
+               WHERE user_id=? AND end_ts>? ORDER BY end_ts ASC""",
             (str(user_id), now)
         ) as cur:
             rows = await cur.fetchall()
     out: List[Tuple[str, float, int, int, int, str, Optional[str]]] = []
     for r in rows:
-        out.append((r[0], float(r[1]), int(r[2]), int(r[3]), int(r[4]), str(r[5]), r[6]))
+        out.append((
+            str(r[0]), float(r[1]), int(r[2]), int(r[3]), int(r[4]),
+            str(r[5]), r[6] if r[6] is None else str(r[6])
+        ))
     return out
 
-# ─────────────────────────────────────────────────────────────
-# Malus d'attaque (flat + pourcentage)
-# ─────────────────────────────────────────────────────────────
-async def get_outgoing_damage_penalty(user_id: int, base: int = 0) -> int:
+async def remove_effect(user_id: int, eff_type: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM effects WHERE user_id=? AND eff_type=?", (str(user_id), eff_type))
+        await db.commit()
+
+# ---------------------------------------------------------------------
+# add_or_refresh_effect
+# ---------------------------------------------------------------------
+async def add_or_refresh_effect(
+    user_id: int,
+    eff_type: str,
+    value: float,
+    duration: int,
+    interval: int,
+    source_id: Optional[int] = 0,
+    meta_json: Optional[str] = None,
+) -> bool:
     """
-    Calcule un malus total INT à soustraire :
-      - flat : 1 si poison actif (simple), + somme des 'outgoing_penalty_flat'
-      - pourcentage(s) : somme des 'outgoing_penalty' (0..1), appliquée à 'base'
+    Ajoute ou prolonge un effet.
+    - Si interval>0 → tick à chaque 'interval'.
+    - Si interval==0 → buff/état passif (expire à end_ts, pas de tick).
+    Retourne False si bloqué (ex: immunité via passifs) pour certains statuts.
     """
-    await _ensure_init()
-    rows = await list_effects(user_id)
-    flat = 0
-    pct  = 0.0
 
-    # simple : poison = -1 (si tu veux infection/brûlure, ajoute-les ici)
-    for eff_type, value, interval, next_ts, end_ts, source_id, meta in rows:
-        if eff_type == "poison":
-            flat += 1
-        elif eff_type == "outgoing_penalty_flat":
-            try:
-                flat += int(value)
-            except Exception:
-                pass
-        elif eff_type == "outgoing_penalty":  # ex: Nathaniel -10% (0.10) 1h
-            try:
-                pct += float(value)
-            except Exception:
-                pass
+    # Vérification d'immunités côté passifs (statuts négatifs usuels)
+    if eff_type in ("poison", "infection", "virus", "brulure"):
+        try:
+            res = await passifs_trigger("on_effect_pre_apply", user_id=int(user_id), eff_type=str(eff_type))
+            if res.get("blocked"):
+                return False
+        except Exception:
+            pass
 
-    pct = max(0.0, min(pct, 0.90))
-    extra = int(round(max(0, int(base)) * pct))
-    return max(0, int(flat) + int(extra))
+    now = _now()
+    end_ts = now + max(1, int(duration))
+    iv = max(0, int(interval))
+    val = float(value)
 
-# ─────────────────────────────────────────────────────────────
-# Virus: transfert sur attaque si l’attaquant le porte
-# ─────────────────────────────────────────────────────────────
+    # Stocke meta en JSON valide
+    meta = None
+    if meta_json is not None:
+        try:
+            # assure qu'on garde une string JSON (ne plante pas si déjà string)
+            json.loads(meta_json)  # valide ?
+            meta = meta_json
+        except Exception:
+            meta = json.dumps({"raw": meta_json})
+
+    existed = False
+    prev_next = 0
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT next_ts FROM effects WHERE user_id=? AND eff_type=?",
+            (str(user_id), eff_type)
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                existed = True
+                prev_next = int(row[0])
+
+        if iv > 0:
+            # Programme le prochain tick : si existait déjà, garde le plus proche
+            next_ts = prev_next if (existed and prev_next > now) else (now + iv)
+        else:
+            next_ts = 0
+
+        await db.execute(
+            """INSERT INTO effects(user_id, eff_type, value, interval, next_ts, end_ts, source_id, meta_json)
+               VALUES(?,?,?,?,?,?,?,?)
+               ON CONFLICT(user_id, eff_type) DO UPDATE SET
+                 value=excluded.value,
+                 interval=excluded.interval,
+                 next_ts=excluded.next_ts,
+                 end_ts=excluded.end_ts,
+                 source_id=excluded.source_id,
+                 meta_json=excluded.meta_json
+            """,
+            (str(user_id), str(eff_type), float(val), int(iv), int(next_ts), int(end_ts), str(source_id or 0), meta)
+        )
+        await db.commit()
+
+    return True
+
+# ---------------------------------------------------------------------
+# Pénalité aux dégâts sortants (malus d'attaque)
+# ---------------------------------------------------------------------
+async def get_outgoing_damage_penalty(user_id: int) -> int:
+    """
+    Somme des malus "plats" connus :
+      - poison actif → -1
+      - outgoing_penalty (effet appliqué par certains passifs) :
+            * si value >= 1 → -int(value)
+            * si 0 < value < 1 → -1 (au moins)
+    """
+    now = _now()
+    penalty = 0
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT eff_type, value FROM effects WHERE user_id=? AND end_ts>?",
+            (str(user_id), now)
+        ) as cur:
+            rows = await cur.fetchall()
+
+    for t, v in rows:
+        t = str(t)
+        try:
+            val = float(v)
+        except Exception:
+            val = 0.0
+
+        if t == "poison":
+            penalty += 1
+        elif t == "outgoing_penalty":
+            if val >= 1.0:
+                penalty += int(val)
+            elif val > 0.0:
+                penalty += 1
+
+    return max(0, int(penalty))
+
+# ---------------------------------------------------------------------
+# "Virus" — transfert sur attaque
+# ---------------------------------------------------------------------
 async def transfer_virus_on_attack(attacker_id: int, target_id: int) -> None:
-    await _ensure_init()
+    """
+    Si l'attaquant a un effet 'virus', on le COPIE sur la cible avec la durée restante.
+    (On ne le retire pas de l'attaquant → contagieux.)
+    """
     now = _now()
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT value, interval, next_ts, end_ts FROM effects "
-            "WHERE user_id=? AND eff_type='virus' AND end_ts > ?",
+            "SELECT value, interval, next_ts, end_ts, source_id, meta_json "
+            "FROM effects WHERE user_id=? AND eff_type='virus' AND end_ts>?",
             (str(attacker_id), now)
         ) as cur:
             row = await cur.fetchone()
+
     if not row:
         return
-    val, interval, next_ts, end_ts = float(row[0]), int(row[1]), int(row[2]), int(row[3])
-    remain = max(0, end_ts - now)
-    if remain <= 0:
-        return
-    # applique à la cible avec même reste de durée (rafraîchit next_ts)
+
+    value, interval, next_ts, end_ts, source_id, meta_json = row
+    remain = max(1, int(end_ts) - now)
+    # Copie sur la cible (même interval/valeur)
     await add_or_refresh_effect(
-        user_id=target_id, eff_type="virus", value=val,
-        duration=remain, interval=interval, source_id=attacker_id, meta_json=None
+        user_id=target_id,
+        eff_type="virus",
+        value=float(value),
+        duration=remain,
+        interval=int(interval),
+        source_id=int(attacker_id),
+        meta_json=meta_json if isinstance(meta_json, str) else None,
     )
 
-# ─────────────────────────────────────────────────────────────
-# Boucle des effets (ticks) + broadcast
-# ─────────────────────────────────────────────────────────────
-async def _tick_damage(user_id: int, value: int, label: str, color: int, source_id: Optional[int] = None) -> Dict[str, Any]:
-    """Inflige des dégâts 'value' au user_id (avec revive full si mort). Retourne payload de log."""
-    from stats_db import deal_damage, is_dead, revive_full
-    res = await deal_damage(int(source_id or 0), user_id, max(0, int(value)))
-    ko_txt = ""
-    if await is_dead(user_id):
-        await revive_full(user_id)
-        ko_txt = " (KO → réanimé)"
-    return {
-        "title": "Effets — dégâts",
-        "lines": [f"{label}: **-{value} PV**{ko_txt}"],
-        "color": color,
-        "user_id": user_id,
-    }
+# ---------------------------------------------------------------------
+# Broadcaster & boucle de ticks
+# ---------------------------------------------------------------------
+Broadcaster = Callable[[int, int, Dict[str, Any]], Any]
+_broadcaster: Optional[Broadcaster] = None
 
-async def _tick_heal(user_id: int, value: int) -> Dict[str, Any]:
-    from stats_db import heal_user
-    await heal_user(user_id, user_id, max(0, int(value)))
-    return {
-        "title": "Effets — soin",
-        "lines": [f"Régénération: **+{value} PV**"],
-        "color": 0x2ecc71,
-        "user_id": user_id,
-    }
+def set_broadcaster(cb: Broadcaster) -> None:
+    """
+    cb(guild_id:int, channel_id:int, payload:dict)
+    payload attendu: {"title": str, "lines": List[str], "color": int, "user_id": Optional[int]}
+    """
+    global _broadcaster
+    _broadcaster = cb
 
-async def _broadcast_to_all_targets(payload: Dict[str, Any], get_targets: Callable[[], List[Tuple[int, int]]]) -> None:
-    if _BROADCASTER is None:
+async def _broadcast_for_user(user_id: int, lines: List[str], color: int = 0x2ecc71) -> None:
+    if not _broadcaster or not lines:
         return
+    payload = {
+        "title": "⏳ Effets en cours",
+        "lines": lines,
+        "color": color,
+        "user_id": int(user_id),
+    }
+    # Les gid/cid passés sont ignorés si CombatCog a mémorisé un salon par user.
     try:
-        for gid, cid in (get_targets() or []):
-            await _BROADCASTER(int(gid), int(cid), dict(payload))
+        await _broadcaster(0, 0, payload)  # type: ignore
     except Exception:
         pass
 
-async def _effects_gc(db: aiosqlite.Connection, now: int) -> None:
-    await db.execute("DELETE FROM effects WHERE end_ts <= ?", (now,))
-    await db.commit()
+async def _tick_once() -> None:
+    """
+    Un passage de ticks :
+      - applique les ticks échus (poison/infection/brulure/regen…)
+      - nettoie les expirés
+      - envoie un résumé par joueur
+    """
+    now = _now()
+    to_heal: Dict[int, int] = {}     # user_id -> somme heal
+    to_dot: Dict[int, int] = {}      # user_id -> somme dmg
+    ticked: List[Tuple[str, str]] = []  # [(user_id, eff_type)] pour mettre à jour next_ts
 
-async def effects_loop(get_targets: Callable[[], List[Tuple[int, int]]], interval: int = 30):
-    """
-    Boucle asynchrone:
-      - Ticks des effets à intervalle > 0 quand next_ts <= now (poison/infection/brûlure/regen)
-      - GC des effets expirés
-      - Broadcast de logs simples
-    """
-    await _ensure_init()
-    await asyncio.sleep(2)
-    while True:
-        now = _now()
+    # 1) Récupère tous les effets avec tick dû
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT user_id, eff_type, value, interval, next_ts, end_ts, source_id
+               FROM effects
+               WHERE interval>0 AND next_ts>0 AND next_ts<=? AND end_ts>?""",
+            (now, now)
+        ) as cur:
+            rows = await cur.fetchall()
+
+    # 2) Applique les ticks
+    for user_id_s, eff_type, value, interval, next_ts, end_ts, source_id in rows:
+        uid = int(user_id_s)
+        val = int(float(value))
+        iv = int(interval)
+
+        # Si l'effet a déjà expiré, on ignore (filtré par WHERE mais on re-check)
+        if end_ts <= now:
+            continue
+
+        if eff_type == "regen":
+            if val > 0:
+                await heal_user(uid, val)
+                to_heal[uid] = to_heal.get(uid, 0) + val
+
+        elif eff_type in ("poison", "infection", "brulure"):
+            # Cas particulier: infection tick ignoré pour certains passifs
+            if eff_type == "infection":
+                try:
+                    if await should_block_infection_tick_damage(uid):
+                        ticked.append((user_id_s, eff_type))
+                        continue
+                except Exception:
+                    pass
+
+            if val > 0:
+                # On impute des dégâts "environnementaux" (source_id si dispo sinon 0)
+                try:
+                    await deal_damage(int(source_id) if str(source_id).isdigit() else 0, uid, val)
+                except Exception:
+                    # fallback minimal: on essaie de tuer/soigner par d'autres moyens si besoin
+                    pass
+                to_dot[uid] = to_dot.get(uid, 0) + val
+
+        # Marque à décaler le prochain tick
+        ticked.append((user_id_s, eff_type))
+
+        # Si la cible est morte du DOT → règle interne (revive immed.)
         try:
-            # fetch ticks à exécuter
-            async with aiosqlite.connect(DB_PATH) as db:
-                async with db.execute(
-                    "SELECT user_id, eff_type, value, interval, next_ts, end_ts, source_id "
-                    "FROM effects WHERE next_ts > 0 AND next_ts <= ? AND end_ts > ?",
-                    (now, now)
-                ) as cur:
-                    rows = await cur.fetchall()
-
-                # exécute les ticks
-                for uid, eff_type, value, itv, next_ts, end_ts, source_id in rows:
-                    uid_i = int(uid)
-                    itv_i = int(itv)
-                    val_i = int(round(float(value)))
-                    src_i = int(source_id) if str(source_id).isdigit() else 0
-
-                    payload: Optional[Dict[str, Any]] = None
-
-                    if eff_type in ("poison", "brulure", "infection"):
-                        # infection: certains porteurs ne prennent pas les dégâts (Abomination/Anna)
-                        if eff_type == "infection":
-                            try:
-                                from passifs import should_block_infection_tick_damage
-                                if await should_block_infection_tick_damage(uid_i):
-                                    payload = {
-                                        "title": "Effets — infection",
-                                        "lines": ["Infection: (aucun dégât — immunité spéciale)"],
-                                        "color": 0xf39c12,
-                                        "user_id": uid_i,
-                                    }
-                                else:
-                                    payload = await _tick_damage(uid_i, val_i, "Infection", 0xf39c12, src_i)
-                            except Exception:
-                                payload = await _tick_damage(uid_i, val_i, "Infection", 0xf39c12, src_i)
-                        elif eff_type == "poison":
-                            payload = await _tick_damage(uid_i, val_i, "Poison", 0x9b59b6, src_i)
-                        else:  # brûlure
-                            payload = await _tick_damage(uid_i, val_i, "Brûlure", 0xe67e22, src_i)
-
-                    elif eff_type == "regen":
-                        payload = await _tick_heal(uid_i, val_i)
-
-                    # planifie prochain tick
-                    nxt = now + max(1, itv_i)
-                    await db.execute("UPDATE effects SET next_ts=? WHERE user_id=? AND eff_type=?", (nxt, uid, eff_type))
-                    await db.commit()
-
-                    if payload:
-                        await _broadcast_to_all_targets(payload, get_targets)
-
-                # garbage collect (expirés)
-                await _effects_gc(db, now)
-
+            if await is_dead(uid):
+                await revive_full(uid)
         except Exception:
-            # on avale pour ne pas arrêter la boucle
             pass
 
-        await asyncio.sleep(max(5, int(interval)))
+    # 3) Décale next_ts
+    if ticked:
+        async with aiosqlite.connect(DB_PATH) as db:
+            for uid_s, t in ticked:
+                await db.execute(
+                    "UPDATE effects SET next_ts = next_ts + interval WHERE user_id=? AND eff_type=?",
+                    (uid_s, t)
+                )
+            await db.commit()
+
+    # 4) Nettoyage simple des expirés (optionnel mais utile)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM effects WHERE end_ts<=?", (now,))
+        await db.commit()
+
+    # 5) Broadcasting (si demandé)
+    #    On envoie un résumé par joueur pour éviter le spam.
+    for uid, amount in to_heal.items():
+        await _broadcast_for_user(uid, [f"💕 +{amount} PV (régénération)"], color=0x2ecc71)
+
+    for uid, amount in to_dot.items():
+        await _broadcast_for_user(uid, [f"☠️ -{amount} PV (DOT)"], color=0xe67e22)
+
+    # 6) Hooks passifs périodiques si besoin (rien ici — c'est géré par main.py via boucles séparées)
+
+# ---------------------------------------------------------------------
+# Boucle publique
+# ---------------------------------------------------------------------
+async def effects_loop(
+    get_targets: Optional[Callable[[], List[Tuple[int, int]]]] = None,
+    interval: int = 30
+) -> None:
+    """
+    Boucle infinie d'application des effets (ticks).
+    - get_targets() est là pour compat : CombatCog en fournit une, mais nous n'en dépendons pas ;
+      le broadcaster route par user_id vers le bon salon.
+    """
+    await init_effects_db()  # au cas où
+    iv = max(5, int(interval))  # évite <5s
+    while True:
+        try:
+            await _tick_once()
+        except Exception:
+            # on évite de crasher la boucle ; logs silencieux pour ne pas flood
+            pass
+        await asyncio.sleep(iv)
