@@ -1,6 +1,7 @@
 # cogs/info_cog.py
 from __future__ import annotations
 
+import time  # ← ajouté pour formater les durées
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -95,14 +96,12 @@ except Exception:
     _storage = None
 
 def _lb_get_leaderboard(gid: int) -> Dict[str, Dict[str, int]]:
-    """Retourne dict user_id -> {points, kills, deaths} pour CE serveur."""
     if _storage is not None:
         if not hasattr(_storage, "leaderboard") or not isinstance(getattr(_storage, "leaderboard"), dict):
             setattr(_storage, "leaderboard", {})
         lb = getattr(_storage, "leaderboard")
         lb.setdefault(str(gid), {})
         return lb[str(gid)]
-    # Fallback RAM si storage indisponible
     if not hasattr(_lb_get_leaderboard, "_mem"):
         _lb_get_leaderboard._mem: Dict[str, Dict[str, Dict[str, int]]] = {}
     mem = _lb_get_leaderboard._mem  # type: ignore
@@ -148,7 +147,6 @@ async def _get_tickets(uid: int) -> int:
     return int(row[0]) if row else 0
 
 async def _get_equipped_char_id(uid: int) -> Optional[str]:
-    # 1) gacha_db prioritaire
     if _gacha_get_equipped:
         try:
             r = await _gacha_get_equipped(uid)  # type: ignore
@@ -160,7 +158,6 @@ async def _get_equipped_char_id(uid: int) -> Optional[str]:
                 return str(r[0])
         except Exception:
             pass
-    # 2) fallback table locale
     await _ensure_tables()
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute("SELECT char_id FROM equipped_character WHERE user_id = ?", (uid,))
@@ -221,7 +218,6 @@ def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
     ]
 
 def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
-    """Répartition ligne par ligne (row-major) pour des colonnes compactes."""
     if not lines:
         return ["—"]
     cols: List[List[str]] = [[] for _ in range(n_cols)]
@@ -235,12 +231,25 @@ def _fmt_dt_utc(dt) -> str:
     except Exception:
         return str(dt)
 
+# ----------- helper pour formater des durées (ex: 1 h 23 min, 45 s) ----------
+def _fmt_duration_short(seconds: float | int) -> str:
+    s = max(0, int(seconds or 0))
+    m, s = divmod(s, 60)
+    h, m = divmod(m, 60)
+    d, h = divmod(h, 24)
+    parts: List[str] = []
+    if d: parts.append(f"{d} j")
+    if h: parts.append(f"{h} h")
+    if m: parts.append(f"{m} min")
+    if not parts:
+        parts.append(f"{s} s")
+    return " ".join(parts)
+
 # ==== Calcul du total carrière (fallback robuste) ==============================
 USER_COLS = ("user_id", "uid", "member_id", "author_id", "player_id")
 AMOUNT_COLS = ("amount", "delta", "change", "value", "coins", "gotcoins", "gc", "balance_change")
 
 async def _career_total_from_db(uid: int) -> Optional[int]:
-    """Scanne la DB pour inférer un total gagné si aucune fonction dédiée n'existe."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             cur = await db.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -273,7 +282,6 @@ async def _career_total_from_db(uid: int) -> Optional[int]:
     return None
 
 async def _get_career_total(uid: int, min_floor: int) -> int:
-    # 1) fonction dédiée si dispo
     if _get_total_career:
         try:
             v = int(await _get_total_career(uid))  # type: ignore
@@ -281,27 +289,18 @@ async def _get_career_total(uid: int, min_floor: int) -> int:
                 return v
         except Exception:
             pass
-    # 2) heuristique DB
     dbv = await _career_total_from_db(uid)
     if dbv is not None and dbv >= 0:
         return max(dbv, min_floor)
-    # 3) fallback minimal
     return max(min_floor, 0)
 
-# ==== Rang par Coins (serveur) avec fallback si ligne manquante ================
+# ==== Rang par Coins (serveur) =================================================
 async def _get_coin_rank(uid: int, guild: Optional[discord.Guild] = None) -> Optional[Tuple[int, int, int]]:
-    """
-    Rang par COINS (DESC) avec fallback si la ligne 'balances' manque.
-    - Si 'guild' est fourni, ne classe que les membres de CE serveur.
-    - Retourne (rang, total_pris_en_compte, solde_utilisateur).
-    """
-    # Solde actuel (même source que /daily et /inv)
     try:
         coins_now = int(await get_balance(uid))
     except Exception:
         coins_now = 0
 
-    # Récupère toutes les balances > 0 depuis la DB (si la table existe)
     rows: List[Tuple[int, int]] = []
     try:
         async with aiosqlite.connect(DB_PATH) as db:
@@ -309,17 +308,14 @@ async def _get_coin_rank(uid: int, guild: Optional[discord.Guild] = None) -> Opt
             rows = [(int(u), int(b)) for (u, b) in await cur.fetchall()]
             await cur.close()
     except Exception:
-        # Pas de table 'balances' → on se base au moins sur notre solde si > 0
         if coins_now > 0:
             rows = [(uid, coins_now)]
         else:
             return None
 
-    # Ajoute l'utilisateur virtuellement s'il n'est pas présent mais a des coins
     if coins_now > 0 and not any(u == uid for (u, _) in rows):
         rows.append((uid, coins_now))
 
-    # Classement PAR SERVEUR si 'guild' est fourni
     if guild is not None:
         try:
             member_ids = {m.id for m in guild.members}
@@ -330,14 +326,11 @@ async def _get_coin_rank(uid: int, guild: Optional[discord.Guild] = None) -> Opt
     if not rows:
         return None
 
-    # Trie: balance DESC, puis user_id ASC pour stabilité
     rows.sort(key=lambda t: (-t[1], t[0]))
-
-    # Trouve le rang de l'utilisateur
     try:
         rank = next(i for i, (u, _) in enumerate(rows, start=1) if u == uid)
     except StopIteration:
-        return None  # pas pris en compte (zéro coin et/ou pas membre du serveur)
+        return None
 
     total = len(rows)
     return rank, total, coins_now
@@ -361,7 +354,7 @@ class Info(commands.Cog):
         char_label = _pretty_character(char_id)
 
         # Inventaire
-        inv_items = await get_all_items(uid)  # List[Tuple[str(emoji), int]]
+        inv_items = await get_all_items(uid)
         lines = _format_items_lines(inv_items)
 
         # PV & bouclier — mêmes sources que le COG de combat
@@ -374,7 +367,6 @@ class Info(commands.Cog):
 
         shield_now = 0
         shield_max = 0
-        # 1) Base dédiée PB si dispo
         if _get_shield:
             try:
                 shield_now = int(await _get_shield(uid))  # type: ignore
@@ -385,7 +377,6 @@ class Info(commands.Cog):
                 shield_max = int(await _get_max_shield(uid))  # type: ignore
             except Exception:
                 pass
-        # 2) Fallback: somme de l'effet "pb" (cohérent avec /fight fallback)
         if (shield_now == 0) and _list_effects:
             try:
                 rows = await _list_effects(uid)  # type: ignore
@@ -406,12 +397,12 @@ class Info(commands.Cog):
         embed.add_field(name="❤️ Points de vie", value=f"{hp} / {hp_max}", inline=False)
         embed.add_field(name="🛡 Bouclier", value=f"{shield_now} / {shield_max}", inline=False)
 
-        # Ressources (3 colonnes)
+        # Ressources
         embed.add_field(name="🏆 GotCoins totaux (carrière)", value=str(career_total), inline=True)
         embed.add_field(name="💰 Solde actuel (dépensable)", value=str(coins_now), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
-        # Date serveur (on n'affiche PAS "Sur Discord depuis")
+        # Date serveur
         if isinstance(member, discord.Member) and member.joined_at:
             embed.add_field(name="📅 Membre du serveur depuis", value=_fmt_dt_utc(member.joined_at), inline=False)
 
@@ -421,13 +412,11 @@ class Info(commands.Cog):
         # ===== Classement (Coins & Points) =====
         classements: List[str] = []
 
-        # Coins (par serveur)
         coin_rank = await _get_coin_rank(uid, guild)
         if coin_rank:
             r, tot, bal = coin_rank
             classements.append(f"💰 Coins : **#{r}** sur **{tot}** — {bal}")
 
-        # Points (storage leaderboard)
         if guild is not None:
             rows = _lb_rank_sorted(guild.id)
             pos = _lb_find_rank(rows, uid)
@@ -442,12 +431,12 @@ class Info(commands.Cog):
 
         embed.add_field(name="🏅 Classement (serveur)", value="\n".join(classements), inline=False)
 
-        # Inventaire : 1 col <6, sinon 2 colonnes remplies ligne par ligne
+        # Inventaire : colonnes compactes
         if len(lines) >= 6:
             cols = _columns_rowwise(lines, n_cols=2)
             embed.add_field(name="📦 Inventaire", value=cols[0], inline=True)
             embed.add_field(name="\u200b", value=cols[1], inline=True)
-            embed.add_field(name="\u200b", value="\u200b", inline=True)  # fin de rangée
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
         else:
             block = "\n".join(lines) if lines else "Aucun objet"
             embed.add_field(name="📦 Inventaire", value=block, inline=False)
@@ -456,7 +445,7 @@ class Info(commands.Cog):
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
 
-        # Effets / pathologies (si disponibles, via list_effects)
+        # ===== Effets (avec temps restant + prochain tick) =====
         effects_text = "Aucun effet détecté."
         if _list_effects:
             try:
@@ -473,13 +462,23 @@ class Info(commands.Cog):
                         "immunite": "⭐️ Immunité",
                         "pb": "🛡 PB",
                     }
+                    now = time.time()
                     pretty: List[str] = []
                     for eff_type, value, interval, next_ts, end_ts, source_id, meta_json in rows:
                         label = labels.get(eff_type, eff_type)
-                        if interval and int(interval) > 0:
-                            pretty.append(f"• {label}: {value} / {max(1,int(interval)//60)} min")
-                        else:
-                            pretty.append(f"• {label}: {value}")
+                        parts: List[str] = []
+                        # Prochain tick si périodique
+                        if interval and int(interval) > 0 and next_ts:
+                            nxt = max(0, int(next_ts - now))
+                            parts.append(f"prochain tick : {_fmt_duration_short(nxt)}")
+                        # Temps restant total
+                        if end_ts:
+                            rem = max(0, int(end_ts - now))
+                            parts.append(f"reste : {_fmt_duration_short(rem)}")
+                        line = f"• {label}: {value}"
+                        if parts:
+                            line += " — " + " • ".join(parts)
+                        pretty.append(line)
                     if pretty:
                         effects_text = "\n".join(pretty[:15])
             except Exception:
