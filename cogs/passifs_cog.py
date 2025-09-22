@@ -1,201 +1,136 @@
 # cogs/passifs_cog.py
 from __future__ import annotations
 
-import time
-from typing import List, Optional, Dict
+from typing import List, Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from passifs import (
-    set_equipped_from_personnage,
-    get_equipped_code,
-)
-from effects_db import list_effects
-from personnage import (
-    PERSONNAGES,
-    PASSIF_CODE_MAP,
-    get_tous_les_noms,
-    trouver,
-)
+from personnage import PERSONNAGES, trouver, get_tous_les_noms
+from passifs import get_equipped_name, init_passifs_db
+# (Optionnel) pour debug : nom->code
+from personnage import PASSIF_CODE_MAP
 
-# ─────────────────────────────────────────────────────────────
-# Utils
-# ─────────────────────────────────────────────────────────────
-
-def _now() -> int:
-    return int(time.time())
-
-def _format_duration(seconds: int) -> str:
-    if seconds <= 0:
-        return "0s"
-    m, s = divmod(seconds, 60)
-    h, m = divmod(m, 60)
-    if h > 0:
-        return f"{h}h {m}m {s}s"
-    if m > 0:
-        return f"{m}m {s}s"
-    return f"{s}s"
-
-# label + emoji pour les effets fréquents
-EFFECT_LABELS: Dict[str, str] = {
-    "poison": "🧪 Poison",
-    "virus": "🦠 Virus",
-    "infection": "🧟 Infection",
-    "brulure": "🔥 Brûlure",
-    "regen": "💕 Régénération",
-    "reduction": "🛡 Réduction (perma)",
-    "reduction_temp": "🛡 Réduction (temp.)",
-    "reduction_valen": "🛡 Réduction (Valen)",
-    "esquive": "👟 Esquive",
-    "immunite": "⭐ Immunité",
-}
-
-# reverse map: code -> nom passif (pour affichage)
-CODE_TO_PASSIF_NOM: Dict[str, str] = {v: k for k, v in PASSIF_CODE_MAP.items()}
-
-# ─────────────────────────────────────────────────────────────
-# Cog
-# ─────────────────────────────────────────────────────────────
 
 class PassifsCog(commands.Cog):
-    """Commandes pour équiper et visualiser les passifs + effets actifs."""
+    """Outils autour des passifs (consultation, recherche)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # -------------- /equip --------------
-
-    @app_commands.command(name="equip", description="Équiper un personnage pour activer son passif.")
-    @app_commands.describe(personnage="Nom du personnage à équiper")
-    @app_commands.autocomplete(personnage=lambda i, cur: PassifsCog.autocomplete_personnages(i, cur))
-    async def equip_cmd(self, itx: discord.Interaction, personnage: str):
-        await itx.response.defer(ephemeral=True)  # réponse discrète
-
-        p = trouver(personnage)  # tolérant (nom ou slug)
+    # ─────────────────────────────────────────────────────────
+    # /passifinfo — affiche TON personnage équipé + passif
+    # ─────────────────────────────────────────────────────────
+    @app_commands.command(name="passifinfo", description="Affiche ton personnage équipé et son passif.")
+    async def passifinfo(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        name = await get_equipped_name(interaction.user.id)
+        if not name:
+            await interaction.followup.send("❌ Aucun personnage équipé. Utilise `/equip`.", ephemeral=True)
+            return
+        p = PERSONNAGES.get(name)
         if not p:
-            # on retente exact sur la casse si besoin
-            if personnage in PERSONNAGES:
-                p = PERSONNAGES[personnage]
-            else:
-                return await itx.followup.send("❌ Personnage introuvable. Vérifie l’orthographe.", ephemeral=True)
+            await interaction.followup.send("❌ Données introuvables pour ce personnage.", ephemeral=True)
+            return
 
-        ok = await set_equipped_from_personnage(itx.user.id, p["nom"])
-        if not ok:
-            return await itx.followup.send("❌ Impossible d’équiper ce personnage (passif non mappé).", ephemeral=True)
-
-        # embed de confirmation
         emb = discord.Embed(
-            title=f"✅ Passif équipé : {p['passif']['nom']}",
-            description=p["passif"]["effet"],
+            title=f"🎴 {p['nom']}",
+            description=(
+                f"**Rareté** : {p.get('rarete','?')}\n"
+                f"**Faction** : {p.get('faction','?')}\n"
+                f"**Passif** : **{p.get('passif',{}).get('nom','?')}**\n"
+                f"> {p.get('passif',{}).get('effet','')}"
+            ),
+            color=discord.Color.gold()
+        )
+        await interaction.followup.send(embed=emb, ephemeral=True)
+
+    # ─────────────────────────────────────────────────────────
+    # /passifwhois — affiche le perso équipé d’un membre
+    # ─────────────────────────────────────────────────────────
+    @app_commands.command(name="passifwhois", description="Affiche le personnage équipé d’un membre.")
+    @app_commands.describe(membre="Le membre à inspecter.")
+    async def passifwhois(self, interaction: discord.Interaction, membre: Optional[discord.Member] = None):
+        await interaction.response.defer(ephemeral=True)
+        target = membre or interaction.user
+        name = await get_equipped_name(target.id)
+        if not name:
+            await interaction.followup.send(f"ℹ️ **{target.display_name}** n’a aucun personnage équipé.", ephemeral=True)
+            return
+        p = PERSONNAGES.get(name)
+        if not p:
+            await interaction.followup.send("❌ Données introuvables pour ce personnage.", ephemeral=True)
+            return
+
+        emb = discord.Embed(
+            title=f"🧭 {target.display_name} — {p['nom']}",
+            description=(
+                f"**Rareté** : {p.get('rarete','?')}\n"
+                f"**Faction** : {p.get('faction','?')}\n"
+                f"**Passif** : **{p.get('passif',{}).get('nom','?')}**\n"
+                f"> {p.get('passif',{}).get('effet','')}"
+            ),
             color=discord.Color.green()
         )
-        emb.set_author(name=p["nom"])
-        if p.get("image"):
-            emb.set_thumbnail(url=f"attachment://portrait.png")  # si tu préfères upload File
-        # En pratique, on peut directement set_thumbnail(url=p["image"]) si c’est une URL publique
-        if p.get("image", "").startswith("http"):
-            emb.set_thumbnail(url=p["image"])
+        await interaction.followup.send(embed=emb, ephemeral=True)
 
-        await itx.followup.send(embed=emb, ephemeral=True)
+    # ─────────────────────────────────────────────────────────
+    # /passifsearch — recherche dans la base des personnages
+    # (avec autocomplete ASYNC, pas de lambda)
+    # ─────────────────────────────────────────────────────────
+    @app_commands.command(name="passifsearch", description="Recherche un personnage (affiche son passif).")
+    @app_commands.describe(personnage="Nom exact ou partiel")
+    @app_commands.autocomplete(personnage=lambda i, cur: _autocomplete_personnages(cur))
+    async def passifsearch(self, interaction: discord.Interaction, personnage: str):
+        await interaction.response.defer(ephemeral=True)
 
-    @staticmethod
-    async def autocomplete_personnages(
-        itx: discord.Interaction,
-        current: str,
-    ) -> List[app_commands.Choice[str]]:
-        noms = get_tous_les_noms()
-        if current:
-            cur_low = current.lower()
-            noms = [n for n in noms if cur_low in n.lower()]
-        return [app_commands.Choice(name=n, value=n) for n in noms[:25]]
-
-    # -------------- /passif --------------
-
-    @app_commands.command(name="passif", description="Voir le passif actuellement équipé.")
-    async def passif_cmd(self, itx: discord.Interaction):
-        await itx.response.defer(ephemeral=True)
-        code = await get_equipped_code(itx.user.id)
-        if not code:
-            return await itx.followup.send("ℹ️ Aucun personnage équipé. Utilise `/equip`.", ephemeral=True)
-
-        # retrouve le personnage par code passif
-        passif_nom = CODE_TO_PASSIF_NOM.get(code, "Passif inconnu")
-
-        perso = None
-        for p in PERSONNAGES.values():
-            if p.get("passif", {}).get("nom") == passif_nom:
-                perso = p
-                break
-
-        desc = ""
-        title = passif_nom
-        thumb = None
-        author_name = itx.user.display_name
-
-        if perso:
-            desc = perso["passif"]["effet"]
-            title = f"{perso['passif']['nom']}"
-            author_name = perso["nom"]
-            thumb = perso.get("image")
+        p = trouver(personnage) or PERSONNAGES.get(personnage)
+        if not p:
+            await interaction.followup.send("❌ Personnage introuvable.", ephemeral=True)
+            return
 
         emb = discord.Embed(
-            title=title,
-            description=desc or f"Code interne : `{code}`",
+            title=f"🔎 {p['nom']}",
+            description=(
+                f"**Rareté** : {p.get('rarete','?')}\n"
+                f"**Faction** : {p.get('faction','?')}\n"
+                f"**Passif** : **{p.get('passif',{}).get('nom','?')}**\n"
+                f"> {p.get('passif',{}).get('effet','')}"
+            ),
             color=discord.Color.blurple()
         )
-        emb.set_author(name=author_name)
-        if thumb:
-            if thumb.startswith("http"):
-                emb.set_thumbnail(url=thumb)
-        await itx.followup.send(embed=emb, ephemeral=True)
+        # debug : affiche le code interne si mappé
+        try:
+            pname = p.get("passif", {}).get("nom")
+            if pname in PASSIF_CODE_MAP:
+                emb.set_footer(text=f"Code interne: {PASSIF_CODE_MAP[pname]}")
+        except Exception:
+            pass
 
-    # -------------- /status --------------
+        await interaction.followup.send(embed=emb, ephemeral=True)
 
-    @app_commands.command(name="status", description="Voir vos effets/états actifs (poison, virus, regen, etc.).")
-    async def status_cmd(self, itx: discord.Interaction):
-        await itx.response.defer(ephemeral=True)
 
-        rows = await list_effects(itx.user.id)
-        if not rows:
-            return await itx.followup.send("🧼 Aucun effet actif.", ephemeral=True)
+# ─────────────────────────────────────────────────────────────
+# Autocomplete (ASYNC obligatoire)
+# ─────────────────────────────────────────────────────────────
+async def _autocomplete_personnages(current: str) -> List[app_commands.Choice[str]]:
+    cur = (current or "").strip().lower()
+    noms = get_tous_les_noms()
+    out: List[app_commands.Choice[str]] = []
+    if not cur:
+        for n in noms[:25]:
+            out.append(app_commands.Choice(name=n, value=n))
+        return out
 
-        now = _now()
-        lines: List[str] = []
-        for eff_type, value, interval, next_ts, end_ts, source_id, meta_json in rows:
-            label = EFFECT_LABELS.get(eff_type, eff_type)
-            remain = max(0, end_ts - now)
-            tick = f"• Tick: {interval//60} min" if interval > 0 else None
-            src = f"• Source: <@{int(source_id)}>" if source_id and str(source_id).isdigit() and int(source_id) != 0 else None
-
-            # value : dmg/soin par tick pour DOT/regen, ou pourcentage pour reduc/esquive
-            if eff_type in ("poison", "virus", "infection", "brulure", "regen"):
-                val_txt = f"• Valeur: {int(value)} / tick"
-            else:
-                # stats
-                if eff_type.startswith("reduction"):
-                    val_txt = f"• Réduction: {round(float(value)*100)} %"
-                elif eff_type == "esquive":
-                    val_txt = f"• Esquive: {round(float(value)*100)} %"
-                elif eff_type == "immunite":
-                    val_txt = "• Immunité: active"
-                else:
-                    val_txt = f"• Valeur: {value}"
-
-            parts = [f"**{label}**", val_txt, f"• Reste: {_format_duration(remain)}"]
-            if tick: parts.append(tick)
-            if src: parts.append(src)
-
-            lines.append("\n".join(parts))
-
-        emb = discord.Embed(
-            title=f"🩺 Effets actifs pour {itx.user.display_name}",
-            description="\n\n".join(lines),
-            color=discord.Color.teal()
-        )
-        await itx.followup.send(embed=emb, ephemeral=True)
+    for n in noms:
+        if cur in n.lower():
+            out.append(app_commands.Choice(name=n, value=n))
+        if len(out) >= 25:
+            break
+    return out
 
 
 async def setup(bot: commands.Bot):
+    await init_passifs_db()
     await bot.add_cog(PassifsCog(bot))
