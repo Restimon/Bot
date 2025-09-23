@@ -120,7 +120,6 @@ INITIAL_EXTENSIONS = [
     "cogs.inventory_cog",
     "cogs.invocation_cog",
     "cogs.leaderboard_live",  # nouveau LB live
-    "cogs.leaderboard_cog",   # ancien LB si présent
     "cogs.admin_cog",
     "cogs.info_cog",
     "cogs.help_cog",
