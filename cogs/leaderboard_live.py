@@ -9,7 +9,9 @@ from discord import app_commands
 from discord.ext import commands, tasks
 import aiosqlite
 
-# DB partagée
+# ─────────────────────────────────────────────────────────
+# DB partagée (même fichier SQLite que le reste)
+# ─────────────────────────────────────────────────────────
 try:
     from economy_db import DB_PATH, get_balance
 except Exception:
@@ -17,11 +19,11 @@ except Exception:
     async def get_balance(user_id: int) -> int:  # fallback
         return 0
 
-# PV / PB
+# PV / PB (stats_db)
 try:
     from stats_db import get_hp as stats_get_hp, get_shield as stats_get_shield
 except Exception:
-    async def stats_get_hp(user_id: int) -> Tuple[int, int]:  # (hp, max)
+    async def stats_get_hp(user_id: int) -> Tuple[int, int]:  # (hp, max_hp)
         return 100, 100
     async def stats_get_shield(user_id: int) -> int:
         return 0
@@ -88,7 +90,14 @@ async def trigger_lb_update_now(bot: commands.Bot, guild_id: int, reason: str = 
 # Rendu (Coins + PV + PB)
 # ─────────────────────────────────────────────────────────
 def _rank_emoji(n: int) -> str:
-    return "🥇" if n == 1 else "🥈" if n == 2 else "🥉" if n == 3 else f"{n}."
+    if n == 1:
+        return "🥇"
+    if n == 2:
+        return "🥈"
+    if n == 3:
+        return "🥉"
+    # Échapper le point pour éviter que Discord transforme "4. " en liste numérotée
+    return f"{n}\\."
 
 def _format_line(idx: int, name: str, coins: int, hp: int, pb: int) -> str:
     medal = _rank_emoji(idx)
@@ -97,20 +106,25 @@ def _format_line(idx: int, name: str, coins: int, hp: int, pb: int) -> str:
 
 async def _collect_rows(guild: discord.Guild) -> List[Tuple[int, str, int, int, int]]:
     """
-    [(user_id, display_name, coins, hp, pb)] trié:
-    coins DESC, pb DESC, hp DESC, name ASC
+    Construit la liste des joueurs actifs et la trie :
+      rows = [(user_id, display_name, coins, hp, pb)]
+    Tri: coins DESC, pb DESC, hp DESC, name ASC
+    Règle "actif" : montrer le joueur s'il a coins>0 OU a perdu des PV (hp<max) OU a du PB>0.
     """
     members = [m for m in guild.members if not m.bot]
+
     # appels parallèles
     coins_list = await asyncio.gather(*(get_balance(m.id) for m in members))
-    hp_list = await asyncio.gather(*(stats_get_hp(m.id) for m in members))          # (hp, max)
+    hp_list = await asyncio.gather(*(stats_get_hp(m.id) for m in members))          # (hp, max_hp)
     pb_list = await asyncio.gather(*(stats_get_shield(m.id) for m in members))
 
     rows: List[Tuple[int, str, int, int, int]] = []
-    for m, coins, (hp, _mx), pb in zip(members, coins_list, hp_list, pb_list):
-        if int(coins) <= 0 and int(hp) <= 0 and int(pb) <= 0:
+    for m, coins, (hp, mx), pb in zip(members, coins_list, hp_list, pb_list):
+        coins = int(coins); hp = int(hp); mx = int(mx); pb = int(pb)
+        # garder seulement les "actifs"
+        if not (coins > 0 or hp < mx or pb > 0):
             continue
-        rows.append((m.id, m.display_name, int(coins), int(hp), int(pb)))
+        rows.append((m.id, m.display_name, coins, hp, pb))
 
     rows.sort(key=lambda t: (-t[2], -t[4], -t[3], t[1].lower()))
     return rows[:10]
@@ -128,7 +142,7 @@ def _build_embed(guild: discord.Guild, rows: List[Tuple[int, str, int, int, int]
     else:
         e.description = "_Aucun joueur classé pour le moment._"
     e.set_footer(text="💡 Les GotCoins représentent votre richesse accumulée.")
-    e.set_author(name=f"maj: {reason}")  # petit indicateur discret
+    # (pas de e.set_author — on ne veut pas “maj: …” en tête)
     return e
 
 # ─────────────────────────────────────────────────────────
@@ -148,7 +162,7 @@ class LiveLeaderboard(commands.Cog):
         if interaction.guild:
             schedule_lb_update(self.bot, interaction.guild.id, f"/{command.name}")
 
-    @commands.Cog.listener()
+    @commands.Cog.listener())
     async def on_command_completion(self, ctx: commands.Context):
         if ctx.guild:
             try:
