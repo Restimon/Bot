@@ -127,6 +127,10 @@ REWARD_EMOJIS = ["💰"]
 # =========================
 # Utilitaires
 # =========================
+
+# Esquive globale (identique pour tout le monde et toutes les actions offensives)
+GLOBAL_EVASION_RATE = 0.04  # 4%
+
 def check_crit(chance: float) -> bool:
     try:
         return random.random() < float(chance or 0.0)
@@ -209,35 +213,11 @@ def get_random_enemy(guild_id: str, exclude=None):
 # ---------- Fin des utilitaires pour passifs.py ----------
 
 def get_evade_chance(guild_id: str, user_id: str) -> float:
-    """Calcule la chance d'esquive pour un utilisateur, avec bonus de statut et passifs."""
-    base_chance = 0.10  # 10 % de base
-    bonus = 0.0
-    now = time.time()
-
-    # 🔷 Statut temporaire d'esquive (ex: 👟)
-    try:
-        data = esquive_status.get(str(guild_id), {}).get(str(user_id))
-        if data and (now - float(data.get("start", 0))) < float(data.get("duration", 0)):
-            bonus += float(data.get("valeur", 0.2))
-    except Exception:
-        pass
-
-    # 🌀 Passifs (optionnel)
-    try:
-        from passifs import appliquer_passif as _appliquer_passif
-        res = _appliquer_passif("calcul_esquive", {
-            "guild_id": str(guild_id),
-            "defenseur": str(user_id),
-        }) or {}
-        if "bonus_esquive" in res:
-            val = res["bonus_esquive"]
-            # accepte 5 (=5%) ou 0.05
-            bonus += (float(val) / 100.0) if abs(float(val)) > 1 else float(val)
-    except Exception:
-        pass
-
-    # clamp raisonnable
-    return max(0.0, min(0.95, base_chance + bonus))
+    """
+    Taux d'esquive global, identique pour tous et pour toutes les actions offensives
+    (attaques, vol, etc.). Les statuts/passifs ne modifient plus ce taux.
+    """
+    return float(GLOBAL_EVASION_RATE)
 
 # =========================
 # Leaderboard helper (safe)
