@@ -1,13 +1,30 @@
 # shields_db.py
+import os, shutil
 import aiosqlite
 from typing import Optional
 
+# ── Chemin DB persistant ───────────────────────────────────────────
 try:
-    from economy_db import DB_PATH as DB_PATH  # même DB que le reste
+    from data.storage import get_sqlite_path
 except Exception:
-    DB_PATH = "gotvalis.sqlite3"
+    def get_sqlite_path(name="gotvalis.sqlite3"):
+        return os.getenv("GOTVALIS_DB") or "/persistent/gotvalis.sqlite3"
+
+DB_PATH = get_sqlite_path("gotvalis.sqlite3")
+
+def _maybe_migrate_local_db():
+    old = "gotvalis.sqlite3"
+    try:
+        if os.path.exists(old) and not os.path.exists(DB_PATH):
+            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+            shutil.copy2(old, DB_PATH)
+    except Exception:
+        pass
+
+_maybe_migrate_local_db()
 
 CREATE_SQL = """
+PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS shields (
     user_id    INTEGER PRIMARY KEY,
     value      INTEGER NOT NULL DEFAULT 0,
@@ -17,7 +34,7 @@ CREATE TABLE IF NOT EXISTS shields (
 
 async def init_shields_db():
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(CREATE_SQL)
+        await db.executescript(CREATE_SQL)
         await db.commit()
 
 async def _ensure_row(db, uid: int):
@@ -52,7 +69,7 @@ async def add_shield(uid: int, delta: int, cap_to_max: bool = True) -> int:
         await _ensure_row(db, uid)
         cur = await db.execute("SELECT value, max_value FROM shields WHERE user_id=?", (uid,))
         row = await cur.fetchone(); await cur.close()
-        val, mx = int(row[0]), int(row[1]) if row else (0, 50)
+        val, mx = (int(row[0]), int(row[1])) if row else (0, 50)
         val += int(delta)
         if cap_to_max:
             val = max(0, min(val, mx))
@@ -66,7 +83,7 @@ async def set_max_shield(uid: int, mx: int, keep_ratio: bool = False):
         if keep_ratio:
             cur = await db.execute("SELECT value, max_value FROM shields WHERE user_id=?", (uid,))
             row = await cur.fetchone(); await cur.close()
-            old_v, old_m = int(row[0]), int(row[1]) if row else (0, 50)
+            old_v, old_m = (int(row[0]), int(row[1])) if row else (0, 50)
             new_v = 0 if old_m == 0 else int(round(old_v * (mx / old_m)))
             await db.execute("UPDATE shields SET value=?, max_value=? WHERE user_id=?", (new_v, mx, uid))
         else:
