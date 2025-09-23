@@ -13,7 +13,7 @@ from inventory_db import (
     remove_item,
     add_item,
     get_all_items,
-    transfer_item,
+    transfer_item,  # si implémenté de façon atomique
 )
 
 # ── Économie (coins pour la Box)
@@ -22,29 +22,12 @@ from economy_db import add_balance
 # ── Effets (buffs & nettoyage)
 from effects_db import add_or_refresh_effect, remove_effect, has_effect
 
-# ── Bouclier persistant (PB)
-try:
-    from shields_db import add_shield, get_shield, get_max_shield
-except Exception:
-    async def add_shield(uid: int, delta: int, cap_to_max: bool = True) -> int:  # type: ignore
-        return 0
-    async def get_shield(uid: int) -> int:  # type: ignore
-        return 0
-    async def get_max_shield(uid: int) -> int:  # type: ignore
-        return 50
-
-# ── Stats (pour afficher PV actuels quand utile)
-try:
-    from stats_db import get_hp
-except Exception:
-    async def get_hp(uid: int) -> Tuple[int, int]:  # type: ignore
-        return (100, 100)
-
 # ── Passifs (hooks optionnels)
 try:
     from passifs import trigger as passifs_trigger
 except Exception:
-    async def passifs_trigger(*args, **kwargs): return {}
+    async def passifs_trigger(*args, **kwargs):  # type: ignore
+        return {}
 
 # ── Catalogue d’objets & utilitaires
 try:
@@ -54,7 +37,8 @@ except Exception:
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
     def get_evade_chance(gid: str, uid: str) -> float:
-        return 0.04  # fallback 4 %
+        return 0.04  # 4% fallback
+
 
 # ─────────────────────────────────────────────────────────
 # Helpers communs
@@ -62,6 +46,14 @@ except Exception:
 def _obj_info(emoji: str) -> Optional[Dict]:
     info = OBJETS.get(emoji)
     return dict(info) if isinstance(info, dict) else None
+
+def _obj_gif(emoji: str) -> Optional[str]:
+    """Récupère un GIF pertinent depuis utils. gif_heal pour soins/vaccin, sinon gif/gif_attack."""
+    data = OBJETS.get(emoji, {})
+    typ = str(data.get("type", ""))
+    if typ in ("soin", "regen") or emoji in ("💉",):
+        return data.get("gif_heal") or data.get("gif")
+    return data.get("gif") or data.get("gif_attack")
 
 async def _consume_item(user_id: int, emoji: str) -> bool:
     try:
@@ -81,6 +73,7 @@ def _warn_embed(title: str, desc: str) -> discord.Embed:
 def _err_embed(title: str, desc: str) -> discord.Embed:
     return discord.Embed(title=title, description=desc, color=discord.Color.red())
 
+
 # ─────────────────────────────────────────────────────────
 # Mystery Box — pool pondérée (26 - rarete) + option Coins
 # ─────────────────────────────────────────────────────────
@@ -93,47 +86,14 @@ def _weighted_pool_for_box(exclude_box: bool = True) -> List[str]:
         w = 26 - r
         if w > 0:
             pool.extend([emoji] * w)
-    # coins “pseudo-item” (poids ~14 ≈ rarete 12)
+    # coins “pseudo-item” (poids ≈ 14 ; équiv. rarete ~12)
     pool.extend(["💰COINS"] * 14)
     return pool
+
 
 # ─────────────────────────────────────────────────────────
 # Actions concrètes par type d’objet
 # ─────────────────────────────────────────────────────────
-
-# ——— BOUCLIER ———
-async def apply_shield(
-    inter: discord.Interaction,
-    applier: discord.Member,
-    target: discord.Member,
-    emoji: str,
-    info: Dict
-) -> Tuple[discord.Embed, Dict]:
-    val = int(info.get("valeur", info.get("value", 0)) or 0)
-    if val <= 0:
-        return _warn_embed("Bouclier", "Valeur de bouclier invalide."), {"applied": False}
-
-    # hook passif pré-application (ex: blocage)
-    try:
-        pre = await passifs_trigger("on_effect_pre_apply", user_id=target.id, eff_type="bouclier") or {}
-        if pre.get("blocked"):
-            return _err_embed("⛔ Bloqué", pre.get("reason", "Impossible d’appliquer le bouclier.")), {"applied": False}
-    except Exception:
-        pass
-
-    new_pb = await add_shield(target.id, val, cap_to_max=True)
-    mx_pb  = await get_max_shield(target.id)
-    hp, mx = await get_hp(target.id)
-
-    e = discord.Embed(
-        title=f"{emoji} Bouclier",
-        description=(
-            f"{applier.mention} confère un **bouclier** à {target.mention} :\n"
-            f"🛡 **{new_pb}/{mx_pb} PB** | ❤️ **{hp}/{mx} PV**"
-        ),
-        color=discord.Color.blurple()
-    )
-    return e, {"applied": True, "new_pb": new_pb}
 
 # ——— VACCIN (cleanse) ———
 async def apply_vaccine(
@@ -158,6 +118,9 @@ async def apply_vaccine(
     else:
         label = ", ".join(f"**{t}**" for t in removed)
         e = _ok_embed("💉 Vaccin appliqué", f"{applier.mention} retire {label} sur {target.mention}.")
+    gif = _obj_gif(emoji)
+    if gif:
+        e.set_image(url=gif)
     return e, {"removed": removed}
 
 # ——— BUFFS (esquive+ / réduction / immunité) ———
@@ -194,6 +157,9 @@ async def apply_buff(
     names = {"esquive+": "👟 Esquive+", "reduction": "🪖 Réduction de dégâts", "immunite": "⭐ Immunité"}
     desc = f"{applier.mention} applique **{emoji}** sur {target.mention}."
     e = discord.Embed(title=names.get(eff_type, "Buff"), description=desc, color=discord.Color.teal())
+    gif = _obj_gif(emoji)
+    if gif:
+        e.set_image(url=gif)
     return e, {"applied": True, "value": value, "duration": duration}
 
 # ——— MYSTERY BOX (3 récompenses, items pondérés OU coins) ———
@@ -225,6 +191,10 @@ async def open_box(
         description=f"{user.mention} reçoit :\n{desc}",
         color=discord.Color.gold()
     )
+    gif = _obj_gif(emoji)
+    if gif:
+        e.set_image(url=gif)
+
     # Hook passif post-ouverture (bonus éventuel)
     try:
         post = await passifs_trigger("on_box_open", user_id=user.id) or {}
@@ -245,7 +215,7 @@ async def open_box(
 
     return e, {"rewards": rewards, "coins_total": coins_total}
 
-# ——— VOL (vrai vol dans l’inventaire de la cible, avec esquive) ———
+# ——— VOL (réel, avec esquive et transfert DB) ———
 async def try_theft(
     inter: discord.Interaction,
     thief: discord.Member,
@@ -263,10 +233,14 @@ async def try_theft(
     except Exception:
         pass
 
-    # esquive (4% de base, + buffs/passifs) via utils.get_evade_chance
+    # esquive (4% base, modifiable par buffs/passifs)
     evade = float(get_evade_chance(str(inter.guild_id), str(target.id)))
     if random.random() < max(0.0, min(0.95, evade)):
-        return _warn_embed("🕵️ Vol", f"{target.mention} **esquive** ta tentative ({int(evade*100)}%)."), {"stolen": False}
+        e = _warn_embed("🕵️ Vol", f"{target.mention} **esquive** ta tentative ({int(evade*100)}%).")
+        gif = _obj_gif("🔍")
+        if gif:
+            e.set_image(url=gif)
+        return e, {"stolen": False}
 
     # sac pondéré par quantités de la cible
     inv = await get_all_items(target.id)  # [(emoji, qty)]
@@ -277,21 +251,37 @@ async def try_theft(
             bag.extend([emoji] * q)
 
     if not bag:
-        return _warn_embed("🕵️ Vol", f"{target.mention} n'a **rien** à voler."), {"stolen": False}
+        e = _warn_embed("🕵️ Vol", f"{target.mention} n'a **rien** à voler.")
+        gif = _obj_gif("🔍")
+        if gif:
+            e.set_image(url=gif)
+        return e, {"stolen": False}
 
     stolen = random.choice(bag)
 
-    # transfert réel (−1 cible → +1 thief)
+    # transfert réel (préférer transfer_item si atomique)
     ok = await transfer_item(target.id, thief.id, stolen, 1)
     if not ok:
-        return _err_embed("🕵️ Vol", "Le transfert a échoué."), {"stolen": False}
+        # fallback sécurisé : re-vérifier le stock, remove + add
+        qty_left = await get_item_qty(target.id, stolen)
+        if qty_left <= 0 or not await remove_item(target.id, stolen, 1):
+            e = _err_embed("🕵️ Vol", "Le transfert a échoué.")
+            gif = _obj_gif("🔍")
+            if gif:
+                e.set_image(url=gif)
+            return e, {"stolen": False}
+        await add_item(thief.id, stolen, 1)
 
     e = discord.Embed(
         title="🕵️ Vol",
         description=f"Vol réussi ! Tu dérobes **{stolen}** à {target.mention}.",
         color=discord.Color.dark_grey()
     )
+    gif = _obj_gif("🔍")
+    if gif:
+        e.set_image(url=gif)
     return e, {"stolen": True, "item": stolen, "from": target.id}
+
 
 # ─────────────────────────────────────────────────────────
 # Sélecteur générique pour /use
@@ -311,7 +301,7 @@ async def select_and_apply(
         raise ValueError("Objet inconnu.")
     typ = str(info.get("type", ""))
 
-    # redirections
+    # redirections (attaque/soin utilisent leurs modules)
     if typ in ("attaque", "attaque_chaine"):
         if not isinstance(cible, discord.Member):
             raise RuntimeError("Il faut une **cible** pour attaquer.")
@@ -331,6 +321,7 @@ async def select_and_apply(
             from logic.heal import select_and_apply as heal_select  # type: ignore
         except Exception:
             raise RuntimeError("La logique de soin n’est pas disponible (logic/heal.py).")
+        # heal module gère la conso
         embed, meta = await heal_select(inter, emoji, cible)
 
     else:
@@ -340,10 +331,7 @@ async def select_and_apply(
 
         target = cible or inter.user
 
-        if typ == "bouclier":
-            embed, meta = await apply_shield(inter, inter.user, target, emoji, info)
-
-        elif typ == "vaccin":
+        if typ == "vaccin":
             embed, meta = await apply_vaccine(inter, inter.user, target, emoji, info)
 
         elif typ == "mysterybox":
