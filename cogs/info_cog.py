@@ -1,7 +1,7 @@
 # cogs/info_cog.py
 from __future__ import annotations
 
-import time  # ← ajouté pour formater les durées
+import time
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -231,7 +231,6 @@ def _fmt_dt_utc(dt) -> str:
     except Exception:
         return str(dt)
 
-# ----------- helper pour formater des durées (ex: 1 h 23 min, 45 s) ----------
 def _fmt_duration_short(seconds: float | int) -> str:
     s = max(0, int(seconds or 0))
     m, s = divmod(s, 60)
@@ -294,51 +293,10 @@ async def _get_career_total(uid: int, min_floor: int) -> int:
         return max(dbv, min_floor)
     return max(min_floor, 0)
 
-# ==== Rang par Coins (serveur) =================================================
-async def _get_coin_rank(uid: int, guild: Optional[discord.Guild] = None) -> Optional[Tuple[int, int, int]]:
-    try:
-        coins_now = int(await get_balance(uid))
-    except Exception:
-        coins_now = 0
-
-    rows: List[Tuple[int, int]] = []
-    try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            cur = await db.execute("SELECT user_id, balance FROM balances WHERE balance > 0")
-            rows = [(int(u), int(b)) for (u, b) in await cur.fetchall()]
-            await cur.close()
-    except Exception:
-        if coins_now > 0:
-            rows = [(uid, coins_now)]
-        else:
-            return None
-
-    if coins_now > 0 and not any(u == uid for (u, _) in rows):
-        rows.append((uid, coins_now))
-
-    if guild is not None:
-        try:
-            member_ids = {m.id for m in guild.members}
-            rows = [(u, b) for (u, b) in rows if u in member_ids]
-        except Exception:
-            pass
-
-    if not rows:
-        return None
-
-    rows.sort(key=lambda t: (-t[1], t[0]))
-    try:
-        rank = next(i for i, (u, _) in enumerate(rows, start=1) if u == uid)
-    except StopIteration:
-        return None
-
-    total = len(rows)
-    return rank, total, coins_now
-
 # ==== Cog ======================================================================
 class Info(commands.Cog):
     def __init__(self, bot: commands.Bot):
-        self.bot = bot
+        self.bot = bot)
 
     async def _render_info_embed(self, member: discord.Member | discord.User, guild: Optional[discord.Guild] = None) -> discord.Embed:
         uid = member.id
@@ -357,11 +315,11 @@ class Info(commands.Cog):
         inv_items = await get_all_items(uid)
         lines = _format_items_lines(inv_items)
 
-        # PV & bouclier — mêmes sources que le COG de combat
+        # PV & bouclier
         hp, hp_max = 100, 100
         try:
             from stats_db import get_hp  # type: ignore
-            hp, hp_max = await get_hp(uid)  # ← get_hp renvoie (hp, max_hp)
+            hp, hp_max = await get_hp(uid)
         except Exception:
             pass
 
@@ -409,27 +367,14 @@ class Info(commands.Cog):
         # Personnage équipé
         embed.add_field(name="🧬 Personnage équipé", value=char_label, inline=False)
 
-        # ===== Classement (Coins & Points) =====
-        classements: List[str] = []
-
-        coin_rank = await _get_coin_rank(uid, guild)
-        if coin_rank:
-            r, tot, bal = coin_rank
-            classements.append(f"💰 Coins : **#{r}** sur **{tot}** — {bal}")
-
+        # ===== Classement (LB uniquement) =====
+        rank_text = "Non classé"
         if guild is not None:
             rows = _lb_rank_sorted(guild.id)
             pos = _lb_find_rank(rows, uid)
             if pos:
-                stats = next((s for (u, s) in rows if u == uid), {"points": 0, "kills": 0, "deaths": 0})
-                classements.append(
-                    f"🎯 Points : **#{pos}** — {stats.get('points',0)} pts • 🗡 {stats.get('kills',0)} / 💀 {stats.get('deaths',0)}"
-                )
-
-        if not classements:
-            classements.append("Non classé")
-
-        embed.add_field(name="🏅 Classement (serveur)", value="\n".join(classements), inline=False)
+                rank_text = f"#{pos}"
+        embed.add_field(name="🏅 Classement (serveur)", value=rank_text, inline=False)
 
         # Inventaire : colonnes compactes
         if len(lines) >= 6:
@@ -467,11 +412,9 @@ class Info(commands.Cog):
                     for eff_type, value, interval, next_ts, end_ts, source_id, meta_json in rows:
                         label = labels.get(eff_type, eff_type)
                         parts: List[str] = []
-                        # Prochain tick si périodique
                         if interval and int(interval) > 0 and next_ts:
                             nxt = max(0, int(next_ts - now))
                             parts.append(f"prochain tick : {_fmt_duration_short(nxt)}")
-                        # Temps restant total
                         if end_ts:
                             rem = max(0, int(end_ts - now))
                             parts.append(f"reste : {_fmt_duration_short(rem)}")
