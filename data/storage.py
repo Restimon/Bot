@@ -26,6 +26,30 @@ _lock = asyncio.Lock()
 _last_auto_backup_ts: float = 0.0
 
 
+# ── Helper: chemin SQLite persistant ─────────────────────────────────────────
+def get_sqlite_path(db_name: str = "gotvalis.sqlite3") -> str:
+    """
+    Renvoie un chemin de DB qui survit aux redémarrages.
+    Priorité à la variable d'env GOTVALIS_DB, sinon utilise /persistent.
+    """
+    env = os.getenv("GOTVALIS_DB")
+    if env:
+        try:
+            d = os.path.dirname(env)
+            if d:
+                os.makedirs(d, exist_ok=True)
+        except Exception:
+            pass
+        return env
+
+    base = PERSISTENT_PATH  # défini ci-dessus
+    try:
+        os.makedirs(base, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(base, db_name)
+
+
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║                 STRUCTURE EN MÉMOIRE (GLOBAL STATE)              ║
 # ╚══════════════════════════════════════════════════════════════════╝
@@ -545,7 +569,7 @@ def get_leaderboard_channel(guild_id: int) -> Optional[int]:
 # ╚══════════════════════════════════════════════════════════════════╝
 __all__ = [
     # chemins
-    "PERSISTENT_PATH", "DATA_FILE", "BACKUP_DIR", "AUTO_BACKUP_DIR",
+    "PERSISTENT_PATH", "DATA_FILE", "BACKUP_DIR", "AUTO_BACKUP_DIR", "get_sqlite_path",
     # globals exposés (pour /daily)
     "tickets", "cooldowns", "streaks", "leaderboard_channels",
     # init/io
