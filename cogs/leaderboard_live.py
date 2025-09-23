@@ -26,17 +26,15 @@ except Exception:
     async def stats_get_shield(user_id: int) -> int:
         return 0
 
-# Salon mémorisé côté storage JSON (utile si tu veux afficher/éditer ailleurs aussi)
+# Salon mémorisé côté storage JSON (lecture seule ici)
 try:
-    from data.storage import set_leaderboard_channel, get_leaderboard_channel
+    from data.storage import get_leaderboard_channel
 except Exception:
-    def set_leaderboard_channel(guild_id: int, channel_id: Optional[int]) -> None:
-        pass
     def get_leaderboard_channel(guild_id: int) -> Optional[int]:
         return None
 
 # ─────────────────────────────────────────────────────────
-# Persistance du message unique
+# Persistance du message unique (canal + message id)
 # ─────────────────────────────────────────────────────────
 CREATE_SQL = """
 CREATE TABLE IF NOT EXISTS leaderboard_pins (
@@ -77,11 +75,11 @@ _pending_updates: Dict[int, str] = {}   # guild_id -> reason
 _update_lock = asyncio.Lock()
 
 def schedule_lb_update(bot: commands.Bot, guild_id: int, reason: str = "auto") -> None:
-    """Appelle ça dès qu'une action peut changer Coins/PV/PB."""
+    """À appeler dès qu'une action peut changer Coins/PV/PB."""
     _pending_updates[guild_id] = reason  # dernière raison gagne
 
 async def trigger_lb_update_now(bot: commands.Bot, guild_id: int, reason: str = "manual") -> None:
-    """MAJ immédiate (awaitable)."""
+    """MAJ immédiate (awaitable), utilisée par l'admin (/lb_set, /lb_refresh) situé dans admin_cog.py."""
     cog: Optional[LiveLeaderboard] = bot.get_cog("LiveLeaderboard")  # type: ignore
     if cog:
         await cog._render_guild(guild_id, reason)
@@ -130,12 +128,11 @@ def _build_embed(guild: discord.Guild, rows: List[Tuple[int, str, int, int, int]
     else:
         e.description = "_Aucun joueur classé pour le moment._"
     e.set_footer(text="💡 Les GotCoins représentent votre richesse accumulée.")
-    # petit indicateur discret en timestamp dans l'auteur
-    e.set_author(name=f"maj: {reason}")
+    e.set_author(name=f"maj: {reason}")  # petit indicateur discret
     return e
 
 # ─────────────────────────────────────────────────────────
-# Le Cog
+# Le Cog (sans commandes slash ; elles sont dans admin_cog)
 # ─────────────────────────────────────────────────────────
 class LiveLeaderboard(commands.Cog):
     """Classement persistant (Top 10 Coins + PV/PB), message unique édité, auto-MAJ et persistant après reboot."""
@@ -145,33 +142,7 @@ class LiveLeaderboard(commands.Cog):
         self._runner.start()
         self._last_signature: Dict[int, List[Tuple[int, int, int]]] = {}  # gid -> [(uid, coins, pb)]
 
-    # ── Commande admin: définir le salon et créer/épingle le message tout de suite
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.command(
-        name="lb_set",
-        description="(Admin) Définit le salon du classement persistant et poste/épingle le message."
-    )
-    @app_commands.describe(channel="Salon où poster le classement")
-    async def lb_set(self, inter: discord.Interaction, channel: discord.TextChannel):
-        if not inter.guild:
-            return await inter.response.send_message("Commande serveur uniquement.", ephemeral=True)
-
-        set_leaderboard_channel(inter.guild.id, channel.id)  # mémorise côté storage JSON
-        await inter.response.defer(ephemeral=True, thinking=True)
-        await self._render_guild(inter.guild.id, reason="set_channel")
-        await inter.followup.send(f"✅ Classement persistant configuré dans {channel.mention}.", ephemeral=True)
-
-    # ── Commande admin: refresh manuel
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.command(name="lb_refresh", description="(Admin) Recalcule et met à jour le classement persistant.")
-    async def lb_refresh(self, inter: discord.Interaction):
-        if not inter.guild:
-            return await inter.response.send_message("Commande serveur uniquement.", ephemeral=True)
-        await inter.response.defer(ephemeral=True, thinking=True)
-        await self._render_guild(inter.guild.id, reason="manual")
-        await inter.followup.send("🔁 Classement mis à jour.", ephemeral=True)
-
-    # ── Listeners : “à chaque action” on programme une MAJ (debouncée)
+    # Listeners : “à chaque action” on programme une MAJ (debouncée)
     @commands.Cog.listener()
     async def on_app_command_completion(self, interaction: discord.Interaction, command: app_commands.Command):
         if interaction.guild:
@@ -204,7 +175,7 @@ class LiveLeaderboard(commands.Cog):
     async def on_member_remove(self, member: discord.Member):
         schedule_lb_update(self.bot, member.guild.id, "member_remove")
 
-    # ── Boucle périodique : applique les MAJ en attente (et rattrape si un event a été manqué)
+    # Boucle périodique : applique les MAJ en attente (et rattrape si un event a été manqué)
     @tasks.loop(seconds=5.0)
     async def _runner(self):
         if not _pending_updates:
