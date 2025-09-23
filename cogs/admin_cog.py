@@ -32,7 +32,6 @@ async def ac_all_items(interaction: discord.Interaction, current: str) -> List[a
             typ = str(info.get("type", "") or "")
             label = typ
             if typ == "attaque":
-                # différentes clés possibles dans tes fiches
                 for k in ("degats", "dmg", "value", "valeur"):
                     if k in info:
                         try:
@@ -78,48 +77,51 @@ class AdminCog(commands.Cog):
         self.bot = bot
 
     # ─────────────────────────────────────────────────────────
-    # Leaderboard: canal cible + reset
-    # (Le rendu / mise à jour est géré par un autre cog de leaderboard)
+    # Leaderboard : configuration et actions liées
     # ─────────────────────────────────────────────────────────
     @app_commands.default_permissions(administrator=True)
     @app_commands.command(
-        name="admin_set_leaderboard_channel",
-        description="(Admin) Définit le salon où le leaderboard persistant sera affiché."
+        name="lb_set",
+        description="(Admin) Définit le salon du leaderboard persistant et le poste/édite immédiatement."
     )
-    @app_commands.describe(channel="Le salon cible")
-    async def admin_set_leaderboard_channel(self, inter: discord.Interaction, channel: discord.TextChannel):
+    @app_commands.describe(channel="Le salon où afficher le leaderboard")
+    async def lb_set(self, inter: discord.Interaction, channel: discord.TextChannel):
         if not inter.guild:
             return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
 
-        await inter.response.defer(ephemeral=True, thinking=True)
-        # Persistance via storage helpers (synchro interne)
+        # 1) mémorise le salon
         set_leaderboard_channel(inter.guild.id, channel.id)
 
-        await inter.followup.send(f"✅ Salon du leaderboard défini sur {channel.mention}.", ephemeral=True)
+        # 2) demande au cog leaderboard_live de créer/éditer le message unique
+        await inter.response.defer(ephemeral=True, thinking=True)
+        try:
+            from cogs.leaderboard_live import trigger_lb_update_now
+            await trigger_lb_update_now(self.bot, inter.guild.id, reason="set_channel")
+        except Exception:
+            # si le cog n'est pas chargé, on ne plante pas (mais rien ne sera posté)
+            pass
+
+        await inter.followup.send(f"✅ Leaderboard configuré dans {channel.mention}.", ephemeral=True)
 
     @app_commands.default_permissions(administrator=True)
     @app_commands.command(
-        name="admin_clear_leaderboard",
-        description="(Admin) Supprime la configuration de leaderboard (canal mémorisé)."
+        name="lb_clear",
+        description="(Admin) Efface la configuration de salon du leaderboard."
     )
-    async def admin_clear_leaderboard(self, inter: discord.Interaction):
+    async def lb_clear(self, inter: discord.Interaction):
         if not inter.guild:
             return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
-
-        await inter.response.defer(ephemeral=True, thinking=True)
-        # Clear en passant None
         set_leaderboard_channel(inter.guild.id, None)
-        await inter.followup.send("🗑️ Configuration du leaderboard effacée pour ce serveur.", ephemeral=True)
+        await inter.response.send_message("🗑️ Configuration du leaderboard effacée.", ephemeral=True)
 
     @app_commands.default_permissions(administrator=True)
     @app_commands.command(
-        name="admin_show_leaderboard_channel",
+        name="lb_show",
         description="(Admin) Affiche le salon actuellement configuré pour le leaderboard."
     )
-    async def admin_show_leaderboard_channel(self, inter: discord.Interaction):
+    async def lb_show(self, inter: discord.Interaction):
         if not inter.guild:
             return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
-
         chan_id = get_leaderboard_channel(inter.guild.id)
         if chan_id:
             ch = inter.guild.get_channel(chan_id)
@@ -127,6 +129,22 @@ class AdminCog(commands.Cog):
                 return await inter.response.send_message(f"📍 Salon configuré : {ch.mention}", ephemeral=True)
             return await inter.response.send_message(f"📍 Salon configuré : <#{chan_id}> (introuvable ?)", ephemeral=True)
         return await inter.response.send_message("ℹ️ Aucun salon configuré.", ephemeral=True)
+
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(
+        name="lb_refresh",
+        description="(Admin) Recalcule et met à jour le leaderboard persistant (force un refresh immédiat)."
+    )
+    async def lb_refresh(self, inter: discord.Interaction):
+        if not inter.guild:
+            return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+        await inter.response.defer(ephemeral=True, thinking=True)
+        try:
+            from cogs.leaderboard_live import trigger_lb_update_now
+            await trigger_lb_update_now(self.bot, inter.guild.id, reason="manual")
+            await inter.followup.send("🔁 Leaderboard mis à jour.", ephemeral=True)
+        except Exception as e:
+            await inter.followup.send(f"❌ Impossible de rafraîchir : `{type(e).__name__}`", ephemeral=True)
 
     # ─────────────────────────────────────────────────────────
     # Petits utilitaires admin
@@ -137,7 +155,7 @@ class AdminCog(commands.Cog):
         await inter.response.send_message("Pong ✅", ephemeral=True)
 
     # ─────────────────────────────────────────────────────────
-    # NEW: Give d’items
+    # Give d’items (existant)
     # ─────────────────────────────────────────────────────────
     @app_commands.command(name="admin_give_item", description="(Admin) Donne un objet à un joueur.")
     @app_commands.describe(
@@ -175,7 +193,7 @@ class AdminCog(commands.Cog):
             f"• Quantité : **{quantite}**"
         )
 
-        # ping LB live s’il existe (optionnel)
+        # ping mise à jour du leaderboard si le cog live est chargé
         try:
             from cogs.leaderboard_live import schedule_lb_update
             schedule_lb_update(self.bot, interaction.guild.id, "admin_give_item")
