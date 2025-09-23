@@ -3,12 +3,21 @@ from __future__ import annotations
 
 import json
 import random
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 import discord
 
 # ── Inventaire
-from inventory_db import get_item_qty, remove_item, add_item
+from inventory_db import (
+    get_item_qty,
+    remove_item,
+    add_item,
+    get_all_items,
+    transfer_item,
+)
+
+# ── Économie (coins pour la Box)
+from economy_db import add_balance
 
 # ── Effets (buffs & nettoyage)
 from effects_db import add_or_refresh_effect, remove_effect, has_effect
@@ -39,12 +48,13 @@ except Exception:
 
 # ── Catalogue d’objets & utilitaires
 try:
-    from utils import OBJETS, get_random_item  # type: ignore
+    from utils import OBJETS, get_random_item, get_evade_chance  # type: ignore
 except Exception:
     OBJETS = {}
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
-
+    def get_evade_chance(gid: str, uid: str) -> float:
+        return 0.04  # fallback 4 %
 
 # ─────────────────────────────────────────────────────────
 # Helpers communs
@@ -71,6 +81,21 @@ def _warn_embed(title: str, desc: str) -> discord.Embed:
 def _err_embed(title: str, desc: str) -> discord.Embed:
     return discord.Embed(title=title, description=desc, color=discord.Color.red())
 
+# ─────────────────────────────────────────────────────────
+# Mystery Box — pool pondérée (26 - rarete) + option Coins
+# ─────────────────────────────────────────────────────────
+def _weighted_pool_for_box(exclude_box: bool = True) -> List[str]:
+    pool: List[str] = []
+    for emoji, data in OBJETS.items():
+        if exclude_box and emoji == "📦":
+            continue
+        r = int(data.get("rarete", 25))
+        w = 26 - r
+        if w > 0:
+            pool.extend([emoji] * w)
+    # coins “pseudo-item” (poids ~14 ≈ rarete 12)
+    pool.extend(["💰COINS"] * 14)
+    return pool
 
 # ─────────────────────────────────────────────────────────
 # Actions concrètes par type d’objet
@@ -88,7 +113,7 @@ async def apply_shield(
     if val <= 0:
         return _warn_embed("Bouclier", "Valeur de bouclier invalide."), {"applied": False}
 
-    # hook passif pré-application (ex: cap temporaire, blocage)
+    # hook passif pré-application (ex: blocage)
     try:
         pre = await passifs_trigger("on_effect_pre_apply", user_id=target.id, eff_type="bouclier") or {}
         if pre.get("blocked"):
@@ -110,7 +135,6 @@ async def apply_shield(
     )
     return e, {"applied": True, "new_pb": new_pb}
 
-
 # ——— VACCIN (cleanse) ———
 async def apply_vaccine(
     inter: discord.Interaction,
@@ -119,7 +143,6 @@ async def apply_vaccine(
     emoji: str,
     info: Dict
 ) -> Tuple[discord.Embed, Dict]:
-    # liste d’états négatifs à retirer
     negatives = ("poison", "infection", "virus", "brulure")
     removed = []
     for eff in negatives:
@@ -137,7 +160,6 @@ async def apply_vaccine(
         e = _ok_embed("💉 Vaccin appliqué", f"{applier.mention} retire {label} sur {target.mention}.")
     return e, {"removed": removed}
 
-
 # ——— BUFFS (esquive+ / réduction / immunité) ———
 async def apply_buff(
     inter: discord.Interaction,
@@ -150,7 +172,6 @@ async def apply_buff(
     value    = float(info.get("valeur", info.get("value", 0)) or 0)
     duration = int(info.get("duree", info.get("duration", 3600)) or 3600)
 
-    # hook passif pré-application
     try:
         pre = await passifs_trigger("on_effect_pre_apply", user_id=target.id, eff_type=str(eff_type)) or {}
         if pre.get("blocked"):
@@ -175,56 +196,102 @@ async def apply_buff(
     e = discord.Embed(title=names.get(eff_type, "Buff"), description=desc, color=discord.Color.teal())
     return e, {"applied": True, "value": value, "duration": duration}
 
-
-# ——— MYSTERY BOX ———
+# ——— MYSTERY BOX (3 récompenses, items pondérés OU coins) ———
 async def open_box(
     inter: discord.Interaction,
     user: discord.Member,
     emoji: str
 ) -> Tuple[discord.Embed, Dict]:
-    got = get_random_item(debug=False)
-    await add_item(user.id, got, 1)
+    pool = _weighted_pool_for_box(exclude_box=True)
+    rewards: List[str] = []
+    coins_total = 0
+
+    for _ in range(3):
+        if not pool:
+            break
+        pick = random.choice(pool)
+        if pick == "💰COINS":
+            amt = random.randint(15, 25)
+            await add_balance(user.id, amt, reason="mysterybox")
+            coins_total += amt
+            rewards.append(f"💰 +{amt} GotCoins")
+        else:
+            await add_item(user.id, pick, 1)
+            rewards.append(f"{pick} +1")
+
+    desc = "\n".join(f"• {r}" for r in rewards) if rewards else "—"
     e = discord.Embed(
         title="📦 Box ouverte",
-        description=f"{user.mention} obtient **{got}** !",
+        description=f"{user.mention} reçoit :\n{desc}",
         color=discord.Color.gold()
     )
-    # hook passif post-ouverture (bonus ?)
+    # Hook passif post-ouverture (bonus éventuel)
     try:
         post = await passifs_trigger("on_box_open", user_id=user.id) or {}
+        extra_n = int(post.get("extra_items", 0) or 0)
+        for _ in range(max(0, extra_n)):
+            pick = random.choice(pool) if pool else None
+            if not pick:
+                break
+            if pick == "💰COINS":
+                amt = random.randint(15, 25)
+                await add_balance(user.id, amt, reason="mysterybox_bonus")
+                e.description += f"\n🎁 Bonus: 💰 +{amt} GotCoins"
+            else:
+                await add_item(user.id, pick, 1)
+                e.description += f"\n🎁 Bonus: {pick} +1"
     except Exception:
-        post = {}
-    if int(post.get("extra_items", 0) or 0) > 0:
-        extra = get_random_item(debug=False)
-        await add_item(user.id, extra, 1)
-        e.description += f"\n🎁 Bonus: **{extra}**"
-    return e, {"item": got}
+        pass
 
+    return e, {"rewards": rewards, "coins_total": coins_total}
 
-# ——— VOL ———
+# ——— VOL (vrai vol dans l’inventaire de la cible, avec esquive) ———
 async def try_theft(
     inter: discord.Interaction,
     thief: discord.Member,
     target: Optional[discord.Member]
 ) -> Tuple[discord.Embed, Dict]:
-    if target:
-        try:
-            res = await passifs_trigger("on_theft_attempt", attacker_id=thief.id, target_id=target.id) or {}
-        except Exception:
-            res = {}
+    # validations
+    if target is None or target.bot or target.id == thief.id:
+        return _warn_embed("🕵️ Vol", "Choisis une **cible valide** (humaine, différente de toi)."), {"stolen": False}
+
+    # passif “anti-vol” éventuel
+    try:
+        res = await passifs_trigger("on_theft_attempt", attacker_id=thief.id, target_id=target.id) or {}
         if res.get("blocked"):
             return _warn_embed("🛡 Protégé", f"{target.mention} est **intouchable** (anti-vol)."), {"stolen": False}
+    except Exception:
+        pass
 
-    success = (random.random() < 0.25)
-    if success:
-        got = get_random_item(debug=False)
-        await add_item(thief.id, got, 1)
-        e = discord.Embed(title="🕵️ Vol", description=f"Vol réussi ! Tu obtiens **{got}**.", color=discord.Color.dark_grey())
-        return e, {"stolen": True, "item": got}
-    else:
-        e = discord.Embed(title="🕵️ Vol", description="Vol raté...", color=discord.Color.dark_grey())
-        return e, {"stolen": False}
+    # esquive (4% de base, + buffs/passifs) via utils.get_evade_chance
+    evade = float(get_evade_chance(str(inter.guild_id), str(target.id)))
+    if random.random() < max(0.0, min(0.95, evade)):
+        return _warn_embed("🕵️ Vol", f"{target.mention} **esquive** ta tentative ({int(evade*100)}%)."), {"stolen": False}
 
+    # sac pondéré par quantités de la cible
+    inv = await get_all_items(target.id)  # [(emoji, qty)]
+    bag: List[str] = []
+    for emoji, qty in inv:
+        q = int(qty or 0)
+        if q > 0:
+            bag.extend([emoji] * q)
+
+    if not bag:
+        return _warn_embed("🕵️ Vol", f"{target.mention} n'a **rien** à voler."), {"stolen": False}
+
+    stolen = random.choice(bag)
+
+    # transfert réel (−1 cible → +1 thief)
+    ok = await transfer_item(target.id, thief.id, stolen, 1)
+    if not ok:
+        return _err_embed("🕵️ Vol", "Le transfert a échoué."), {"stolen": False}
+
+    e = discord.Embed(
+        title="🕵️ Vol",
+        description=f"Vol réussi ! Tu dérobes **{stolen}** à {target.mention}.",
+        color=discord.Color.dark_grey()
+    )
+    return e, {"stolen": True, "item": stolen, "from": target.id}
 
 # ─────────────────────────────────────────────────────────
 # Sélecteur générique pour /use
@@ -248,12 +315,10 @@ async def select_and_apply(
     if typ in ("attaque", "attaque_chaine"):
         if not isinstance(cible, discord.Member):
             raise RuntimeError("Il faut une **cible** pour attaquer.")
-        # déléguer à logic.fight si dispo
         try:
             from logic.fight import apply_attack, apply_chain_attack  # type: ignore
         except Exception:
             raise RuntimeError("La logique d’attaque n’est pas disponible (logic/fight.py).")
-        # consommer
         if not await _consume_item(inter.user.id, emoji):
             raise RuntimeError(f"Tu n’as pas **{emoji}** dans ton inventaire.")
         if typ == "attaque":
@@ -262,7 +327,6 @@ async def select_and_apply(
             embed, meta = await apply_chain_attack(inter, inter.user, cible, emoji, info)
 
     elif typ in ("soin", "regen"):
-        # déléguer à logic.heal
         try:
             from logic.heal import select_and_apply as heal_select  # type: ignore
         except Exception:
@@ -270,7 +334,7 @@ async def select_and_apply(
         embed, meta = await heal_select(inter, emoji, cible)
 
     else:
-        # pour les utilitaires, consommer ici
+        # utilitaires : consommer ici
         if not await _consume_item(inter.user.id, emoji):
             raise RuntimeError(f"Tu n’as pas **{emoji}** dans ton inventaire.")
 
