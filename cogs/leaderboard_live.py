@@ -2,356 +2,198 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+import aiosqlite
 
-# ─────────────────────────────────────────────────────────
-# Storage JSON (optionnel) pour persister canal/message/flags
-# ─────────────────────────────────────────────────────────
-_storage = None
-_save_data = None
-_get_user_data = None
-
+# DB partagée
 try:
-    from data import storage as _storage  # type: ignore
+    from economy_db import DB_PATH, get_balance
 except Exception:
-    _storage = None
+    DB_PATH = "gotvalis.sqlite3"
+    async def get_balance(user_id: int) -> int:  # fallback
+        return 0
 
+# PV / PB
 try:
-    from data.storage import save_data as _save_data  # type: ignore
+    from stats_db import get_hp as stats_get_hp, get_shield as stats_get_shield
 except Exception:
-    _save_data = None
+    async def stats_get_hp(user_id: int) -> Tuple[int, int]:  # (hp, max)
+        return 100, 100
+    async def stats_get_shield(user_id: int) -> int:
+        return 0
 
+# Salon mémorisé côté storage JSON (utile si tu veux afficher/éditer ailleurs aussi)
 try:
-    # get_user_data(gid, uid) -> (inventory: list[str], coins: int, perso: dict|None)
-    from data.storage import get_user_data as _get_user_data  # type: ignore
+    from data.storage import set_leaderboard_channel, get_leaderboard_channel
 except Exception:
-    _get_user_data = None
-
-
-# ─────────────────────────────────────────────────────────
-# Petits helpers pour lire Coins / PV / PB de manière souple
-# ─────────────────────────────────────────────────────────
-def _read_coins(gid: int, uid: int) -> int:
-    if callable(_get_user_data):
-        try:
-            _, coins, _ = _get_user_data(str(gid), str(uid))  # type: ignore
-            return int(coins or 0)
-        except Exception:
-            pass
-    return 0
-
-def _read_hp_pb(gid: int, uid: int) -> Tuple[int, int]:
-    """
-    Essaie de lire PV/PB si tu as une DB d'effets; sinon fallback 100/0.
-    Tu peux brancher effects_db ici si tu as la fonction.
-    """
-    # Exemple d’intégration (à activer si dispo) :
-    # try:
-    #     from effects_db import get_current_hp_pb  # type: ignore
-    #     hp, pb = get_current_hp_pb(gid, uid)
-    #     return int(hp or 0), int(pb or 0)
-    # except Exception:
-    #     pass
-    return 100, 0
-
+    def set_leaderboard_channel(guild_id: int, channel_id: Optional[int]) -> None:
+        pass
+    def get_leaderboard_channel(guild_id: int) -> Optional[int]:
+        return None
 
 # ─────────────────────────────────────────────────────────
-# Persistance (canal & message & options)
+# Persistance du message unique
 # ─────────────────────────────────────────────────────────
-def _get_cfg_for_guild(gid: int) -> Dict[str, int]:
-    """
-    Retourne {channel_id, message_id, auto_all} pour CE serveur.
-    Persisté dans storage.leaderboard_live si dispo; sinon RAM.
-    """
-    key = "leaderboard_live"
-    if _storage is not None:
-        if not hasattr(_storage, key) or not isinstance(getattr(_storage, key), dict):
-            setattr(_storage, key, {})
-        all_cfg = getattr(_storage, key)
-        all_cfg.setdefault(str(gid), {})
-        gcfg = all_cfg[str(gid)]
-        gcfg.setdefault("channel_id", 0)
-        gcfg.setdefault("message_id", 0)
-        gcfg.setdefault("auto_all", 1)  # 1 = ON par défaut
-        return gcfg
+CREATE_SQL = """
+CREATE TABLE IF NOT EXISTS leaderboard_pins (
+    guild_id   TEXT PRIMARY KEY,
+    channel_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL
+);
+"""
 
-    # fallback RAM
-    if not hasattr(_get_cfg_for_guild, "_mem"):
-        _get_cfg_for_guild._mem: Dict[str, Dict[str, int]] = {}
-    mem = _get_cfg_for_guild._mem  # type: ignore
-    mem.setdefault(str(gid), {"channel_id": 0, "message_id": 0, "auto_all": 1})
-    return mem[str(gid)]
+async def _init_db():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(CREATE_SQL)
+        await db.commit()
 
-def _save_cfg():
-    if callable(_save_data):
-        try:
-            _save_data()  # type: ignore
-        except Exception:
-            pass
+async def _get_pin(guild_id: int) -> Optional[Tuple[int, int]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT channel_id, message_id FROM leaderboard_pins WHERE guild_id=?",
+            (str(guild_id),),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+    return (int(row[0]), int(row[1])) if row else None
 
-def _auto_all_enabled(gid: int) -> bool:
-    cfg = _get_cfg_for_guild(gid)
-    try:
-        return bool(int(cfg.get("auto_all", 1)))
-    except Exception:
-        return True
-
+async def _set_pin(guild_id: int, channel_id: int, message_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO leaderboard_pins(guild_id, channel_id, message_id) VALUES(?,?,?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id, message_id=excluded.message_id",
+            (str(guild_id), int(channel_id), int(message_id)),
+        )
+        await db.commit()
 
 # ─────────────────────────────────────────────────────────
-# Rendu du classement
+# Scheduler debouncé pour MAJ
 # ─────────────────────────────────────────────────────────
-def _rank_rows(guild: discord.Guild) -> List[Tuple[int, str, int, int, int]]:
-    """
-    Retourne une liste triée de tuples:
-    (user_id, display_name, coins, hp, pb)
-    Tri: coins DESC, pb DESC, hp DESC, name ASC
-    """
-    rows: List[Tuple[int, str, int, int, int]] = []
-    for m in guild.members:
-        if m.bot:
-            continue
-        coins = _read_coins(guild.id, m.id)
-        hp, pb = _read_hp_pb(guild.id, m.id)
-        if coins <= 0 and hp <= 0 and pb <= 0:
-            continue
-        rows.append((m.id, m.display_name, coins, hp, pb))
+_pending_updates: Dict[int, str] = {}   # guild_id -> reason
+_update_lock = asyncio.Lock()
 
-    rows.sort(key=lambda t: (-t[2], -t[4], -t[3], t[1].lower()))
-    return rows
+def schedule_lb_update(bot: commands.Bot, guild_id: int, reason: str = "auto") -> None:
+    """Appelle ça dès qu'une action peut changer Coins/PV/PB."""
+    _pending_updates[guild_id] = reason  # dernière raison gagne
 
+async def trigger_lb_update_now(bot: commands.Bot, guild_id: int, reason: str = "manual") -> None:
+    """MAJ immédiate (awaitable)."""
+    cog: Optional[LiveLeaderboard] = bot.get_cog("LiveLeaderboard")  # type: ignore
+    if cog:
+        await cog._render_guild(guild_id, reason)
+
+# ─────────────────────────────────────────────────────────
+# Rendu (Coins + PV + PB)
+# ─────────────────────────────────────────────────────────
 def _rank_emoji(n: int) -> str:
     return "🥇" if n == 1 else "🥈" if n == 2 else "🥉" if n == 3 else f"{n}."
 
 def _format_line(idx: int, name: str, coins: int, hp: int, pb: int) -> str:
     medal = _rank_emoji(idx)
-    pb_part = f" | 🛡 {pb} PB" if pb > 0 else ""
+    pb_part = f" | 🛡 **{pb}** PB" if pb > 0 else ""
     return f"**{medal} {name}** → 💰 **{coins}** GotCoins | ❤️ **{hp}** PV{pb_part}"
 
-def _build_embed(guild: discord.Guild, rows: List[Tuple[int, str, int, int, int]]) -> discord.Embed:
+async def _collect_rows(guild: discord.Guild) -> List[Tuple[int, str, int, int, int]]:
+    """
+    [(user_id, display_name, coins, hp, pb)] trié:
+    coins DESC, pb DESC, hp DESC, name ASC
+    """
+    members = [m for m in guild.members if not m.bot]
+    # appels parallèles
+    coins_list = await asyncio.gather(*(get_balance(m.id) for m in members))
+    hp_list = await asyncio.gather(*(stats_get_hp(m.id) for m in members))          # (hp, max)
+    pb_list = await asyncio.gather(*(stats_get_shield(m.id) for m in members))
+
+    rows: List[Tuple[int, str, int, int, int]] = []
+    for m, coins, (hp, _mx), pb in zip(members, coins_list, hp_list, pb_list):
+        if int(coins) <= 0 and int(hp) <= 0 and int(pb) <= 0:
+            continue
+        rows.append((m.id, m.display_name, int(coins), int(hp), int(pb)))
+
+    rows.sort(key=lambda t: (-t[2], -t[4], -t[3], t[1].lower()))
+    return rows[:10]
+
+def _build_embed(guild: discord.Guild, rows: List[Tuple[int, str, int, int, int]], reason: str) -> discord.Embed:
     e = discord.Embed(
         title="🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆",
         color=discord.Color.gold(),
     )
-    lines: List[str] = []
-    for i, (_, name, coins, hp, pb) in enumerate(rows[:10], start=1):
-        lines.append(_format_line(i, name, coins, hp, pb))
-
-    e.description = "\n".join(lines) if lines else "_Aucun joueur classé pour le moment._"
+    if rows:
+        e.description = "\n".join(
+            _format_line(i, name, coins, hp, pb)
+            for i, (_uid, name, coins, hp, pb) in enumerate(rows, start=1)
+        )
+    else:
+        e.description = "_Aucun joueur classé pour le moment._"
     e.set_footer(text="💡 Les GotCoins représentent votre richesse accumulée.")
+    # petit indicateur discret en timestamp dans l'auteur
+    e.set_author(name=f"maj: {reason}")
     return e
-
-
-# ─────────────────────────────────────────────────────────
-# Debounce & mise à jour “auto”
-# ─────────────────────────────────────────────────────────
-_update_tasks: Dict[int, asyncio.Task] = {}      # guild_id -> task en cours
-_last_snapshots: Dict[int, List[Tuple[int, int, int]]] = {}  # guild_id -> [(uid, coins, pb)]
-
-async def _do_update(bot: commands.Bot, gid: int):
-    guild = bot.get_guild(gid)
-    if not guild:
-        return
-
-    cfg = _get_cfg_for_guild(gid)
-    channel_id = int(cfg.get("channel_id") or 0)
-    message_id = int(cfg.get("message_id") or 0)
-
-    # Si pas configuré, on ne fait rien
-    if channel_id == 0:
-        return
-
-    channel = guild.get_channel(channel_id)
-    if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-        return
-
-    rows = _rank_rows(guild)
-
-    # Snapshot minimal pour détection de changement du top10
-    new_sig = [(uid, coins, pb) for uid, _, coins, _, pb in rows[:10]]
-    old_sig = _last_snapshots.get(gid)
-    if new_sig == old_sig:
-        return  # rien n'a changé
-    _last_snapshots[gid] = new_sig
-
-    embed = _build_embed(guild, rows)
-
-    # éditer le message existant ou en créer un
-    msg: Optional[discord.Message] = None
-    if message_id:
-        try:
-            msg = await channel.fetch_message(message_id)
-        except Exception:
-            msg = None
-
-    if msg is None:
-        try:
-            msg = await channel.send(embed=embed)
-            try:
-                await msg.pin()
-            except Exception:
-                pass
-            cfg["message_id"] = msg.id
-            _save_cfg()
-        except Exception:
-            return
-    else:
-        try:
-            await msg.edit(embed=embed)
-        except Exception:
-            try:
-                msg = await channel.send(embed=embed)
-                try:
-                    await msg.pin()
-                except Exception:
-                    pass
-                cfg["message_id"] = msg.id
-                _save_cfg()
-            except Exception:
-                return
-
-def _cancel_task(gid: int):
-    t = _update_tasks.pop(gid, None)
-    if t and not t.done():
-        t.cancel()
-
-def _schedule(bot: commands.Bot, gid: int, delay: float = 2.0):
-    _cancel_task(gid)
-
-    async def _worker():
-        try:
-            await asyncio.sleep(delay)
-            await _do_update(bot, gid)
-        except asyncio.CancelledError:
-            pass
-
-    _update_tasks[gid] = bot.loop.create_task(_worker())
-
-
-# ─────────────────────────────────────────────────────────
-# Helper PUBLIC à utiliser depuis d'autres cogs
-# ─────────────────────────────────────────────────────────
-def schedule_lb_update(bot: commands.Bot, guild_id: int, reason: str = ""):
-    """
-    Appelle ceci quand la richesse / PV / PB d'un joueur a changé.
-    Exemples :
-      - après /daily : schedule_lb_update(self.bot, guild_id, "daily")
-      - après achat/vente : schedule_lb_update(self.bot, guild_id, "shop")
-      - après combat (dégâts, soins, pb) : schedule_lb_update(self.bot, guild_id, "combat")
-    """
-    _schedule(bot, guild_id, delay=2.0)
-
-
-# ─────────────────────────────────────────────────────────
-# Utilitaires pour boucle périodique
-# ─────────────────────────────────────────────────────────
-def _iter_configured_guild_ids() -> List[int]:
-    gids: List[int] = []
-    key = "leaderboard_live"
-    if _storage is not None and isinstance(getattr(_storage, key, None), dict):
-        for gid_str, cfg in getattr(_storage, key).items():
-            try:
-                gid = int(gid_str)
-            except Exception:
-                continue
-            if int(cfg.get("channel_id", 0) or 0):
-                gids.append(gid)
-    else:
-        mem = getattr(_get_cfg_for_guild, "_mem", {})
-        if isinstance(mem, dict):
-            for gid_str, cfg in mem.items():
-                try:
-                    gid = int(gid_str)
-                except Exception:
-                    continue
-                if int(cfg.get("channel_id", 0) or 0):
-                    gids.append(gid)
-    return gids
-
 
 # ─────────────────────────────────────────────────────────
 # Le Cog
 # ─────────────────────────────────────────────────────────
 class LiveLeaderboard(commands.Cog):
-    """Classement persistant (top 10) basé sur la richesse (GotCoins) + PV/PB."""
+    """Classement persistant (Top 10 Coins + PV/PB), message unique édité, auto-MAJ et persistant après reboot."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.auto_refresh.start()     # boucle périodique (filet de sécurité)
+        self._runner.start()
+        self._last_signature: Dict[int, List[Tuple[int, int, int]]] = {}  # gid -> [(uid, coins, pb)]
 
-    # — Admin: définir le salon & créer/épingle le message persistant
+    # ── Commande admin: définir le salon et créer/épingle le message tout de suite
     @app_commands.default_permissions(administrator=True)
-    @app_commands.command(name="lb_set", description="(Admin) Définit le salon du classement persistant et le crée/replace.")
+    @app_commands.command(
+        name="lb_set",
+        description="(Admin) Définit le salon du classement persistant et poste/épingle le message."
+    )
     @app_commands.describe(channel="Salon où poster le classement")
     async def lb_set(self, inter: discord.Interaction, channel: discord.TextChannel):
         if not inter.guild:
             return await inter.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
-        cfg = _get_cfg_for_guild(inter.guild.id)
-        cfg["channel_id"] = channel.id
-        cfg["message_id"] = 0  # on recréera proprement
-        _save_cfg()
-
+        set_leaderboard_channel(inter.guild.id, channel.id)  # mémorise côté storage JSON
         await inter.response.defer(ephemeral=True, thinking=True)
-        await _do_update(self.bot, inter.guild.id)
+        await self._render_guild(inter.guild.id, reason="set_channel")
         await inter.followup.send(f"✅ Classement persistant configuré dans {channel.mention}.", ephemeral=True)
 
-    # — Admin: refresh manuel
+    # ── Commande admin: refresh manuel
     @app_commands.default_permissions(administrator=True)
     @app_commands.command(name="lb_refresh", description="(Admin) Recalcule et met à jour le classement persistant.")
     async def lb_refresh(self, inter: discord.Interaction):
         if not inter.guild:
             return await inter.response.send_message("Commande serveur uniquement.", ephemeral=True)
         await inter.response.defer(ephemeral=True, thinking=True)
-        await _do_update(self.bot, inter.guild.id)
+        await self._render_guild(inter.guild.id, reason="manual")
         await inter.followup.send("🔁 Classement mis à jour.", ephemeral=True)
 
-    # — Admin: activer/désactiver le “rafraîchissement à chaque action”
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.command(
-        name="lb_auto",
-        description="(Admin) Active/désactive le rafraîchissement à chaque action (global)."
-    )
-    @app_commands.describe(enabled="True = ON, False = OFF")
-    async def lb_auto(self, inter: discord.Interaction, enabled: bool):
-        if not inter.guild:
-            return await inter.response.send_message("Commande serveur uniquement.", ephemeral=True)
-        cfg = _get_cfg_for_guild(inter.guild.id)
-        cfg["auto_all"] = 1 if enabled else 0
-        _save_cfg()
-        await inter.response.send_message(
-            f"✅ Auto-refresh **{'activé' if enabled else 'désactivé'}** pour ce serveur.",
-            ephemeral=True
-        )
-
-    # — Listeners pour déclenchement “à chaque action”
+    # ── Listeners : “à chaque action” on programme une MAJ (debouncée)
     @commands.Cog.listener()
     async def on_app_command_completion(self, interaction: discord.Interaction, command: app_commands.Command):
-        if interaction.guild and _auto_all_enabled(interaction.guild.id):
+        if interaction.guild:
             schedule_lb_update(self.bot, interaction.guild.id, f"/{command.name}")
 
     @commands.Cog.listener()
     async def on_command_completion(self, ctx: commands.Context):
-        if ctx.guild and _auto_all_enabled(ctx.guild.id):
-            name = ""
+        if ctx.guild:
             try:
-                if ctx.command:
-                    name = ctx.command.qualified_name
+                name = ctx.command.qualified_name if ctx.command else ""
             except Exception:
-                pass
+                name = ""
             schedule_lb_update(self.bot, ctx.guild.id, f"!{name}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if message.guild and not message.author.bot and _auto_all_enabled(message.guild.id):
+        if message.guild and not message.author.bot:
             schedule_lb_update(self.bot, message.guild.id, "message")
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        if member.guild and _auto_all_enabled(member.guild.id):
+        if member.guild:
             schedule_lb_update(self.bot, member.guild.id, "voice")
 
     @commands.Cog.listener()
@@ -362,15 +204,79 @@ class LiveLeaderboard(commands.Cog):
     async def on_member_remove(self, member: discord.Member):
         schedule_lb_update(self.bot, member.guild.id, "member_remove")
 
-    # — Boucle périodique (2 min) : rattrapage si un event est manqué
-    @tasks.loop(minutes=2)
-    async def auto_refresh(self):
-        for gid in _iter_configured_guild_ids():
-            await _do_update(self.bot, gid)
+    # ── Boucle périodique : applique les MAJ en attente (et rattrape si un event a été manqué)
+    @tasks.loop(seconds=5.0)
+    async def _runner(self):
+        if not _pending_updates:
+            return
+        async with _update_lock:
+            items = list(_pending_updates.items())
+            _pending_updates.clear()
+        for gid, reason in items:
+            try:
+                await self._render_guild(gid, reason)
+            except Exception:
+                pass
 
-    @auto_refresh.before_loop
-    async def _wait_ready(self):
+    @_runner.before_loop
+    async def _before_runner(self):
         await self.bot.wait_until_ready()
+        await _init_db()
+        # Au démarrage : si un salon est mémorisé, planifie un rendu pour chaque guilde
+        for g in self.bot.guilds:
+            if get_leaderboard_channel(g.id):
+                schedule_lb_update(self.bot, g.id, "startup")
+
+    # ─────────────────────────────────────────────────────
+    # Rendu + création/édition persistante (message unique)
+    # ─────────────────────────────────────────────────────
+    async def _render_guild(self, guild_id: int, reason: str) -> None:
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            return
+
+        chan_id = get_leaderboard_channel(guild_id)
+        if not chan_id:
+            return
+
+        channel = guild.get_channel(chan_id)
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            return
+
+        rows = await _collect_rows(guild)
+
+        # signature: (uid, coins, pb) du top10 → pour éviter d'éditer inutilement
+        sig = [(uid, coins, pb) for uid, _name, coins, _hp, pb in rows]
+        last = self._last_signature.get(guild_id)
+        if sig == last and reason != "set_channel":
+            return
+        self._last_signature[guild_id] = sig
+
+        embed = _build_embed(guild, rows, reason)
+
+        pin = await _get_pin(guild_id)
+        msg: Optional[discord.Message] = None
+        if pin:
+            saved_chan_id, msg_id = pin
+            try:
+                msg_channel = guild.get_channel(saved_chan_id)
+                if isinstance(msg_channel, (discord.TextChannel, discord.Thread)):
+                    msg = await msg_channel.fetch_message(msg_id)
+                    if saved_chan_id != chan_id:
+                        msg = None  # on va republier dans le nouveau salon
+            except Exception:
+                msg = None
+
+        if msg is None:
+            # create + pin
+            new_msg = await channel.send(embed=embed)
+            try:
+                await new_msg.pin()
+            except Exception:
+                pass
+            await _set_pin(guild_id, chan_id, new_msg.id)
+        else:
+            await msg.edit(embed=embed)
 
 
 async def setup(bot: commands.Bot):
