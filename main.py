@@ -168,6 +168,7 @@ class GotValisBot(commands.Bot):
         await try_init_db("stats_db", "init_stats_db")
         await try_init_db("effects_db", "init_effects_db")
         await try_init_db("shields_db", "init_shields_db")
+        await try_init_db("tickets_db", "init_tickets_db")
         await try_init_db("passifs", "init_passifs_db")  # ← important pour les passifs
 
         # 5.3 Charger les extensions existantes
