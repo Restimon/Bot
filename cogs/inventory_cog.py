@@ -1,9 +1,12 @@
 # cogs/inventory_cog.py
+from __future__ import annotations
+
+from typing import List, Tuple, Dict, Any, Optional
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 import aiosqlite
-from typing import List, Tuple, Dict, Any
 
 from economy_db import get_balance
 from inventory_db import get_all_items
@@ -83,7 +86,7 @@ def _format_items_lines(items: List[Tuple[str, int]]) -> List[str]:
     return [
         f"{qty}x {emoji} [{_short_desc(emoji)}]"
         for emoji, qty in items
-        if emoji and emoji not in TICKET_NAMES
+        if emoji and emoji not in TICKET_NAMES and qty > 0
     ]
 
 def _columns_rowwise(lines: List[str], n_cols: int = 2) -> List[str]:
@@ -133,7 +136,7 @@ class Inventory(commands.Cog):
             embed.add_field(name="Objets", value=block, inline=False)
 
         # --------- RESSOURCES (même ligne) ---------
-        embed.add_field(name="💰 GoldValis", value=str(coins), inline=True)
+        embed.add_field(name="💰 GotCoins", value=str(coins), inline=True)
         embed.add_field(name="🎟️ Tickets", value=str(tickets), inline=True)
 
         # Avatar
@@ -143,27 +146,42 @@ class Inventory(commands.Cog):
         return embed
 
     # ===== Slash commands =====
-    @app_commands.command(name="inventory", description="Affiche ton inventaire.")
-    async def inventory(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=False, thinking=False)
-        embed = await self._render_inventory_embed(interaction.user)
-        await interaction.followup.send(embed=embed)
+    @app_commands.command(name="inventory", description="Affiche un inventaire (le tien par défaut).")
+    @app_commands.describe(
+        cible="Membre dont tu veux voir l’inventaire (optionnel)",
+        prive="Si activé, la réponse est visible seulement par toi",
+    )
+    async def inventory(self, interaction: discord.Interaction, cible: Optional[discord.Member] = None, prive: bool = False):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+
+        target = cible or interaction.user
+        if target.bot:
+            return await interaction.response.send_message("🤖 Les bots n’ont pas d’inventaire.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=bool(prive), thinking=False)
+        embed = await self._render_inventory_embed(target)
+        await interaction.followup.send(embed=embed, ephemeral=bool(prive))
 
     @app_commands.command(name="inv", description="Alias de /inventory.")
-    async def inv(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=False, thinking=False)
-        embed = await self._render_inventory_embed(interaction.user)
-        await interaction.followup.send(embed=embed)
+    @app_commands.describe(
+        cible="Membre dont tu veux voir l’inventaire (optionnel)",
+        prive="Si activé, la réponse est visible seulement par toi",
+    )
+    async def inv(self, interaction: discord.Interaction, cible: Optional[discord.Member] = None, prive: bool = False):
+        await self.inventory.callback(self, interaction, cible, prive)  # type: ignore
 
     # ===== Préfixé (fallback) =====
     @commands.command(name="inventory")
-    async def inventory_prefix(self, ctx: commands.Context):
-        embed = await self._render_inventory_embed(ctx.author)
+    async def inventory_prefix(self, ctx: commands.Context, *, member: Optional[discord.Member] = None):
+        target = member or ctx.author
+        embed = await self._render_inventory_embed(target)
         await ctx.reply(embed=embed, mention_author=False)
 
     @commands.command(name="inv")
-    async def inv_prefix(self, ctx: commands.Context):
-        embed = await self._render_inventory_embed(ctx.author)
+    async def inv_prefix(self, ctx: commands.Context, *, member: Optional[discord.Member] = None):
+        target = member or ctx.author
+        embed = await self._render_inventory_embed(target)
         await ctx.reply(embed=embed, mention_author=False)
 
 
