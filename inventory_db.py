@@ -4,10 +4,29 @@
 # Fournit : add/remove/get/set, listing, transferts, bulk ops, clear.
 
 from __future__ import annotations
+import os, shutil
 import aiosqlite
 from typing import Dict, List, Tuple, Optional
 
-DB_PATH = "gotvalis.sqlite3"
+# ── Chemin DB persistant ───────────────────────────────────────────
+try:
+    from data.storage import get_sqlite_path
+except Exception:
+    def get_sqlite_path(name="gotvalis.sqlite3"):
+        return os.getenv("GOTVALIS_DB") or "/persistent/gotvalis.sqlite3"
+
+DB_PATH = get_sqlite_path("gotvalis.sqlite3")
+
+def _maybe_migrate_local_db():
+    old = "gotvalis.sqlite3"
+    try:
+        if os.path.exists(old) and not os.path.exists(DB_PATH):
+            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+            shutil.copy2(old, DB_PATH)
+    except Exception:
+        pass
+
+_maybe_migrate_local_db()
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;
@@ -28,6 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_inventories_item ON inventories(item_key);
 
 async def init_inventory_db() -> None:
     """Initialise la table si nécessaire."""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
         await db.commit()
