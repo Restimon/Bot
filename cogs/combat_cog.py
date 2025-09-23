@@ -70,8 +70,13 @@ except Exception:
     async def undying_zeyra_check_and_mark(*args, **kwargs) -> bool: return False
 
 # Objets (emoji -> caractéristiques) + GIFs
+# >>> FIX: import robuste. On tente FIGHT_GIFS, sinon GIFS (alias).
 try:
-    from utils import OBJETS, get_random_item, FIGHT_GIFS  # type: ignore
+    from utils import OBJETS, get_random_item  # type: ignore
+    try:
+        from utils import FIGHT_GIFS  # préféré si dispo
+    except Exception:
+        from utils import GIFS as FIGHT_GIFS  # fallback rétro-compat
 except Exception:
     OBJETS = {}
     FIGHT_GIFS = {}
