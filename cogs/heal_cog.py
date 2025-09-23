@@ -1,170 +1,168 @@
 # cogs/heal_cog.py
 from __future__ import annotations
 
-import random
-from typing import Dict, List, Optional, Tuple
+import json
+from typing import List, Tuple, Dict, Optional
 
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 
-# DBs
-from inventory_db import get_item_qty, remove_item
-from stats_db import get_hp, heal_user
-
-# Catalogue (emoji -> fiche)
+from inventory_db import get_all_items, get_item_qty, remove_item
+from stats_db import heal_user, get_hp
 try:
-    from utils import OBJETS  # type: ignore
+    from effects_db import add_or_refresh_effect, remove_effect
 except Exception:
-    OBJETS: Dict[str, Dict] = {}
+    async def add_or_refresh_effect(**kwargs): return True
+    async def remove_effect(*args, **kwargs): return None
 
-# Optional: notify live leaderboard
-def _schedule_lb(bot: commands.Bot, gid: Optional[int], reason: str):
-    if not gid:
-        return
+from utils import OBJETS
+
+# ==========================================================
+# Helpers autocomplétion robustes
+# ==========================================================
+def _safe_item_rows_to_list(rows) -> List[Tuple[str, int]]:
+    out: List[Tuple[str, int]] = []
+    if not rows:
+        return out
+    if isinstance(rows, list):
+        for r in rows:
+            try:
+                if isinstance(r, (tuple, list)) and len(r) >= 2:
+                    e, q = str(r[0]), int(r[1])
+                elif isinstance(r, dict):
+                    e = str(r.get("emoji") or r.get("item") or r.get("id") or r.get("key") or "")
+                    q = int(r.get("qty") or r.get("quantity") or r.get("count") or r.get("n") or 0)
+                else:
+                    continue
+                if e and q > 0:
+                    out.append((e, q))
+            except Exception:
+                continue
+    elif isinstance(rows, dict):
+        for e, q in rows.items():
+            try:
+                e = str(e); q = int(q)
+                if e and q > 0:
+                    out.append((e, q))
+            except Exception:
+                continue
+    return out
+
+async def _list_owned_items(uid: int) -> List[Tuple[str, int]]:
+    owned: List[Tuple[str, int]] = []
     try:
-        from cogs.leaderboard_live import schedule_lb_update  # type: ignore
-        schedule_lb_update(bot, gid, reason)
+        rows = await get_all_items(uid)
+        owned.extend(_safe_item_rows_to_list(rows))
     except Exception:
         pass
 
-# ─────────────────────────────────────────────────────────
-# GIFs
-# ─────────────────────────────────────────────────────────
-_HEAL_GIFS: List[str] = [
-    # Feel free to swap with your own
-    "https://media.tenor.com/Gm7x2q5dQOYAAAAC/heal-green.gif",
-    "https://media.tenor.com/3f3oC0R2qGoAAAAC/heal-healing.gif",
-    "https://media.tenor.com/3b2m1otcjdIAAAAC/magic-heal.gif",
-    "https://media.tenor.com/9y3RFP6gqI8AAAAC/potion-heal.gif",
-]
+    if not owned:
+        for e in OBJETS.keys():
+            try:
+                q = int(await get_item_qty(uid, e) or 0)
+                if q > 0:
+                    owned.append((e, q))
+            except Exception:
+                continue
 
-def _pick_gif(info: Dict) -> Optional[str]:
-    # If the item defines a custom GIF/URL, use it
-    url = info.get("gif") or info.get("image") or info.get("url")
-    if isinstance(url, str) and url.startswith(("http://", "https://")):
-        return url
-    return random.choice(_HEAL_GIFS)
+    merged: Dict[str, int] = {}
+    for e, q in owned:
+        merged[e] = merged.get(e, 0) + int(q)
+    return sorted(merged.items(), key=lambda t: t[0])
 
-# ─────────────────────────────────────────────────────────
-# Autocomplete: only show owned heal/regen items
-# ─────────────────────────────────────────────────────────
-async def _ac_heal_items(inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+def _choices_from_owned(owned: List[Tuple[str, int]], allowed_types: set, current: str):
     cur = (current or "").strip().lower()
-    uid = inter.user.id
     out: List[app_commands.Choice[str]] = []
-    for emoji, info in OBJETS.items():
-        typ = str(info.get("type", "") or "")
-        if typ not in ("soin", "regen"):
+    for emoji, qty in owned:
+        info = OBJETS.get(emoji) or {}
+        typ = str(info.get("type", ""))
+        if typ not in allowed_types:
             continue
-        try:
-            q = int(await get_item_qty(uid, emoji) or 0)
-        except Exception:
-            q = 0
-        if q <= 0:
+        label = info.get("nom") or info.get("label") or typ or "objet"
+        display = f"{emoji} — {label} (x{qty})"
+        if cur and (cur not in emoji and cur not in str(label).lower()):
             continue
-
-        label = "soin"
-        try:
-            if typ == "soin":
-                val = int(info.get("soin", info.get("value", info.get("valeur", 0))) or 0)
-                label = f"soin +{val}" if val else "soin"
-            elif typ == "regen":
-                v = int(info.get("valeur", info.get("value", 0)) or 0)
-                itv = int(info.get("intervalle", info.get("interval", 60)) or 60)
-                d = int(info.get("duree", info.get("duration", 300)) or 300)
-                label = f"regen +{v}/{max(1,itv)}s for {d}s"
-        except Exception:
-            pass
-
-        name = f"{emoji} • {label} (x{q})"
-        if not cur or cur in name.lower():
-            out.append(app_commands.Choice(name=name[:100], value=emoji))
-            if len(out) >= 20:
-                break
+        out.append(app_commands.Choice(name=display[:100], value=emoji))
+        if len(out) >= 20:
+            break
     return out
 
-# ─────────────────────────────────────────────────────────
-# Cog
-# ─────────────────────────────────────────────────────────
+async def ac_heal_items(inter: discord.Interaction, current: str):
+    try:
+        if not inter or not inter.user:
+            return []
+        owned = await _list_owned_items(inter.user.id)
+        return _choices_from_owned(owned, {"soin", "regen"}, current)
+    except Exception:
+        return []
+
+
+# ==========================================================
+# Heal Cog
+# ==========================================================
 class HealCog(commands.Cog):
-    """/heal — use a heal/regen item on yourself or someone else, with GIF + before/after HP"""
+    """/heal pour les objets de type soin / régénération."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="heal", description="Soigne un joueur avec un objet de soin.")
-    @app_commands.describe(objet="Emoji de l'objet (soin/regen)", cible="Cible (par défaut: toi)")
-    @app_commands.autocomplete(objet=_ac_heal_items)
-    async def heal(
-        self,
-        inter: discord.Interaction,
-        objet: str,
-        cible: Optional[discord.Member] = None,
-    ):
-        if not inter.guild:
-            return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
-
+    @app_commands.command(name="heal", description="Soigner un joueur avec un objet de soin.")
+    @app_commands.describe(objet="Choisis un objet de soin", cible="Cible (par défaut: toi)")
+    @app_commands.autocomplete(objet=ac_heal_items)
+    async def heal_cmd(self, inter: discord.Interaction, objet: str, cible: Optional[discord.Member] = None):
         info = OBJETS.get(objet) or {}
-        typ = str(info.get("type", "") or "")
-        if typ not in ("soin", "regen"):
-            return await inter.response.send_message(
-                "Cet objet n’est pas un **soin/regen**. Utilise **/fight** ou **/use** selon le type.",
-                ephemeral=True,
-            )
+        typ = str(info.get("type", ""))
+        if typ not in {"soin", "regen"}:
+            return await inter.response.send_message("❌ Il faut un **objet de soin**.", ephemeral=True)
 
-        # Check inventory & consume 1
-        try:
-            have = int(await get_item_qty(inter.user.id, objet) or 0)
-        except Exception:
-            have = 0
-        if have <= 0:
-            return await inter.response.send_message(f"Tu n’as pas **{objet}**.", ephemeral=True)
-        ok = await remove_item(inter.user.id, objet, 1)
-        if not ok:
-            return await inter.response.send_message(f"Impossible de consommer **{objet}**.", ephemeral=True)
+        # possession + consommation
+        qty = int(await get_item_qty(inter.user.id, objet) or 0)
+        if qty <= 0:
+            return await inter.response.send_message(f"❌ Tu n’as pas **{objet}**.", ephemeral=True)
+        if not await remove_item(inter.user.id, objet, 1):
+            return await inter.response.send_message("❌ Impossible d’utiliser l’objet.", ephemeral=True)
 
         await inter.response.defer(thinking=True)
 
         target = cible or inter.user
-
-        # Get HP before
-        hp_before, mx = await get_hp(target.id)
-
-        # Apply heal
-        healed = 0
         if typ == "soin":
-            val = int(info.get("soin", info.get("value", info.get("valeur", 0))) or 0)
-            if val > 0:
-                healed = await heal_user(inter.user.id, target.id, val)
-        else:
-            # regen as immediate 1-tick heal baseline (optional); full tick engine handled by effects_db elsewhere
-            tick_val = int(info.get("valeur", info.get("value", 0)) or 0)
-            if tick_val > 0:
-                healed = await heal_user(inter.user.id, target.id, min(tick_val, mx))  # 1 pulse now
+            amount = int(info.get("soin", info.get("heal", 10)) or 10)
+            healed = await heal_user(inter.user.id, target.id, amount)
+            hp_after, mx = await get_hp(target.id)
+            hp_before = max(0, hp_after - healed)
+            desc = (
+                f"{inter.user.mention} rend **{healed} PV** à {target.mention} avec {objet}.\n"
+                f"❤️ **{hp_before}/{mx}** → **{hp_after}/{mx}**"
+                if healed > 0 else
+                f"{target.mention} a déjà ses PV au maximum."
+            )
+            embed = discord.Embed(title="💊 Soin", description=desc, color=discord.Color.green())
 
-        # HP after
-        hp_after, _ = await get_hp(target.id)
-
-        # Build embed
-        title = f"{objet} Soin"
-        desc_lines = [
-            f"{inter.user.mention} **rend {healed} PV** à {target.mention} avec {objet}."
-            if healed > 0 else
-            f"{inter.user.mention} utilise {objet} sur {target.mention}, mais rien à soigner."
-        ]
-        desc_lines.append(f"❤️ {hp_before}/{mx} → ❤️ **{hp_after}/{mx}**")
-
-        embed = discord.Embed(title=title, description="\n".join(desc_lines), color=discord.Color.green())
-
-        gif = _pick_gif(info)
-        if gif:
-            embed.set_image(url=gif)
+        else:  # regen
+            val = float(info.get("valeur", info.get("value", 2)) or 2)
+            interval = int(info.get("intervalle", info.get("interval", 60)) or 60)
+            duration = int(info.get("duree", info.get("duration", 300)) or 300)
+            ok = await add_or_refresh_effect(
+                user_id=target.id, eff_type="regen", value=val,
+                duration=duration, interval=interval, source_id=inter.user.id,
+                meta_json=json.dumps({"from": inter.user.id, "emoji": objet})
+            )
+            if ok:
+                embed = discord.Embed(
+                    title="💕 Régénération",
+                    description=f"{inter.user.mention} applique **{objet}** sur {target.mention} "
+                                f"(+{val} PV / {interval}s pendant {duration}s).",
+                    color=discord.Color.teal()
+                )
+            else:
+                embed = discord.Embed(
+                    title="💕 Régénération",
+                    description=f"⛔ Effet **bloqué** sur {target.mention}.",
+                    color=discord.Color.red()
+                )
 
         await inter.followup.send(embed=embed)
-
-        # LB refresh
-        _schedule_lb(self.bot, inter.guild.id if inter.guild else None, "heal")
 
 
 async def setup(bot: commands.Bot):
