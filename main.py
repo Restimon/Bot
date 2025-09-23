@@ -112,14 +112,21 @@ INITIAL_EXTENSIONS = [
     # Core / système
     "cogs.equip_cog",
     "cogs.passifs_cog",
+
+    # Combat (si tu gardes /fight ici)
     "cogs.combat_cog",
+
+    # ⬇️ AJOUTE CES DEUX LIGNES ⬇️
+    "cogs.use_cog",
+    "cogs.heal_cog",
+
     "cogs.daily_cog",
-    "cogs.economie",          # nouvelle éco
-    "cogs.economy_cog",       # ancien nom si encore présent
+    "cogs.economie",
+    "cogs.economy_cog",
     "cogs.shop_cog",
     "cogs.inventory_cog",
     "cogs.invocation_cog",
-    "cogs.leaderboard_live",  # nouveau LB live
+    "cogs.leaderboard_live",
     "cogs.admin_cog",
     "cogs.info_cog",
     "cogs.help_cog",
