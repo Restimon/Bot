@@ -1,4 +1,3 @@
-# cogs/use_cog.py
 from __future__ import annotations
 
 import discord
@@ -6,22 +5,15 @@ from discord import app_commands
 from discord.ext import commands
 from typing import List, Optional
 
-# Inventaire
 from inventory_db import get_all_items
-
-# Utils (catalogue)
 from utils import OBJETS
 
-# Ping MAJ leaderboard live (optionnel)
 try:
     from cogs.leaderboard_live import schedule_lb_update
 except Exception:
     def schedule_lb_update(bot, guild_id, reason=""):  # type: ignore
         return
 
-# ─────────────────────────────────────────────
-# Liste des objets utilisables via /use
-# ─────────────────────────────────────────────
 USE_KEYS = {"📦", "🔍", "💉", "👟", "🪖", "⭐️"}
 
 def _item_label(emoji: str) -> str:
@@ -44,7 +36,7 @@ def _item_label(emoji: str) -> str:
 async def ac_use_items(inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
     if not inter.user:
         return []
-    inv = await get_all_items(inter.user.id)  # [(emoji, qty)]
+    inv = await get_all_items(inter.user.id)
     cur = (current or "").strip().lower()
     out: List[app_commands.Choice[str]] = []
     for emoji, qty in inv:
@@ -57,9 +49,6 @@ async def ac_use_items(inter: discord.Interaction, current: str) -> List[app_com
                 break
     return out
 
-# ─────────────────────────────────────────────
-# Cog
-# ─────────────────────────────────────────────
 class UseCog(commands.Cog):
     """Commande /use : objets utilitaires (📦 🔍 💉 👟 🪖 ⭐️)."""
 
@@ -72,20 +61,14 @@ class UseCog(commands.Cog):
         cible="Cible (requis pour 🔍 Vol ; ignoré pour les autres)."
     )
     @app_commands.autocomplete(objet=ac_use_items)
-    async def use_cmd(
-        self,
-        inter: discord.Interaction,
-        objet: str,
-        cible: Optional[discord.Member] = None
-    ):
+    async def use_cmd(self, inter: discord.Interaction, objet: str, cible: Optional[discord.Member] = None):
         if not inter.guild:
             return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
 
-        # Vérifie que c’est bien un objet autorisé
         if objet not in USE_KEYS:
             return await inter.response.send_message("❌ Cet objet n’est pas utilisable avec /use.", ephemeral=True)
 
-        # On délègue toute la logique à logic/use.py
+        # déléguée à logic/use.py
         try:
             from logic.use import select_and_apply
             embed, _meta = await select_and_apply(inter, objet, cible)
@@ -94,12 +77,10 @@ class UseCog(commands.Cog):
 
         await inter.response.send_message(embed=embed)
 
-        # MAJ du leaderboard (optionnel)
         try:
             schedule_lb_update(self.bot, inter.guild.id, reason=f"use:{objet}")
         except Exception:
             pass
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(UseCog(bot))
