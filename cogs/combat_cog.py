@@ -303,6 +303,297 @@ class CombatCog(commands.Cog):
         if isinstance(gif, str) and (gif.startswith("http://") or gif.startswith("https://")):
             e.set_image(url=gif)
         return e
+        
+    # ========= ACTIONS CONCRÈTES (manquantes) =========
+    async def _roll_value(self, info: dict, key_default: int = 1) -> int:
+        """
+        Lit une valeur dans info:
+        - si 'min'/'max' → random entre min et max
+        - sinon 'valeur' ou clé par défaut
+        """
+        import random
+        if isinstance(info, dict):
+            if "min" in info and "max" in info:
+                try:
+                    a = int(info.get("min", 0)); b = int(info.get("max", 0))
+                    if a > b: a, b = b, a
+                    return random.randint(a, b)
+                except Exception:
+                    pass
+            for k in ("valeur", "value", "amount", "degats", "dmg", "heal"):
+                if k in info:
+                    try:
+                        return int(info[k])
+                    except Exception:
+                        continue
+        return int(key_default)
+
+    async def _apply_attack(
+        self,
+        inter: discord.Interaction,
+        attacker: discord.Member,
+        target: discord.Member,
+        emoji: str,
+        info: dict
+    ) -> discord.Embed:
+        import random
+        # Base dégâts
+        base = await self._roll_value(info, 5)
+        # Critiques (facultatif dans OBJETS)
+        crit_chance = float(info.get("crit_chance", 0.10) or 0.0)
+        crit_mult   = float(info.get("crit_mult", 1.5) or 1.0)
+        is_crit = (random.random() < max(0.0, min(crit_chance, 1.0)))
+        if is_crit:
+            base = int(round(base * max(1.0, crit_mult)))
+
+        # Malus d'attaque provenant des effets (ex: poison) ou passifs
+        base -= int(await self._calc_outgoing_penalty(attacker.id, base))
+        base = max(0, base)
+
+        # Virus : transfert avant le coup
+        try:
+            await transfer_virus_on_attack(attacker.id, target.id)
+        except Exception:
+            pass
+
+        # Résolution du coup
+        hp_before, _ = await get_hp(target.id)
+        dmg_final, absorbed, dodged, ko_txt = await self._resolve_hit(
+            inter, attacker, target, base, is_crit, None
+        )
+        hp_after, _ = await get_hp(target.id)
+
+        # Hook passifs (best effort)
+        try:
+            await trigger("on_attack", attacker_id=attacker.id, target_id=target.id, damage_done=dmg_final)
+        except Exception:
+            pass
+
+        # Embed
+        e = self._oldstyle_embed(
+            emoji, attacker, target, hp_before, dmg_final, hp_after, ko_txt, dodged
+        )
+        if is_crit and not dodged and dmg_final > 0:
+            e.add_field(name="💥 Critique !", value=f"x{crit_mult:g}", inline=True)
+        if absorbed > 0 and not dodged:
+            e.add_field(name="🛡 Bouclier", value=f"-{absorbed} absorbés", inline=True)
+        return e
+
+    async def _apply_chain_attack(
+        self,
+        inter: discord.Interaction,
+        attacker: discord.Member,
+        target: discord.Member,
+        emoji: str,
+        info: dict
+    ) -> discord.Embed:
+        """
+        Version simple : on applique un coup principal, puis un 'rebond' à 60%.
+        (Tu pourras remplacer par une vraie chaîne multi-cibles si tu veux.)
+        """
+        # Coup principal
+        embed = await self._apply_attack(inter, attacker, target, emoji, info)
+
+        # Rebond atténué
+        try:
+            base = await self._roll_value(info, 5)
+            base = int(round(base * float(info.get("chain_factor", 0.6) or 0.6)))
+            base = max(0, base - int(await self._calc_outgoing_penalty(attacker.id, base)))
+            if base > 0:
+                await transfer_virus_on_attack(attacker.id, target.id)
+                await self._resolve_hit(inter, attacker, target, base, False, None)
+        except Exception:
+            pass
+        return embed
+
+    async def _apply_dot(
+        self,
+        inter: discord.Interaction,
+        user: discord.Member,
+        cible: discord.Member,
+        emoji: str,
+        info: dict,
+        *,
+        eff_type: str,
+        label: str
+    ) -> discord.Embed:
+        # Paramètres du DOT/HoT
+        val = await self._roll_value(info, 1)
+        interval = int(info.get("interval", info.get("tick", 60)) or 60)
+        duration = int(info.get("duree", info.get("duration", 300)) or 300)
+
+        remember_tick_channel(cible.id, inter.guild.id, inter.channel.id)
+
+        # Hook passifs (blocage possible)
+        try:
+            pre = await trigger("on_effect_pre_apply", user_id=cible.id, eff_type=eff_type) or {}
+            if pre.get("blocked"):
+                return discord.Embed(
+                    title=f"{label}",
+                    description=f"⛔ Effet bloqué sur {cible.mention} : {pre.get('reason','')}",
+                    color=discord.Color.red()
+                )
+        except Exception:
+            pass
+
+        ok = await add_or_refresh_effect(
+            user_id=cible.id, eff_type=eff_type, value=float(val),
+            duration=duration, interval=interval,
+            source_id=user.id, meta_json=json.dumps({"applied_in": inter.channel.id})
+        )
+        if not ok:
+            return discord.Embed(
+                title=f"{label}",
+                description=f"⛔ {cible.mention} est **immunisé(e)**.",
+                color=discord.Color.red()
+            )
+
+        e = discord.Embed(
+            title=f"{label}",
+            description=f"{user.mention} applique **{emoji}** sur {cible.mention} "
+                        f"(val={val}, every {interval}s, dur={duration}s).",
+            color=discord.Color.orange()
+        )
+        return e
+
+    async def _apply_heal(
+        self,
+        inter: discord.Interaction,
+        user: discord.Member,
+        emoji: str,
+        info: dict,
+        cible: Optional[discord.Member]
+    ) -> discord.Embed:
+        target = cible or user
+        amount = await self._roll_value(info, 10)
+
+        # Soin avec attribution (crédite l'éco du lanceur)
+        healed = await heal_user(user.id, target.id, amount)
+
+        hp_before, mx = await get_hp(target.id)
+        # hp_before est déjà à jour si heal_user a écrit ? On relit pour être sûr :
+        hp_after, mx = await get_hp(target.id)
+
+        e = discord.Embed(title="💊 Soin", color=discord.Color.green())
+        if healed <= 0:
+            e.description = f"{user.mention} tente de soigner {target.mention} avec {emoji}, " \
+                            f"mais les PV sont déjà au max."
+        else:
+            e.description = (
+                f"{user.mention} rend **{healed} PV** à {target.mention} avec {emoji}.\n"
+                f"❤️ **{hp_after-healed}/{mx}** + (**{healed}**) = ❤️ **{hp_after}/{mx}**"
+            )
+        return e
+
+    async def _apply_regen(
+        self,
+        inter: discord.Interaction,
+        user: discord.Member,
+        emoji: str,
+        info: dict,
+        cible: Optional[discord.Member]
+    ) -> discord.Embed:
+        target = cible or user
+        val = await self._roll_value(info, 2)
+        interval = int(info.get("interval", 60) or 60)
+        duration = int(info.get("duree", 300) or 300)
+
+        remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
+
+        pre = {}
+        try:
+            pre = await trigger("on_effect_pre_apply", user_id=target.id, eff_type="regen") or {}
+        except Exception:
+            pass
+        if pre.get("blocked"):
+            return discord.Embed(
+                title="💕 Régénération",
+                description=f"⛔ Effet bloqué : {pre.get('reason','')}",
+                color=discord.Color.red()
+            )
+
+        await add_or_refresh_effect(
+            user_id=target.id, eff_type="regen", value=float(val),
+            duration=duration, interval=interval, source_id=user.id,
+            meta_json=json.dumps({"applied_in": inter.channel.id})
+        )
+        return discord.Embed(
+            title="💕 Régénération",
+            description=f"{user.mention} applique **{emoji}** sur {target.mention} "
+                        f"(+{val} PV / {interval}s pendant {duration}s).",
+            color=discord.Color.teal()
+        )
+
+    async def _apply_vaccin(
+        self,
+        inter: discord.Interaction,
+        user: discord.Member,
+        info: dict,
+        cible: Optional[discord.Member]
+    ) -> discord.Embed:
+        target = cible or user
+
+        # Cleanse de base
+        for t in ("poison", "infection", "virus", "brulure"):
+            try:
+                await remove_effect(target.id, t)  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    from effects_db import remove_effect as _rem
+                    await _rem(target.id, t)
+                except Exception:
+                    pass
+
+        # Immunité temporaire (facultatif selon OBJETS)
+        dur = int(info.get("duree", info.get("duration", 180)) or 180)
+        val = int(info.get("valeur", 1) or 1)
+        remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
+        try:
+            await add_or_refresh_effect(
+                user_id=target.id, eff_type="immunite", value=float(val),
+                duration=dur, interval=0, source_id=user.id,
+                meta_json=json.dumps({"applied_in": inter.channel.id, "source": "vaccin"})
+            )
+        except Exception:
+            pass
+
+        return discord.Embed(
+            title="🧬 Vaccin",
+            description=f"{user.mention} immunise {target.mention} et retire les altérations.",
+            color=discord.Color.blue()
+        )
+
+    async def _apply_bouclier(
+        self,
+        inter: discord.Interaction,
+        user: discord.Member,
+        info: dict,
+        cible: Optional[discord.Member]
+    ) -> discord.Embed:
+        target = cible or user
+        val = await self._roll_value(info, 5)
+
+        applied = 0
+        # Priorité au module shields_db s'il existe
+        try:
+            from shields_db import add_shield as _add_shield, get_shield as _get_shield, get_max_shield as _get_max
+            before = await _get_shield(target.id)
+            applied = await _add_shield(target.id, val, cap_to_max=True)
+            after = await _get_shield(target.id)
+            cap = await _get_max(target.id)
+            desc = f"🛡 {target.mention} gagne **{max(0, after-before)} PB** (cap {cap})."
+        except Exception:
+            # Fallback: stocke dans stats_db.shield
+            try:
+                from stats_db import get_shield as _get, set_shield as _set
+                before = int(await _get(target.id))
+                after = max(0, before + int(val))
+                await _set(target.id, after)
+                desc = f"🛡 {target.mention} gagne **{val} PB**."
+            except Exception:
+                desc = f"🛡 {target.mention} gagne un bouclier."
+
+        return discord.Embed(title="🛡 Bouclier", description=desc, color=discord.Color.brand_teal())
 
     # ========= Inventaire réel pour l’auto-complétion =========
     async def _list_owned_items(self, uid: int) -> List[Tuple[str, int]]:
