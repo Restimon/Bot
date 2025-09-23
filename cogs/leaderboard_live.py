@@ -162,7 +162,7 @@ class LiveLeaderboard(commands.Cog):
         if interaction.guild:
             schedule_lb_update(self.bot, interaction.guild.id, f"/{command.name}")
 
-    @commands.Cog.listener())
+    @commands.Cog.listener()
     async def on_command_completion(self, ctx: commands.Context):
         if ctx.guild:
             try:
