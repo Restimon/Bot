@@ -1,7 +1,7 @@
 # effects_db.py
 from __future__ import annotations
 
-import asyncio
+import os, shutil, asyncio
 import json
 import time
 from typing import Callable, Dict, List, Optional, Tuple, Any
@@ -20,7 +20,25 @@ except Exception:
     async def passifs_trigger(event: str, **ctx) -> Dict[str, Any]:  # type: ignore
         return {}
 
-DB_PATH = "gotvalis.sqlite3"
+# ── Chemin DB persistant ───────────────────────────────────────────
+try:
+    from data.storage import get_sqlite_path
+except Exception:
+    def get_sqlite_path(name="gotvalis.sqlite3"):
+        return os.getenv("GOTVALIS_DB") or "/persistent/gotvalis.sqlite3"
+
+DB_PATH = get_sqlite_path("gotvalis.sqlite3")
+
+def _maybe_migrate_local_db():
+    old = "gotvalis.sqlite3"
+    try:
+        if os.path.exists(old) and not os.path.exists(DB_PATH):
+            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+            shutil.copy2(old, DB_PATH)
+    except Exception:
+        pass
+
+_maybe_migrate_local_db()
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -45,6 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_effects_next ON effects(next_ts);
 # init
 # ---------------------------------------------------------------------
 async def init_effects_db() -> None:
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
         await db.commit()
@@ -129,7 +148,6 @@ async def add_or_refresh_effect(
     meta = None
     if meta_json is not None:
         try:
-            # assure qu'on garde une string JSON (ne plante pas si déjà string)
             json.loads(meta_json)  # valide ?
             meta = meta_json
         except Exception:
@@ -245,7 +263,8 @@ async def transfer_virus_on_attack(attacker_id: int, target_id: int) -> None:
 # ---------------------------------------------------------------------
 # Broadcaster & boucle de ticks
 # ---------------------------------------------------------------------
-Broadcaster = Callable[[int, int, Dict[str, Any]], Any]
+from typing import Callable as _Callable
+Broadcaster = _Callable[[int, int, Dict[str, Any]], Any]
 _broadcaster: Optional[Broadcaster] = None
 
 def set_broadcaster(cb: Broadcaster) -> None:
@@ -265,7 +284,6 @@ async def _broadcast_for_user(user_id: int, lines: List[str], color: int = 0x2ec
         "color": color,
         "user_id": int(user_id),
     }
-    # Les gid/cid passés sont ignorés si CombatCog a mémorisé un salon par user.
     try:
         await _broadcaster(0, 0, payload)  # type: ignore
     except Exception:
@@ -299,7 +317,6 @@ async def _tick_once() -> None:
         val = int(float(value))
         iv = int(interval)
 
-        # Si l'effet a déjà expiré, on ignore (filtré par WHERE mais on re-check)
         if end_ts <= now:
             continue
 
@@ -309,7 +326,6 @@ async def _tick_once() -> None:
                 to_heal[uid] = to_heal.get(uid, 0) + val
 
         elif eff_type in ("poison", "infection", "brulure"):
-            # Cas particulier: infection tick ignoré pour certains passifs
             if eff_type == "infection":
                 try:
                     if await should_block_infection_tick_damage(uid):
@@ -319,18 +335,14 @@ async def _tick_once() -> None:
                     pass
 
             if val > 0:
-                # On impute des dégâts "environnementaux" (source_id si dispo sinon 0)
                 try:
                     await deal_damage(int(source_id) if str(source_id).isdigit() else 0, uid, val)
                 except Exception:
-                    # fallback minimal: on essaie de tuer/soigner par d'autres moyens si besoin
                     pass
                 to_dot[uid] = to_dot.get(uid, 0) + val
 
-        # Marque à décaler le prochain tick
         ticked.append((user_id_s, eff_type))
 
-        # Si la cible est morte du DOT → règle interne (revive immed.)
         try:
             if await is_dead(uid):
                 await revive_full(uid)
@@ -347,20 +359,17 @@ async def _tick_once() -> None:
                 )
             await db.commit()
 
-    # 4) Nettoyage simple des expirés (optionnel mais utile)
+    # 4) Nettoyage simple des expirés
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM effects WHERE end_ts<=?", (now,))
         await db.commit()
 
-    # 5) Broadcasting (si demandé)
-    #    On envoie un résumé par joueur pour éviter le spam.
+    # 5) Broadcasting
     for uid, amount in to_heal.items():
         await _broadcast_for_user(uid, [f"💕 +{amount} PV (régénération)"], color=0x2ecc71)
 
     for uid, amount in to_dot.items():
         await _broadcast_for_user(uid, [f"☠️ -{amount} PV (DOT)"], color=0xe67e22)
-
-    # 6) Hooks passifs périodiques si besoin (rien ici — c'est géré par main.py via boucles séparées)
 
 # ---------------------------------------------------------------------
 # Boucle publique
@@ -371,8 +380,6 @@ async def effects_loop(
 ) -> None:
     """
     Boucle infinie d'application des effets (ticks).
-    - get_targets() est là pour compat : CombatCog en fournit une, mais nous n'en dépendons pas ;
-      le broadcaster route par user_id vers le bon salon.
     """
     await init_effects_db()  # au cas où
     iv = max(5, int(interval))  # évite <5s
@@ -380,6 +387,5 @@ async def effects_loop(
         try:
             await _tick_once()
         except Exception:
-            # on évite de crasher la boucle ; logs silencieux pour ne pas flood
             pass
         await asyncio.sleep(iv)
