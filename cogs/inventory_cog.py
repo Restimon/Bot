@@ -146,12 +146,12 @@ class Inventory(commands.Cog):
         return embed
 
     # ===== Slash commands =====
-    @app_commands.command(name="inventory", description="Affiche un inventaire (le tien par défaut).")
-    @app_commands.describe(
-        cible="Membre dont tu veux voir l’inventaire (optionnel)",
-        prive="Si activé, la réponse est visible seulement par toi",
+    @app_commands.command(
+        name="inventory",
+        description="Affiche un inventaire (le tien par défaut, ou celui d’un autre membre)."
     )
-    async def inventory(self, interaction: discord.Interaction, cible: Optional[discord.Member] = None, prive: bool = False):
+    @app_commands.describe(cible="Membre dont tu veux voir l’inventaire (optionnel)")
+    async def inventory(self, interaction: discord.Interaction, cible: Optional[discord.Member] = None):
         if not interaction.guild:
             return await interaction.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
 
@@ -159,17 +159,15 @@ class Inventory(commands.Cog):
         if target.bot:
             return await interaction.response.send_message("🤖 Les bots n’ont pas d’inventaire.", ephemeral=True)
 
-        await interaction.response.defer(ephemeral=bool(prive), thinking=False)
+        # Réponse publique (pas d’éphémère)
+        await interaction.response.defer(ephemeral=False, thinking=False)
         embed = await self._render_inventory_embed(target)
-        await interaction.followup.send(embed=embed, ephemeral=bool(prive))
+        await interaction.followup.send(embed=embed, ephemeral=False)
 
     @app_commands.command(name="inv", description="Alias de /inventory.")
-    @app_commands.describe(
-        cible="Membre dont tu veux voir l’inventaire (optionnel)",
-        prive="Si activé, la réponse est visible seulement par toi",
-    )
-    async def inv(self, interaction: discord.Interaction, cible: Optional[discord.Member] = None, prive: bool = False):
-        await self.inventory.callback(self, interaction, cible, prive)  # type: ignore
+    @app_commands.describe(cible="Membre dont tu veux voir l’inventaire (optionnel)")
+    async def inv(self, interaction: discord.Interaction, cible: Optional[discord.Member] = None):
+        await self.inventory.callback(self, interaction, cible)  # type: ignore
 
     # ===== Préfixé (fallback) =====
     @commands.command(name="inventory")
