@@ -1,7 +1,6 @@
 # cogs/use_cog.py
 from __future__ import annotations
 
-import asyncio
 import random
 import time
 from typing import List, Optional, Tuple, Dict
@@ -32,9 +31,9 @@ except Exception:
         return None
 
 # Utils (OBJETS, GIFS fusionnés, get_evade_chance…)
-from utils import OBJETS, get_evade_chance
+from utils import OBJETS, GIFS, get_evade_chance
 
-# Esquive buff (👟) stocké côté data.esquive_status
+# Esquive buff (👟) stocké côté data.esquive_status (lu par utils.get_evade_chance)
 try:
     from data import esquive_status
 except Exception:
@@ -77,9 +76,7 @@ async def ac_use_items(inter: discord.Interaction, current: str) -> List[app_com
     cur = (current or "").strip().lower()
     out: List[app_commands.Choice[str]] = []
     for emoji, qty in inv:
-        if emoji not in USE_KEYS:
-            continue
-        if qty <= 0:
+        if emoji not in USE_KEYS or qty <= 0:
             continue
         name = _item_label(emoji)
         if not cur or cur in name.lower():
@@ -93,10 +90,10 @@ async def ac_use_items(inter: discord.Interaction, current: str) -> List[app_com
 # ─────────────────────────────────────────────────────────
 def _obj_gif(emoji: str) -> Optional[str]:
     data = OBJETS.get(emoji, {})
-    # heal ou vaccin → gif_heal si présent, sinon gif
+    # soignant/regen/vaccin → gif_heal si présent, sinon gif
     if data.get("type") in ("soin", "regen") or emoji in ("💉",):
         return data.get("gif_heal") or data.get("gif")
-    return data.get("gif") or data.get("gif_attack")
+    return data.get("gif") or data.get("gif_attack") or GIFS.get(emoji)
 
 def _weighted_pool_for_box(exclude_box: bool = True) -> List[str]:
     """
@@ -108,8 +105,6 @@ def _weighted_pool_for_box(exclude_box: bool = True) -> List[str]:
     for emoji, data in OBJETS.items():
         if exclude_box and emoji == "📦":
             continue
-        if emoji not in USE_KEYS:  # on veut pouvoir drop TOUT (y compris attaques/soins/etc.)
-            pass
         # Pondération par rareté
         r = int(data.get("rarete", 25))
         w = 26 - r
@@ -146,9 +141,6 @@ async def _give_box_rewards(bot: commands.Bot, guild: discord.Guild, user: disco
             await add_item(user.id, pick, 1)
             lines.append(f"{pick} **+1**")
     return ("🎁 Récompenses", lines)
-
-def _now() -> float:
-    return time.time()
 
 # ─────────────────────────────────────────────────────────
 # Le Cog
@@ -211,26 +203,26 @@ class UseCog(commands.Cog):
                 await add_item(user.id, "🔍", 1)
                 return await inter.response.send_message("❌ Spécifie une **cible valide** (humaine, différente de toi).", ephemeral=True)
 
-            # Check esquive fixe (mais modifiable par buffs/passifs) → via utils.get_evade_chance
+            # Check esquive via utils.get_evade_chance (base 4% + buffs/passifs)
             evade = float(get_evade_chance(str(guild.id), str(cible.id)))
             if random.random() < evade:
                 title = "🔍 Vol raté"
                 desc_lines.append(f"{cible.mention} a **esquivé** ta tentative ({int(evade*100)}%).")
             else:
-                # Choisir un objet chez la cible (pondéré par qty), hors entrées non-emoji
+                # Choisir un objet chez la cible (pondéré par qty)
                 inv_target = await get_all_items(cible.id)  # [(emoji, qty)]
-                # On garde tout (même attaques/soins), mais on ignore si qty<=0
                 bag: List[str] = []
                 for emoji, q in inv_target:
                     if q <= 0:
                         continue
+                    # on autorise tout type d'emoji présent dans l'inventaire
                     bag.extend([emoji] * int(q))
+
                 if not bag:
                     title = "🔍 Vol raté"
                     desc_lines.append(f"{cible.mention} n'a **rien** à voler.")
                 else:
                     stolen = random.choice(bag)
-                    # Transfert réel en DB
                     ok = await transfer_item(cible.id, user.id, stolen, 1)
                     if ok:
                         title = "🔍 Vol réussi !"
@@ -308,7 +300,7 @@ class UseCog(commands.Cog):
         # Build embed
         embed = discord.Embed(
             title=title or "🎯 Utilisation d'objet",
-            description="\n".join(desc_lines) if desc_lines else discord.utils.escape_markdown(" "),
+            description="\n".join(desc_lines) if desc_lines else " ",
             color=color
         )
         if gif:
@@ -321,6 +313,7 @@ class UseCog(commands.Cog):
             pass
 
         await inter.response.send_message(embed=embed)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(UseCog(bot))
