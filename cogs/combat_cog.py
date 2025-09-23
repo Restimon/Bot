@@ -1,4 +1,3 @@
-# cogs/combat_cog.py
 from __future__ import annotations
 
 import asyncio
@@ -82,6 +81,9 @@ except Exception:
     def get_random_item(debug: bool = False):
         return random.choice(["🍀", "❄️", "🧪", "🩹", "💊"])
 
+# GIF critique (uniquement pour attaques critiques)
+CRIT_GIF = "https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExZmoxOTJ1emRocHJoM2pueGRneGJhdDhjNW81ZzRzOHdxa2ZoazljbiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/o2TqK6vEzhp96/giphy.gif"
+
 # ─────────────────────────────────────────────────────────────
 # MAPPING des salons de ticks : user_id -> (guild_id, channel_id)
 # ─────────────────────────────────────────────────────────────
@@ -118,7 +120,7 @@ async def _effects_broadcaster(bot: commands.Bot, guild_id: int, channel_id: int
 # Le COG
 # ─────────────────────────────────────────────────────────────
 class CombatCog(commands.Cog):
-    """Système de combat : /fight (+ commandes de test). **Pas** de /use ni /heal ici."""
+    """Système de combat : /fight (+ tests).  (/heal est dans heal_cog.py)"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -133,9 +135,9 @@ class CombatCog(commands.Cog):
             await effects_loop(get_targets=get_all_tick_targets, interval=30)
         asyncio.create_task(runner())
 
-    # ──────────────────────────
+    # ─────────────────────────────────────────────────────────
     # Helpers
-    # ──────────────────────────
+    # ─────────────────────────────────────────────────────────
     async def _consume_item(self, user_id: int, emoji: str) -> bool:
         try:
             qty = await get_item_qty(user_id, emoji)
@@ -201,74 +203,9 @@ class CombatCog(commands.Cog):
         except Exception:
             return 0
 
-    # ──────────────────────────
-    # Autocomplétion — **uniquement** objets offensifs possédés
-    # ──────────────────────────
-    async def _list_owned_items(self, uid: int) -> List[Tuple[str, int]]:
-        owned: List[Tuple[str, int]] = []
-        try:
-            from inventory_db import get_all_items  # type: ignore
-            rows = await get_all_items(uid)
-            if rows:
-                if isinstance(rows, list):
-                    for r in rows:
-                        e = None; q = 0
-                        if isinstance(r, (tuple, list)) and len(r) >= 2:
-                            e, q = str(r[0]), int(r[1])
-                        elif isinstance(r, dict):
-                            e = str(r.get("emoji") or r.get("item") or r.get("id") or r.get("key") or "")
-                            q = int(r.get("qty") or r.get("quantity") or r.get("count") or r.get("n") or 0)
-                        if e and q > 0:
-                            owned.append((e, q))
-                elif isinstance(rows, dict):
-                    for e, q in rows.items():
-                        try:
-                            q = int(q)
-                            if q > 0:
-                                owned.append((str(e), q))
-                        except Exception:
-                            continue
-        except Exception:
-            pass
-
-        if not owned:
-            for emoji in OBJETS.keys():
-                try:
-                    q = int(await get_item_qty(uid, emoji) or 0)
-                    if q > 0:
-                        owned.append((emoji, q))
-                except Exception:
-                    continue
-
-        merged: Dict[str, int] = {}
-        for e, q in owned:
-            merged[e] = merged.get(e, 0) + int(q)
-        return sorted(merged.items(), key=lambda t: t[0])
-
-    async def _ac_items_attack(self, inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-        uid = inter.user.id
-        cur = (current or "").strip().lower()
-        owned = await self._list_owned_items(uid)
-
-        allowed = {"attaque", "attaque_chaine", "poison", "infection", "virus", "brulure"}
-        out: List[app_commands.Choice[str]] = []
-        for emoji, qty in owned:
-            info = OBJETS.get(emoji) or {}
-            typ = str(info.get("type", ""))
-            if typ not in allowed:
-                continue
-            label = info.get("nom") or info.get("label") or typ
-            display = f"{emoji} — {label} (x{qty})"
-            if cur and (cur not in emoji and cur not in str(label).lower()):
-                continue
-            out.append(app_commands.Choice(name=display[:100], value=emoji))
-            if len(out) >= 20:
-                break
-        return out
-
-    # ──────────────────────────
+    # ─────────────────────────────────────────────────────────
     # Pipeline dégâts / soins / effets
-    # ──────────────────────────
+    # ─────────────────────────────────────────────────────────
     async def _resolve_hit(
         self,
         inter: discord.Interaction,
@@ -348,7 +285,9 @@ class CombatCog(commands.Cog):
         pv_lost: int,
         hp_after: int,
         ko_txt: str,
-        dodged: bool
+        dodged: bool,
+        *,
+        gif_url: Optional[str] = None
     ) -> discord.Embed:
         title = f"{emoji} Action de GotValis"
         e = discord.Embed(title=title, color=discord.Color.orange())
@@ -363,11 +302,11 @@ class CombatCog(commands.Cog):
             if ko_txt:
                 lines.append(ko_txt.strip())
             e.description = "\n".join(lines)
-        gif = FIGHT_GIFS.get(emoji) if isinstance(FIGHT_GIFS, dict) else None
-        if isinstance(gif, str) and (gif.startswith("http://") or gif.startswith("https://")):
-            e.set_image(url=gif)
-        return e
 
+        if isinstance(gif_url, str) and (gif_url.startswith("http://") or gif_url.startswith("https://")):
+            e.set_image(url=gif_url)
+        return e
+        
     # ========= ACTIONS CONCRÈTES =========
     async def _roll_value(self, info: dict, key_default: int = 1) -> int:
         if isinstance(info, dict):
@@ -394,34 +333,49 @@ class CombatCog(commands.Cog):
         emoji: str,
         info: dict
     ) -> discord.Embed:
+        # Base dégâts
         base = await self._roll_value(info, 5)
+        # Critiques
         crit_chance = float(info.get("crit_chance", 0.10) or 0.0)
         crit_mult   = float(info.get("crit_mult", 1.5) or 1.0)
         is_crit = (random.random() < max(0.0, min(crit_chance, 1.0)))
         if is_crit:
             base = int(round(base * max(1.0, crit_mult)))
 
+        # Malus d'attaque
         base -= int(await self._calc_outgoing_penalty(attacker.id, base))
         base = max(0, base)
 
+        # Virus : transfert avant le coup
         try:
             await transfer_virus_on_attack(attacker.id, target.id)
         except Exception:
             pass
 
+        # Résolution
         hp_before, _ = await get_hp(target.id)
         dmg_final, absorbed, dodged, ko_txt = await self._resolve_hit(
             inter, attacker, target, base, is_crit, None
         )
         hp_after, _ = await get_hp(target.id)
 
+        # Hook passifs
         try:
             await trigger("on_attack", attacker_id=attacker.id, target_id=target.id, damage_done=dmg_final)
         except Exception:
             pass
 
+        # GIF: critique → CRIT_GIF, sinon GIF spécifique de l’emoji
+        gif_normal = None
+        try:
+            gif_normal = FIGHT_GIFS.get(emoji)
+        except Exception:
+            gif_normal = None
+        gif_url = CRIT_GIF if (is_crit and not dodged and dmg_final > 0) else gif_normal
+
+        # Embed
         e = self._oldstyle_embed(
-            emoji, attacker, target, hp_before, dmg_final, hp_after, ko_txt, dodged
+            emoji, attacker, target, hp_before, dmg_final, hp_after, ko_txt, dodged, gif_url=gif_url
         )
         if is_crit and not dodged and dmg_final > 0:
             e.add_field(name="💥 Critique !", value=f"x{crit_mult:g}", inline=True)
@@ -437,9 +391,7 @@ class CombatCog(commands.Cog):
         emoji: str,
         info: dict
     ) -> discord.Embed:
-        # Coup principal
         embed = await self._apply_attack(inter, attacker, target, emoji, info)
-        # Rebond atténué (même cible, simple)
         try:
             base = await self._roll_value(info, 5)
             base = int(round(base * float(info.get("chain_factor", 0.6) or 0.6)))
@@ -451,61 +403,80 @@ class CombatCog(commands.Cog):
             pass
         return embed
 
-    async def _apply_dot(
-        self,
-        inter: discord.Interaction,
-        user: discord.Member,
-        cible: discord.Member,
-        emoji: str,
-        info: dict,
-        *,
-        eff_type: str,
-        label: str
-    ) -> discord.Embed:
-        val = await self._roll_value(info, 1)
-        interval = int(info.get("interval", info.get("tick", 60)) or 60)
-        duration = int(info.get("duree", info.get("duration", 300)) or 300)
-
-        remember_tick_channel(cible.id, inter.guild.id, inter.channel.id)
-
+    # ========= Inventaire réel pour l’auto-complétion =========
+    async def _list_owned_items(self, uid: int) -> List[Tuple[str, int]]:
+        owned: List[Tuple[str, int]] = []
         try:
-            pre = await trigger("on_effect_pre_apply", user_id=cible.id, eff_type=eff_type) or {}
-            if pre.get("blocked"):
-                return discord.Embed(
-                    title=f"{label}",
-                    description=f"⛔ Effet bloqué sur {cible.mention} : {pre.get('reason','')}",
-                    color=discord.Color.red()
-                )
+            from inventory_db import get_all_items  # type: ignore
+            rows = await get_all_items(uid)
+            if rows:
+                if isinstance(rows, list):
+                    for r in rows:
+                        e = None; q = 0
+                        if isinstance(r, (tuple, list)) and len(r) >= 2:
+                            e, q = str(r[0]), int(r[1])
+                        elif isinstance(r, dict):
+                            e = str(r.get("emoji") or r.get("item") or r.get("id") or r.get("key") or "")
+                            q = int(r.get("qty") or r.get("quantity") or r.get("count") or r.get("n") or 0)
+                        if e and q > 0:
+                            owned.append((e, q))
+                elif isinstance(rows, dict):
+                    for e, q in rows.items():
+                        try:
+                            q = int(q)
+                            if q > 0:
+                                owned.append((str(e), q))
+                        except Exception:
+                            continue
         except Exception:
             pass
 
-        ok = await add_or_refresh_effect(
-            user_id=cible.id, eff_type=eff_type, value=float(val),
-            duration=duration, interval=interval,
-            source_id=user.id, meta_json=json.dumps({"applied_in": inter.channel.id})
-        )
-        if not ok:
-            return discord.Embed(
-                title=f"{label}",
-                description=f"⛔ {cible.mention} est **immunisé(e)**.",
-                color=discord.Color.red()
-            )
+        if not owned:
+            for emoji in OBJETS.keys():
+                try:
+                    q = int(await get_item_qty(uid, emoji) or 0)
+                    if q > 0:
+                        owned.append((emoji, q))
+                except Exception:
+                    continue
 
-        return discord.Embed(
-            title=f"{label}",
-            description=f"{user.mention} applique **{emoji}** sur {cible.mention} "
-                        f"(val={val}, every {interval}s, dur={duration}s).",
-            color=discord.Color.orange()
+        merged: Dict[str, int] = {}
+        for e, q in owned:
+            merged[e] = merged.get(e, 0) + int(q)
+        return sorted(merged.items(), key=lambda t: t[0])
+
+    # AUTOCOMPLÉTIONS
+    async def _ac_items_by_type(self, inter: discord.Interaction, current: str, allowed: Tuple[str, ...]) -> List[app_commands.Choice[str]]:
+        uid = inter.user.id
+        cur = (current or "").strip().lower()
+        owned = await self._list_owned_items(uid)
+
+        out: List[app_commands.Choice[str]] = []
+        for emoji, qty in owned:
+            info = OBJETS.get(emoji) or {}
+            typ = str(info.get("type", ""))
+            if typ not in allowed:
+                continue
+            label = info.get("nom") or info.get("label") or typ
+            display = f"{emoji} — {label} (x{qty})"
+            if cur and (cur not in emoji and cur not in str(label).lower()):
+                continue
+            out.append(app_commands.Choice(name=display[:100], value=emoji))
+            if len(out) >= 20:
+                break
+        return out
+
+    async def _ac_items_attack(self, inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        return await self._ac_items_by_type(
+            inter, current,
+            ("attaque", "attaque_chaine", "poison", "infection", "virus", "brulure")
         )
 
-    # ──────────────────────────
-    # Slash commands
-    # ──────────────────────────
-    @app_commands.command(
-        name="fight",
-        description="Attaquer un joueur avec un objet d’attaque (ou appliquer un effet offensif)."
-    )
-    @app_commands.describe(cible="La cible", objet="Objet offensif (attaque / poison / virus / brûlure...)")
+    # ─────────────────────────────────────────────────────────
+    # /fight — attaques & DOTs
+    # ─────────────────────────────────────────────────────────
+    @app_commands.command(name="fight", description="Attaquer un joueur avec un objet d’attaque (ou appliquer un effet offensif).")
+    @app_commands.describe(cible="La cible", objet="Choisis un objet d’attaque ou un effet (poison, virus, brûlure...)")
     @app_commands.autocomplete(objet=_ac_items_attack)
     async def fight(self, inter: discord.Interaction, cible: discord.Member, objet: str):
         if inter.user.id == cible.id:
@@ -526,23 +497,39 @@ class CombatCog(commands.Cog):
         elif typ == "attaque_chaine":
             embed = await self._apply_chain_attack(inter, inter.user, cible, objet, info)
         else:
+            # DOTs : on réutilise le pipe des effets
             label = {
                 "poison": "🧪 Poison",
                 "infection": "🧟 Infection",
                 "virus": "🦠 Virus (transfert sur attaque)",
                 "brulure": "🔥 Brûlure",
             }[typ]
-            embed = await self._apply_dot(inter, inter.user, cible, objet, info, eff_type=typ, label=label)
+            # application via effets_db
+            val = int(info.get("valeur", info.get("value", 1)) or 1)
+            interval = int(info.get("interval", info.get("tick", 60)) or 60)
+            duration = int(info.get("duree", info.get("duration", 300)) or 300)
+
+            remember_tick_channel(cible.id, inter.guild.id, inter.channel.id)
+
+            pre = await trigger("on_effect_pre_apply", user_id=cible.id, eff_type=typ) or {}
+            if pre.get("blocked"):
+                return await inter.followup.send(f"{label}\n⛔ Effet bloqué : {pre.get('reason','')}")
+            ok = await add_or_refresh_effect(
+                user_id=cible.id, eff_type=typ, value=float(val),
+                duration=duration, interval=interval,
+                source_id=inter.user.id, meta_json=json.dumps({"applied_in": inter.channel.id})
+            )
+            if not ok:
+                return await inter.followup.send(f"{label}\n⛔ {cible.mention} est **immunisé(e)**.")
+            embed = discord.Embed(
+                title=label,
+                description=f"{inter.user.mention} applique **{objet}** sur {cible.mention} "
+                            f"(val={val}, every {interval}s, dur={duration}s).",
+                color=discord.Color.orange()
+            )
 
         await inter.followup.send(embed=embed)
         await self._maybe_update_leaderboard(inter.guild.id, "fight")
-
-    @app_commands.command(name="hp", description="(test) Affiche tes PV / PV de la cible.")
-    @app_commands.describe(target="Cible (optionnel)")
-    async def hp(self, inter: discord.Interaction, target: Optional[discord.Member] = None):
-        target = target or inter.user
-        hp, mx = await get_hp(target.id)
-        await inter.response.send_message(f"❤️ {target.mention}: **{hp}/{mx}** PV")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(CombatCog(bot))
