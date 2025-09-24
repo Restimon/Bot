@@ -2,214 +2,247 @@
 from __future__ import annotations
 
 import json
-from typing import List, Tuple, Dict, Optional
-
 import discord
 from discord import app_commands
 from discord.ext import commands
+from typing import Optional, List, Tuple, Dict
 
-# Inventaire
-from inventory_db import get_all_items, get_item_qty, remove_item
+# DBs
+from inventory_db import get_item_qty, remove_item, add_item, get_all_items
+from stats_db import heal_user
+try:
+    from shields_db import add_shield as _add_shield, get_shield as _get_shield, get_max_shield as _get_max_shield
+except Exception:
+    _add_shield = _get_shield = _get_max_shield = None  # fallbacks gérés plus bas
 
-# PV
-from stats_db import heal_user, get_hp
-
-# Effets (pour 💕 régén)
+# Effets (pour HoT si nécessaire)
 try:
     from effects_db import add_or_refresh_effect
 except Exception:
-    async def add_or_refresh_effect(**kwargs):  # type: ignore
+    async def add_or_refresh_effect(*args, **kwargs):  # type: ignore
         return True
 
-# Passifs (facultatif)
+# Catalogue d’objets
 try:
-    from passifs import trigger as passifs_trigger
+    from utils import OBJETS
 except Exception:
-    async def passifs_trigger(*args, **kwargs): return {}
+    OBJETS: Dict[str, Dict] = {}
 
-# Catalogue & GIFs
-try:
-    from utils import OBJETS, GIFS  # GIFS contient aussi les gifs de soin
-except Exception:
-    OBJETS, GIFS = {}, {}
 
-# ─────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────
-def _obj_info(emoji: str) -> Dict:
-    return dict(OBJETS.get(emoji) or {})
+def _info(emoji: str) -> Optional[Dict]:
+    meta = OBJETS.get(emoji)
+    return dict(meta) if isinstance(meta, dict) else None
 
-def _heal_amount_from_info(info: Dict) -> int:
-    # Priorité: clé "soin", sinon "valeur"/"value"/"heal"
-    for k in ("soin", "valeur", "value", "heal", "amount"):
-        if k in info:
-            try:
-                return max(0, int(info[k]))
-            except Exception:
-                pass
-    return 0
 
-def _regen_params_from_info(info: Dict) -> Tuple[int, int, int]:
-    # valeur par tick, interval, durée
-    val =  int(info.get("valeur", info.get("value", 0)) or 0)
-    itv =  int(info.get("intervalle", info.get("interval", 60)) or 60)
-    dur =  int(info.get("duree", info.get("duration", 300)) or 300)
-    return max(0, val), max(1, itv), max(1, dur)
-
-def _gif_for_heal(emoji: str) -> Optional[str]:
-    # utils._merge_gifs_into_objets a déjà mis gif_heal / gif
-    info = OBJETS.get(emoji, {})
-    url = info.get("gif_heal") or info.get("gif")
-    if isinstance(url, str) and url.startswith("http"):
-        return url
-    # fallback direct depuis GIFS
-    url = GIFS.get(emoji)
-    return url if isinstance(url, str) and url.startswith("http") else None
-
-def _oldstyle_heal_embed(
-    emoji: str,
-    healer: discord.Member,
-    target: discord.Member,
-    healed: int,
-    hp_before: int,
-    hp_after: int,
-) -> discord.Embed:
-    title = f"{emoji} Action de GotValis"
-    e = discord.Embed(title=title, color=discord.Color.green())
-    if healer.id == target.id:
-        e.description = (
-            f"{healer.mention} se soigne de **{healed} PV** avec {emoji}\n"
-            f"❤️ **{hp_before} PV** + (**{healed} PV**) = ❤️ **{hp_after} PV**"
-        )
-    else:
-        e.description = (
-            f"{healer.mention} rend **{healed} PV** à {target.mention} avec {emoji}\n"
-            f"❤️ **{hp_before} PV** + (**{healed} PV**) = ❤️ **{hp_after} PV**"
-        )
-    gif = _gif_for_heal(emoji)
-    if gif:
-        e.set_image(url=gif)
-    return e
-
-# ─────────────────────────────────────────────────────────
-# Auto-complétion : ne propose que les objets de soin possédés
-# ─────────────────────────────────────────────────────────
 async def _list_owned_items(uid: int) -> List[Tuple[str, int]]:
-    rows = await get_all_items(uid)  # [(emoji, qty)]
+    """Inventaire réel (robuste) pour l’autocomplétion."""
     out: List[Tuple[str, int]] = []
-    if isinstance(rows, list):
-        for it in rows:
+    try:
+        rows = await get_all_items(uid)
+        if isinstance(rows, list):
+            for r in rows:
+                if isinstance(r, (list, tuple)) and len(r) >= 2:
+                    e, q = str(r[0]), int(r[1])
+                    if e and q > 0:
+                        out.append((e, q))
+                elif isinstance(r, dict):
+                    e = str(r.get("emoji") or r.get("item") or r.get("id") or r.get("key") or "")
+                    q = int(r.get("qty") or r.get("quantity") or r.get("count") or r.get("n") or 0)
+                    if e and q > 0: out.append((e, q))
+        elif isinstance(rows, dict):
+            for e, q in rows.items():
+                try:
+                    if int(q) > 0:
+                        out.append((str(e), int(q)))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    # fallback: on check tout le catalogue
+    if not out:
+        for e in OBJETS.keys():
             try:
-                e, q = str(it[0]), int(it[1])
+                q = int(await get_item_qty(uid, e) or 0)
+                if q > 0:
+                    out.append((e, q))
             except Exception:
                 continue
-            if q > 0:
-                out.append((e, q))
-    return out
+    # merge/tri
+    merged: Dict[str, int] = {}
+    for e, q in out:
+        merged[e] = merged.get(e, 0) + int(q)
+    return sorted(merged.items(), key=lambda t: t[0])
 
-async def ac_heal_items(inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-    owned = await _list_owned_items(inter.user.id)
-    cur = (current or "").strip().lower()
-    out: List[app_commands.Choice[str]] = []
-    for emoji, qty in owned:
-        info = _obj_info(emoji)
-        typ = info.get("type")
-        if typ not in ("soin", "regen"):
-            continue
-        label = "Soin direct" if typ == "soin" else "Régénération"
-        name = f"{emoji} — {label} (x{qty})"
-        if cur and cur not in name.lower():
-            continue
-        out.append(app_commands.Choice(name=name[:100], value=emoji))
-        if len(out) >= 20:
-            break
-    return out
 
-# ─────────────────────────────────────────────────────────
-# Le COG
-# ─────────────────────────────────────────────────────────
 class HealCog(commands.Cog):
-    """Commande /heal avec affichage 'style combat' + GIF."""
+    """Gestion /heal : soin, régénération, bouclier."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="heal", description="Soigne-toi ou un joueur avec un objet de soin.")
-    @app_commands.describe(
-        objet="Choisis un objet (soin direct ou régénération)",
-        cible="Cible à soigner (par défaut: toi)"
-    )
-    @app_commands.autocomplete(objet=ac_heal_items)
-    async def heal_cmd(self, inter: discord.Interaction, objet: str, cible: Optional[discord.Member] = None):
-        if not inter.guild:
-            return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+    # ──────────── Autocomplétion : soin/regen/bouclier qu’on possède ───────────
+    async def _ac_items_heal_like(self, inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        cur = (current or "").strip().lower()
+        owned = await _list_owned_items(inter.user.id)
+        out: List[app_commands.Choice[str]] = []
+        for emoji, qty in owned:
+            meta = OBJETS.get(emoji) or {}
+            typ = str(meta.get("type", ""))
+            if typ not in ("soin", "regen", "bouclier"):
+                continue
+            label = meta.get("nom") or meta.get("label") or typ
+            display = f"{emoji} — {label} (x{qty})"
+            if cur and (cur not in emoji and cur not in str(label).lower()):
+                continue
+            out.append(app_commands.Choice(name=display[:100], value=emoji))
+            if len(out) >= 20:
+                break
+        return out
 
-        info = _obj_info(objet)
-        typ = info.get("type")
-        if typ not in ("soin", "regen"):
-            return await inter.response.send_message("❌ Cet objet n’est pas un objet de **soin**.", ephemeral=True)
+    # ──────────── Helpers ────────────
+    async def _consume(self, uid: int, emoji: str) -> bool:
+        try:
+            q = int(await get_item_qty(uid, emoji) or 0)
+            if q <= 0: return False
+            ok = await remove_item(uid, emoji, 1)
+            return bool(ok)
+        except Exception:
+            return False
 
-        # vérif + consommation
-        qty = await get_item_qty(inter.user.id, objet)
-        if int(qty or 0) <= 0:
-            return await inter.response.send_message("❌ Tu n'as pas cet objet.", ephemeral=True)
-        ok = await remove_item(inter.user.id, objet, 1)
-        if not ok:
-            return await inter.response.send_message("❌ Impossible d'utiliser cet objet.", ephemeral=True)
-
-        target = cible or inter.user
-        await inter.response.defer(thinking=True)
-
-        if typ == "soin":
-            amount = _heal_amount_from_info(info)
-            hp_before, mx = await get_hp(target.id)
-            healed = max(0, int(await heal_user(inter.user.id, target.id, amount)))
-            hp_after, mx = await get_hp(target.id)
-            embed = _oldstyle_heal_embed(objet, inter.user, target, healed, hp_before, hp_after)
-
-        else:  # typ == "regen"
-            val, itv, dur = _regen_params_from_info(info)
-
-            # hook passif (blocage/immunité éventuelle)
+    async def _roll_val(self, info: dict, default: int) -> int:
+        if not isinstance(info, dict):
+            return int(default)
+        if "min" in info and "max" in info:
             try:
-                pre = await passifs_trigger("on_effect_pre_apply", user_id=target.id, eff_type="regen") or {}
-                if pre.get("blocked"):
-                    return await inter.followup.send(
-                        f"⛔ Effet **bloqué** sur {target.mention} : {pre.get('reason','')}"
-                    )
+                a = int(info.get("min", 0)); b = int(info.get("max", 0))
+                if a > b: a, b = b, a
+                import random
+                return random.randint(a, b)
             except Exception:
                 pass
+        for k in ("valeur","value","amount","heal","soin","degats","dmg"):
+            if k in info:
+                try: return int(info[k])
+                except Exception: continue
+        return int(default)
 
-            await add_or_refresh_effect(
-                user_id=target.id, eff_type="regen", value=float(val),
-                duration=int(dur), interval=int(itv),
-                source_id=inter.user.id, meta_json=json.dumps({"from": inter.user.id, "emoji": objet})
-            )
+    # ──────────── Actions ────────────
+    async def _do_heal(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
+        target = cible or user
+        amount = await self._roll_val(info, 10)
+        healed = await heal_user(user.id, target.id, amount)
+        # gif si dispo
+        gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
+        e = discord.Embed(title="💊 Soin", color=discord.Color.green())
+        if healed <= 0:
+            e.description = f"{user.mention} tente de soigner {target.mention} avec {emoji}, mais les PV sont déjà au max."
+        else:
+            from stats_db import get_hp  # lecture après
+            hp_after, mx = await get_hp(target.id)
+            e.description = f"{user.mention} rend **{healed} PV** à {target.mention} avec {emoji}.\n❤️ **{hp_after-healed}/{mx}** + (**{healed}**) = ❤️ **{hp_after}/{mx}**"
+        if gif and isinstance(gif, str):
+            e.set_image(url=gif)
+        return e
 
-            # Embed style combat + gif
-            title = f"{objet} Action de GotValis"
-            embed = discord.Embed(
-                title=title,
-                description=(
-                    f"{inter.user.mention} applique une **régénération** sur {target.mention} :\n"
-                    f"➕ +{val} PV toutes les {itv}s pendant {dur}s."
-                ),
-                color=discord.Color.teal()
-            )
-            gif = _gif_for_heal(objet)
-            if gif:
-                embed.set_image(url=gif)
+    async def _do_regen(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
+        target = cible or user
+        val = await self._roll_val(info, 2)
+        interval = int(info.get("interval", info.get("tick", 60)) or 60)
+        duration = int(info.get("duree", info.get("duration", 300)) or 300)
+        await add_or_refresh_effect(
+            user_id=target.id, eff_type="regen", value=float(val),
+            duration=duration, interval=interval, source_id=user.id,
+            meta_json=json.dumps({"applied_in": inter.channel.id})
+        )
+        gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
+        e = discord.Embed(
+            title="💕 Régénération",
+            description=f"{user.mention} applique **{emoji}** sur {target.mention} (+{val} PV / {interval}s pendant {duration}s).",
+            color=discord.Color.teal()
+        )
+        if gif and isinstance(gif, str):
+            e.set_image(url=gif)
+        return e
 
-        # Hook post-usage (dont_consume)
+    async def _do_shield(self, inter: discord.Interaction, user: discord.Member, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
+        target = cible or user
+        val = await self._roll_val(info, 5)
+
+        desc = ""
+        # Priorité shields_db si présent
+        if _add_shield and _get_shield:
+            before = 0; after = 0; cap = None
+            try:
+                before = int(await _get_shield(target.id))
+            except Exception:
+                pass
+            try:
+                # cap_to_max si on a la fonction améliorée, sinon simple ajout
+                added = await _add_shield(target.id, val, cap_to_max=True)  # type: ignore[arg-type]
+            except TypeError:
+                added = await _add_shield(target.id, val)  # type: ignore[misc]
+            try:
+                after = int(await _get_shield(target.id))
+            except Exception:
+                after = before + int(val)
+            if _get_max_shield:
+                try:
+                    cap = int(await _get_max_shield(target.id))
+                except Exception:
+                    cap = None
+            gained = max(0, after - before)
+            desc = f"🛡 {target.mention} gagne **{gained} PB**" + (f" (cap {cap})" if cap is not None else "") + "."
+        else:
+            # Fallback stats_db
+            try:
+                from stats_db import get_shield as _get, set_shield as _set
+                before = int(await _get(target.id))
+                after = max(0, before + int(val))
+                await _set(target.id, after)
+                desc = f"🛡 {target.mention} gagne **{after-before} PB**."
+            except Exception:
+                desc = f"🛡 {target.mention} gagne un bouclier."
+
+        e = discord.Embed(title="🛡 Bouclier", description=desc, color=discord.Color.brand_teal())
+        gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
+        if gif and isinstance(gif, str):
+            e.set_image(url=gif)
+        return e
+
+    # ──────────── Slash ────────────
+    @app_commands.command(name="heal", description="Soigner / régénérer / donner un bouclier.")
+    @app_commands.describe(objet="Emoji de l'objet (soin/regen/bouclier)", cible="Cible (par défaut: toi)")
+    @app_commands.autocomplete(objet=_ac_items_heal_like)
+    async def heal(self, inter: discord.Interaction, objet: str, cible: Optional[discord.Member] = None):
+        meta = _info(objet)
+        if not meta:
+            return await inter.response.send_message("❌ Objet inconnu.", ephemeral=True)
+        typ = str(meta.get("type", ""))
+
+        if typ not in ("soin", "regen", "bouclier"):
+            return await inter.response.send_message("❌ Il faut un objet de **soin**, **régénération** ou **bouclier**.", ephemeral=True)
+
+        if not await self._consume(inter.user.id, objet):
+            return await inter.response.send_message(f"❌ Tu n’as pas **{objet}**.", ephemeral=True)
+
+        await inter.response.defer(thinking=True)
+
         try:
-            post = await passifs_trigger("on_use_item", user_id=inter.user.id, item_emoji=objet, item_type=typ) or {}
-            if post.get("dont_consume"):
-                from inventory_db import add_item
-                await add_item(inter.user.id, objet, 1)
-        except Exception:
-            pass
+            if typ == "soin":
+                emb = await self._do_heal(inter, inter.user, objet, meta, cible)
+            elif typ == "regen":
+                emb = await self._do_regen(inter, inter.user, objet, meta, cible)
+            else:  # bouclier
+                emb = await self._do_shield(inter, inter.user, meta, cible)
+        except Exception as e:
+            emb = discord.Embed(
+                title="❗ Erreur",
+                description=f"Action interrompue : `{type(e).__name__}`",
+                color=discord.Color.red()
+            )
 
-        await inter.followup.send(embed=embed)
+        await inter.followup.send(embed=emb)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(HealCog(bot))
