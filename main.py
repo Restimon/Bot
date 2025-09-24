@@ -133,6 +133,7 @@ INITIAL_EXTENSIONS = [
     "cogs.ravitaillement",
     "cogs.supply_special",
     "cogs.chat_ai",
+    "cogs.stats_co",
     # Social
     "cogs.social.love",
     "cogs.social.hug",
