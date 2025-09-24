@@ -2,21 +2,22 @@
 from __future__ import annotations
 
 import asyncio
-import aiosqlite
-import discord
-from discord import app_commands
-from discord.ext import commands
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Tuple, Any
 
-# ===== DB path (reuse the same DB as economy_db) ===============================
+import aiosqlite
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+# ===== DB path (même DB que l’économie) ========================================
 try:
     from economy_db import DB_PATH as DB_PATH  # type: ignore
 except Exception:
     DB_PATH = "gotvalis.sqlite3"
 
-# ===== Leaderboard storage (même logique que info_cog) =========================
+# ===== Leaderboard mémoire (même source que le /fight & /info) =================
 _storage = None
 try:
     from data import storage as _storage  # type: ignore
@@ -59,7 +60,7 @@ def _lb_find_rank(sorted_list: List[Tuple[int, Dict[str, int]]], uid: int) -> Op
             return i
     return None
 
-# ===== Local stats tables (messages & voice) ===================================
+# ===== Tables locales (messages & vocal) =======================================
 CREATE_MSG_SQL = """
 CREATE TABLE IF NOT EXISTS message_stats (
   user_id   INTEGER NOT NULL,
@@ -102,114 +103,126 @@ def _fmt_duration_short(seconds: int) -> str:
         parts.append(f"{s} s")
     return " ".join(parts)
 
-# ===== Heuristics to read totals from existing tables ==========================
-# We try to discover damage/heal/kill/death tables/columns automatically.
-async def _sum_column_where(db: aiosqlite.Connection, table: str, col_sum: str, where_col: str, uid: int) -> Optional[int]:
+# ===== Totaux vie depuis stats_db (fallback heuristique si absent) =============
+async def _totals_lifetime(uid: int) -> Dict[str, int]:
+    # Preferred: stats_db.players_stats
     try:
-        cur = await db.execute(f"SELECT COALESCE(SUM({col_sum}),0) FROM {table} WHERE {where_col} = ?", (uid,))
-        v = await cur.fetchone()
-        await cur.close()
-        return int(v[0]) if v and v[0] is not None else 0
+        from stats_db import get_profile as stats_get_profile  # type: ignore
+        prof = await stats_get_profile(uid)
+        return {
+            "dmg": int(prof.get("dmg_dealt", 0)),
+            "heal": int(prof.get("heal_done", 0)),
+            "kills": int(prof.get("kills", 0)),
+            "deaths": int(prof.get("deaths", 0)),
+        }
     except Exception:
-        return None
+        pass
 
-async def _count_where(db: aiosqlite.Connection, table: str, where_col: str, uid: int) -> Optional[int]:
-    try:
-        cur = await db.execute(f"SELECT COUNT(1) FROM {table} WHERE {where_col} = ?", (uid,))
-        v = await cur.fetchone()
-        await cur.close()
-        return int(v[0]) if v and v[0] is not None else 0
-    except Exception:
-        return None
-
-async def _totals_from_schema(uid: int) -> Dict[str, int]:
-    """
-    Returns a dict with keys: dmg, heal, kills, deaths (lifetime).
-    Uses best-effort schema scanning.
-    """
-    out = {"dmg": 0, "heal": 0, "kills": 0, "deaths": 0}
+    # Fallback best-effort (scan schéma)
     try:
         async with aiosqlite.connect(DB_PATH) as db:
-            # List tables
             cur = await db.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = [r[0] for r in await cur.fetchall()]
             await cur.close()
 
-            # Prefer obvious tables first
-            preferred = [
-                ("damage_log", "attacker_id", "damage"),
-                ("heal_log", "healer_id", "heal"),
-                ("kills", "killer_id", None),
-                ("deaths", "victim_id", None),
-            ]
-            # 1) Preferred names
-            for t, who_col, val_col in preferred:
-                if t in tables:
-                    if val_col:
-                        v = await _sum_column_where(db, t, val_col, who_col, uid)
-                        if v is not None:
-                            if "damage" in val_col:
-                                out["dmg"] = max(out["dmg"], v)
-                            elif "heal" in val_col:
-                                out["heal"] = max(out["heal"], v)
-                    else:
-                        c = await _count_where(db, t, who_col, uid)
-                        if c is not None:
-                            if "killer" in who_col:
-                                out["kills"] = max(out["kills"], c)
-                            elif "victim" in who_col:
-                                out["deaths"] = max(out["deaths"], c)
+            out = {"dmg": 0, "heal": 0, "kills": 0, "deaths": 0}
 
-            # 2) Fallback: scan columns for candidates
+            async def _sum(db: aiosqlite.Connection, table: str, val: str, who: str) -> Optional[int]:
+                try:
+                    c = await db.execute(f"SELECT COALESCE(SUM({val}),0) FROM {table} WHERE {who}=?", (uid,))
+                    v = await c.fetchone()
+                    await c.close()
+                    return int(v[0]) if v and v[0] is not None else 0
+                except Exception:
+                    return None
+
+            async def _count(db: aiosqlite.Connection, table: str, who: str) -> Optional[int]:
+                try:
+                    c = await db.execute(f"SELECT COUNT(1) FROM {table} WHERE {who}=?", (uid,))
+                    v = await c.fetchone()
+                    await c.close()
+                    return int(v[0]) if v and v[0] is not None else 0
+                except Exception:
+                    return None
+
+            preferred = [
+                ("damage_log", "damage", "attacker_id", "dmg"),
+                ("heal_log",   "heal",   "healer_id",   "heal"),
+            ]
+            for t, val, who, key in preferred:
+                if t in tables:
+                    v = await _sum(db, t, val, who)
+                    if v is not None:
+                        out[key] = max(out[key], v)
+
+            if "kills" in tables:
+                v = await _count(db, "kills", "killer_id")
+                if v is not None:
+                    out["kills"] = max(out["kills"], v)
+            if "deaths" in tables:
+                v = await _count(db, "deaths", "victim_id")
+                if v is not None:
+                    out["deaths"] = max(out["deaths"], v)
+
+            # Large scan au cas où
             for t in tables:
                 try:
-                    cur = await db.execute(f"PRAGMA table_info({t})")
-                    cols = [r[1].lower() for r in await cur.fetchall()]
-                    await cur.close()
+                    c = await db.execute(f"PRAGMA table_info({t})")
+                    cols = [r[1].lower() for r in await c.fetchall()]
+                    await c.close()
                 except Exception:
                     continue
-
-                # damage sum
+                # dmg
                 for who in ("attacker_id", "user_id", "author_id", "player_id"):
                     if who in cols:
                         for val in ("damage", "dmg"):
                             if val in cols:
-                                v = await _sum_column_where(db, t, val, who, uid)
+                                v = await _sum(db, t, val, who)
                                 if v is not None:
-                                    out["dmg"] = max(out["dmg"], v, out["dmg"])
-                # heal sum
+                                    out["dmg"] = max(out["dmg"], v)
+                # heal
                 for who in ("healer_id", "user_id", "author_id", "player_id"):
                     if who in cols:
                         for val in ("heal", "healed", "healing"):
                             if val in cols:
-                                v = await _sum_column_where(db, t, val, who, uid)
+                                v = await _sum(db, t, val, who)
                                 if v is not None:
-                                    out["heal"] = max(out["heal"], v, out["heal"])
-                # kills / deaths count
-                for who in ("killer_id", "victim_id"):
-                    if who in cols:
-                        c = await _count_where(db, t, who, uid)
-                        if c is not None:
-                            if who == "killer_id":
-                                out["kills"] = max(out["kills"], c)
-                            else:
-                                out["deaths"] = max(out["deaths"], c)
+                                    out["heal"] = max(out["heal"], v)
+                # kills / deaths
+                if "killer_id" in cols:
+                    v = await _count(db, t, "killer_id")
+                    if v is not None:
+                        out["kills"] = max(out["kills"], v)
+                if "victim_id" in cols:
+                    v = await _count(db, t, "victim_id")
+                    if v is not None:
+                        out["deaths"] = max(out["deaths"], v)
+
+            return out
     except Exception:
-        pass
-    return out
+        return {"dmg": 0, "heal": 0, "kills": 0, "deaths": 0}
 
 # ==============================================================================
+
+VC_TICK_SECONDS = 60
+VC_MIN_ACTIVE = 2  # il faut au moins 2 actifs dans un salon pour compter
+
 class StatsCog(commands.Cog):
-    """Stats & analytics: /stats, plus enregistrement messages & vocal (7j)."""
+    """Stats: /stats + journal messages/vocal (7j) avec tick vocal en temps réel."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._voice_joins: Dict[Tuple[int, int], float] = {}  # (guild_id, user_id) -> start_ts
-        self._lock = asyncio.Lock()
-        self._ready = False
+        self._voice_task: Optional[asyncio.Task] = None
         asyncio.create_task(_ensure_tables())
 
-    # ---------- Event hooks: messages ----------
+    async def cog_load(self):
+        self._voice_task = asyncio.create_task(self._voice_loop())
+
+    async def cog_unload(self):
+        if self._voice_task:
+            self._voice_task.cancel()
+
+    # ---------- Event: messages (stats 7j) ----------
     @commands.Cog.listener()
     async def on_message(self, msg: discord.Message):
         if msg.author.bot or not msg.guild:
@@ -227,43 +240,66 @@ class StatsCog(commands.Cog):
         except Exception:
             pass
 
-    # ---------- Event hooks: voice ----------
-    @commands.Cog.listener()
-    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        if member.bot or not member.guild:
-            return
-        gid = member.guild.id
-        uid = member.id
-        key = (gid, uid)
+    # ---------- Boucle vocale (stats 7j en temps réel) ----------
+    async def _voice_loop(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                await self._voice_tick()
+            except Exception:
+                pass
+            await asyncio.sleep(VC_TICK_SECONDS)
 
-        # Join or move into a channel
-        if after.channel and not before.channel:
-            async with self._lock:
-                self._voice_joins[key] = time.time()
+    async def _voice_tick(self):
+        await _ensure_tables()
+        now_day = _utc_day()
+        for guild in self.bot.guilds:
+            if not guild.members:
+                continue
 
-        # Leave voice completely
-        if before.channel and not after.channel:
-            start = None
-            async with self._lock:
-                start = self._voice_joins.pop(key, None)
-            if start:
-                await self._add_voice_seconds(uid, gid, int(time.time() - start))
+            afk_id = guild.afk_channel.id if guild.afk_channel else None
 
-    async def _add_voice_seconds(self, uid: int, gid: int, seconds: int):
-        try:
-            await _ensure_tables()
-            day = _utc_day()
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute(
-                    "INSERT INTO voice_stats(user_id, guild_id, day, seconds) VALUES(?,?,?,?) "
-                    "ON CONFLICT(user_id, guild_id, day) DO UPDATE SET seconds = seconds + excluded.seconds",
-                    (uid, gid, day, int(max(0, seconds))),
-                )
-                await db.commit()
-        except Exception:
-            pass
+            # Regrouper par canal
+            channels: Dict[int, List[discord.Member]] = {}
+            for m in guild.members:
+                vs = m.voice
+                if not vs or not vs.channel:
+                    continue
+                channels.setdefault(vs.channel.id, []).append(m)
 
-    # ---------- helpers: fetch 7d windows ----------
+            for cid, members in channels.items():
+                # filtrer les ACTIFS
+                active: List[discord.Member] = []
+                for member in members:
+                    vs = member.voice
+                    if not vs or not vs.channel:
+                        continue
+                    if afk_id and vs.channel.id == afk_id:
+                        continue
+                    if member.bot:
+                        continue
+                    if isinstance(vs.channel, discord.StageChannel) and vs.suppress:
+                        continue
+                    if vs.self_deaf or vs.deaf:
+                        continue
+                    if vs.self_mute:
+                        continue
+                    active.append(member)
+
+                if len(active) < VC_MIN_ACTIVE:
+                    continue
+
+                # Crédit 60 sec pour chaque ACTIF
+                async with aiosqlite.connect(DB_PATH) as db:
+                    for m in active:
+                        await db.execute(
+                            "INSERT INTO voice_stats(user_id, guild_id, day, seconds) VALUES(?,?,?,?) "
+                            "ON CONFLICT(user_id, guild_id, day) DO UPDATE SET seconds = seconds + excluded.seconds",
+                            (m.id, guild.id, now_day, VC_TICK_SECONDS),
+                        )
+                    await db.commit()
+
+    # ---------- Helpers lecture 7j ----------
     async def _sum_7d_messages(self, uid: int, gid: int) -> int:
         await _ensure_tables()
         since = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -289,7 +325,7 @@ class StatsCog(commands.Cog):
         return int(v[0]) if v and v[0] is not None else 0
 
     # ---------- /stats ----------
-    @app_commands.command(name="stats", description="Stats des 7 derniers jours + totaux (dégâts/soins/kills/morts).")
+    @app_commands.command(name="stats", description="Stats des 7 derniers jours + totaux (vie) et rang Points.")
     @app_commands.describe(membre="Choisir un membre (par défaut: toi)")
     async def stats(self, inter: discord.Interaction, membre: Optional[discord.Member] = None):
         if not inter.guild:
@@ -297,22 +333,19 @@ class StatsCog(commands.Cog):
         await inter.response.defer(thinking=False)
 
         target: discord.Member = membre or inter.user  # type: ignore
-        uid = target.id
-        gid = inter.guild.id
+        uid, gid = target.id, inter.guild.id
 
-        # 7d stats we collect locally
         msg7 = await self._sum_7d_messages(uid, gid)
         voice7 = await self._sum_7d_voice(uid, gid)
 
-        # leaderboard rank
-        rank_line = "Non classé"
         rows = _lb_rank_sorted(gid)
         pos = _lb_find_rank(rows, uid)
         if pos:
-            stats = next((s for (u, s) in rows if u == uid), {"points": 0, "kills": 0, "deaths": 0})
-            rank_line = f"#{pos} — {stats.get('points',0)} pts • 🗡 {stats.get('kills',0)} / 💀 {stats.get('deaths',0)}"
+            stats_row = next((s for (u, s) in rows if u == uid), {"points": 0, "kills": 0, "deaths": 0})
+            rank_line = f"#{pos} — {stats_row.get('points',0)} pts • 🗡 {stats_row.get('kills',0)} / 💀 {stats_row.get('deaths',0)}"
+        else:
+            rank_line = "Non classé"
 
-        # join date
         joined = None
         if isinstance(target, discord.Member) and target.joined_at:
             try:
@@ -320,27 +353,23 @@ class StatsCog(commands.Cog):
             except Exception:
                 joined = str(target.joined_at)
 
-        # lifetime totals (best effort from DB)
-        totals = await _totals_from_schema(uid)
-        dmg_total = int(totals.get("dmg", 0))
-        heal_total = int(totals.get("heal", 0))
-        kills_total = int(totals.get("kills", 0))
-        deaths_total = int(totals.get("deaths", 0))
+        totals = await _totals_lifetime(uid)
+        dmg_total = totals["dmg"]
+        heal_total = totals["heal"]
+        kills_total = totals["kills"]
+        deaths_total = totals["deaths"]
 
-        # build embed
         e = discord.Embed(
             title=f"📊 Stats — {target.display_name if hasattr(target,'display_name') else target.name}",
-            color=discord.Color.purple(),
+            color=discord.Color.blurple(),
         )
         if target.display_avatar:
             e.set_thumbnail(url=target.display_avatar.url)
 
         e.add_field(name="📅 Sur le serveur depuis", value=joined or "—", inline=False)
-
         e.add_field(name="💬 Messages (7j)", value=str(msg7), inline=True)
         e.add_field(name="🎙️ Vocal (7j)", value=_fmt_duration_short(voice7), inline=True)
         e.add_field(name="🏅 Classement (Points)", value=rank_line, inline=False)
-
         e.add_field(name="🗡️ Dégâts totaux (vie)", value=str(dmg_total), inline=True)
         e.add_field(name="💚 Soins totaux (vie)", value=str(heal_total), inline=True)
         e.add_field(name="⚔️ Kills / 💀 Morts (vie)", value=f"{kills_total} / {deaths_total}", inline=True)
