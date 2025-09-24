@@ -1,4 +1,3 @@
-# utils.py
 from __future__ import annotations
 
 import random
@@ -112,10 +111,12 @@ def _merge_gifs_into_objets():
     for emoji, url in GIFS.items():
         if not isinstance(url, str) or not url.startswith("http"):
             continue
-        OBJETS.setdefault(emoji, {})
+        # ✅ NE PAS créer d'items fantômes (ex: "soin_autre") juste parce qu’on a un GIF
+        if emoji not in OBJETS:
+            continue
         typ = OBJETS[emoji].get("type")
         # soignant/regen/vaccin -> clé gif_heal, sinon gif_attack
-        key = "gif_heal" if typ == "soin" or emoji in ("💕", "💉") else "gif_attack"
+        key = "gif_heal" if typ in ("soin", "regen", "vaccin") else "gif_attack"
         OBJETS[emoji].setdefault(key, url)
         OBJETS[emoji].setdefault("gif", url)  # fallback générique
 
