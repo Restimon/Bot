@@ -18,7 +18,7 @@ DB_PATH = "gotvalis.sqlite3"
 # ─────────────────────────────────────────────────────────────
 # Réglages généraux
 # ─────────────────────────────────────────────────────────────
-ECON_MULTIPLIER = 0.5  # ÷2 pour messages et vocal (comme demandé)
+ECON_MULTIPLIER = 0.5  # ÷2 pour messages et vocal
 
 # Messages
 MSG_MIN_LEN = 6            # longueur minimale pour compter
@@ -29,10 +29,11 @@ MSG_STREAK_MIN = 2         # toutes les 2..5 contributions valides
 MSG_STREAK_MAX = 5
 
 # Vocal
-VC_TICK_SECONDS = 60       # boucle interne
+VC_TICK_SECONDS = 60       # boucle interne (1 min)
 VC_AWARD_INTERVAL = 30*60  # 30 minutes
 VC_REWARD_MIN = 2          # base 2..20, puis × ECON_MULTIPLIER
 VC_REWARD_MAX = 20
+VC_MIN_ACTIVE = 2          # ⬅️ nb min de membres ACTIFS requis dans le salon
 
 # Leaderboard
 TOP_LIMIT = 10
@@ -105,7 +106,7 @@ class Economie(commands.Cog):
         last = self._last_msg_ts.get(user_id, 0.0)
         if now - last < MSG_COOLDOWN:
             return
-        if len(message.content.strip()) < MSG_MIN_LEN:
+        if len((message.content or "").strip()) < MSG_MIN_LEN:
             return
 
         # ok, contribution valide
@@ -143,36 +144,65 @@ class Economie(commands.Cog):
             await asyncio.sleep(VC_TICK_SECONDS)
 
     async def _voice_tick(self):
-        # Parcourt tous les membres en vocal sur toutes les guilds
+        # Parcourt tous les salons vocaux de toutes les guilds
         for guild in self.bot.guilds:
             if not guild.members:
                 continue
 
-            # Identifie le canal AFK (si existe) pour ignorer
             afk_channel_id = guild.afk_channel.id if guild.afk_channel else None
 
-            for member in guild.members:
-                vs = member.voice
+            # 1) Regrouper les membres par canal vocal
+            channels: Dict[int, List[discord.Member]] = {}
+            for m in guild.members:
+                vs = m.voice
                 if not vs or not vs.channel:
                     continue
-                # ignore AFK, self-deafened, self-muted, server-deafened
-                if afk_channel_id and vs.channel.id == afk_channel_id:
-                    continue
-                if vs.self_deaf or vs.self_mute or vs.deaf:
+                channels.setdefault(vs.channel.id, []).append(m)
+
+            # 2) Pour chaque canal, filtrer les "actifs"
+            for cid, members in channels.items():
+                active: List[discord.Member] = []
+                for member in members:
+                    vs = member.voice
+                    if not vs or not vs.channel:
+                        continue
+                    # AFK → inactif
+                    if afk_channel_id and vs.channel.id == afk_channel_id:
+                        continue
+                    # Bots → ignorés
+                    if member.bot:
+                        continue
+                    # Stage audience (auditeur) → inactif
+                    if isinstance(vs.channel, discord.StageChannel) and vs.suppress:
+                        continue
+                    # Sourd (self ou serveur) → inactif
+                    if vs.self_deaf or vs.deaf:
+                        continue
+                    # Muet utilisateur → inactif
+                    if vs.self_mute:
+                        continue
+                    # Actif
+                    active.append(member)
+
+                # 3) Salon "inactif" si moins de VC_MIN_ACTIVE actifs
+                if len(active) < VC_MIN_ACTIVE:
+                    # (Optionnel) purger l'accumulation pour éviter d'empiler dans un salon inactif
+                    # for m in active:
+                    #     self._vc_accum[m.id] = 0
                     continue
 
-                # cumule 60 sec
-                uid = member.id
-                self._vc_accum[uid] = self._vc_accum.get(uid, 0) + VC_TICK_SECONDS
+                # 4) Créditer uniquement les membres ACTIFS dans un salon ACTIF
+                for member in active:
+                    uid = member.id
+                    self._vc_accum[uid] = self._vc_accum.get(uid, 0) + VC_TICK_SECONDS
 
-                # toutes les 30 min → récompense
-                while self._vc_accum[uid] >= VC_AWARD_INTERVAL:
-                    self._vc_accum[uid] -= VC_AWARD_INTERVAL
-                    base = random.randint(VC_REWARD_MIN, VC_REWARD_MAX)
-                    reward = max(1, int(base * ECON_MULTIPLIER))
-                    reward = await self._apply_passif_gain(uid, reward)
-                    await add_balance(uid, reward, "voice_reward")
-                    await self._maybe_update_lb(guild.id, "voice_reward")
+                    while self._vc_accum[uid] >= VC_AWARD_INTERVAL:
+                        self._vc_accum[uid] -= VC_AWARD_INTERVAL
+                        base = random.randint(VC_REWARD_MIN, VC_REWARD_MAX)
+                        reward = max(1, int(base * ECON_MULTIPLIER))
+                        reward = await self._apply_passif_gain(uid, reward)
+                        await add_balance(uid, reward, "voice_reward")
+                        await self._maybe_update_lb(guild.id, "voice_reward")
 
     # ─────────────────────────────────────────────────────────
     # Slash commands
