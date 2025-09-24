@@ -1,253 +1,277 @@
-# cogs/heal_cog.py
+# cogs/admin_cog.py
 from __future__ import annotations
 
-import json
+from typing import List, Dict, Any
+
 import discord
-from discord import app_commands
 from discord.ext import commands
-from typing import Optional, List, Tuple, Dict
+from discord import app_commands
 
-# DBs
-from inventory_db import get_item_qty, remove_item, add_item, get_all_items
-from stats_db import heal_user
+# Persistance (helpers officiels)
 try:
-    from shields_db import add_shield as _add_shield, get_shield as _get_shield, get_max_shield as _get_max_shield
+    from data.storage import (
+        set_leaderboard_channel,
+        get_leaderboard_channel,
+    )
 except Exception:
-    _add_shield = _get_shield = _get_max_shield = None  # fallbacks gérés plus bas
+    # Fallbacks soft si data/storage n'est pas dispo
+    _LB_MEM: Dict[int, int | None] = {}
+    def set_leaderboard_channel(guild_id: int, channel_id: int | None) -> None:
+        _LB_MEM[guild_id] = channel_id
+    def get_leaderboard_channel(guild_id: int) -> int | None:
+        return _LB_MEM.get(guild_id)
 
-# Effets (pour HoT si nécessaire)
+# DB inventaire
+from inventory_db import add_item
+
+# Catalogue d’objets (emoji -> fiche). Optionnel si utils.py n’est pas présent.
 try:
-    from effects_db import add_or_refresh_effect
+    from utils import OBJETS  # type: ignore
 except Exception:
-    async def add_or_refresh_effect(*args, **kwargs):  # type: ignore
-        return True
+    OBJETS: Dict[str, Dict[str, Any]] = {}
 
-# Catalogue d’objets
-try:
-    from utils import OBJETS
-except Exception:
-    OBJETS: Dict[str, Dict] = {}
+# ─────────────────────────────────────────────────────────────
+# Autocomplete items (tous les items connus du catalogue) — amélioré
+# ─────────────────────────────────────────────────────────────
+async def ac_all_items(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    cur = (current or "").strip().lower()
 
+    # Priorité d’affichage: défensifs en tête, puis soins/regen, puis offensifs, puis divers
+    TYPE_ORDER = {
+        "bouclier": 0,
+        "reduction": 0,   # 🪖
+        "esquive+": 0,    # 👟
+        "immunite": 0,    # ⭐️
+        "soin": 1,
+        "regen": 1,
+        "vaccin": 2,
+        "poison": 3,
+        "infection": 3,
+        "virus": 3,
+        "brulure": 3,
+        "attaque": 4,
+        "attaque_chaine": 4,
+        "mysterybox": 5,
+        "vol": 5,
+    }
 
-def _info(emoji: str) -> Optional[Dict]:
-    meta = OBJETS.get(emoji)
-    return dict(meta) if isinstance(meta, dict) else None
+    # Synonymes/termes de recherche additionnels pour certains items
+    NAME_OVERRIDES = {
+        "🪖": ["casque", "reduc", "réduction", "armure"],
+        "👟": ["esquive", "dodge"],
+        "⭐️": ["immunite", "immunité", "immune"],
+        "🛡": ["bouclier", "shield", "pb"],
+    }
 
+    def _label(emoji: str, info: dict) -> str:
+        typ = str(info.get("type", "") or "")
+        try:
+            if typ == "attaque":
+                d = int(info.get("degats", info.get("dmg", info.get("valeur", 0))) or 0)
+                return f"{emoji} • attaque {d}" if d else f"{emoji} • attaque"
+            if typ == "attaque_chaine":
+                d1 = int(info.get("degats_principal", info.get("dmg_main", info.get("valeur", 0))) or 0)
+                d2 = int(info.get("degats_secondaire", info.get("dmg_chain", 0)) or 0)
+                return f"{emoji} • attaque {d1}+{d2}" if (d1 or d2) else f"{emoji} • attaque chaîne"
+            if typ in ("poison", "infection", "virus", "brulure"):
+                d = int(info.get("degats", info.get("value", info.get("valeur", 0))) or 0)
+                itv = int(info.get("intervalle", info.get("interval", 60)) or 60)
+                return f"{emoji} • {typ} {d}/{max(1, itv)//60}m" if d else f"{emoji} • {typ}/{max(1, itv)//60}m"
+            if typ == "soin":
+                s = int(info.get("soin", info.get("value", info.get("valeur", 0))) or 0)
+                return f"{emoji} • soin {s}" if s else f"{emoji} • soin"
+            if typ == "regen":
+                v = int(info.get("valeur", info.get("value", 0)) or 0)
+                itv = int(info.get("intervalle", info.get("interval", 60)) or 60)
+                return f"{emoji} • regen +{v}/{max(1, itv)//60}m" if v else f"{emoji} • regen"
+            if typ == "bouclier":
+                val = int(info.get("valeur", info.get("value", 0)) or 0)
+                return f"{emoji} • bouclier {val}" if val else f"{emoji} • bouclier"
+            if typ == "reduction":
+                val = info.get("valeur")
+                pct = f"{int(float(val)*100)}%" if isinstance(val, (int, float)) else ""
+                return f"{emoji} • réduction {pct}".strip()
+            if typ == "immunite":
+                return f"{emoji} • immunité"
+            if typ == "esquive+":
+                val = info.get("valeur")
+                pct = f"{int(float(val)*100)}%" if isinstance(val, (int, float)) else ""
+                return f"{emoji} • esquive+ {pct}".strip()
+            if typ == "mysterybox":
+                return f"{emoji} • mysterybox"
+            if typ == "vol":
+                return f"{emoji} • vol"
+        except Exception:
+            pass
+        return f"{emoji} • {typ or 'objet'}"
 
-async def _list_owned_items(uid: int) -> List[Tuple[str, int]]:
-    """Inventaire réel (robuste) pour l’autocomplétion."""
-    out: List[Tuple[str, int]] = []
-    try:
-        rows = await get_all_items(uid)
-        if isinstance(rows, list):
-            for r in rows:
-                if isinstance(r, (list, tuple)) and len(r) >= 2:
-                    e, q = str(r[0]), int(r[1])
-                    if e and q > 0:
-                        out.append((e, q))
-                elif isinstance(r, dict):
-                    e = str(r.get("emoji") or r.get("item") or r.get("id") or r.get("key") or "")
-                    q = int(r.get("qty") or r.get("quantity") or r.get("count") or r.get("n") or 0)
-                    if e and q > 0: out.append((e, q))
-        elif isinstance(rows, dict):
-            for e, q in rows.items():
-                try:
-                    if int(q) > 0:
-                        out.append((str(e), int(q)))
-                except Exception:
-                    continue
-    except Exception:
-        pass
-    # fallback: on check tout le catalogue
+    # Prépare liste + tri par priorité puis emoji
+    items = []
+    for emoji, info in OBJETS.items():
+        typ = str(info.get("type", "") or "")
+        items.append((TYPE_ORDER.get(typ, 9), str(emoji), info))
+    items.sort(key=lambda t: (t[0], t[1]))
+
+    # Filtrage avec synonymes
+    out: List[app_commands.Choice[str]] = []
+    for _, emoji, info in items:
+        label = _label(emoji, info)
+        haystack = f"{label.lower()} {emoji}"
+        for syn in NAME_OVERRIDES.get(emoji, []):
+            haystack += f" {syn.lower()}"
+        if cur and cur not in haystack:
+            continue
+        out.append(app_commands.Choice(name=label[:100], value=emoji))
+        if len(out) >= 25:  # limite Discord
+            break
+
+    # Si rien trouvé avec filtre → 25 premiers
     if not out:
-        for e in OBJETS.keys():
-            try:
-                q = int(await get_item_qty(uid, e) or 0)
-                if q > 0:
-                    out.append((e, q))
-            except Exception:
-                continue
-    # merge/tri
-    merged: Dict[str, int] = {}
-    for e, q in out:
-        merged[e] = merged.get(e, 0) + int(q)
-    return sorted(merged.items(), key=lambda t: t[0])
+        for _, emoji, info in items[:25]:
+            out.append(app_commands.Choice(name=_label(emoji, info)[:100], value=emoji))
+
+    return out
 
 
-class HealCog(commands.Cog):
-    """Gestion /heal : soin, régénération, bouclier."""
+class AdminCog(commands.Cog):
+    """Commandes Admin (réservées aux administrateurs)."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ──────────── Autocomplétion : soin/regen/bouclier qu’on possède ───────────
-    async def _ac_items_heal_like(self, inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-        cur = (current or "").strip().lower()
-        owned = await _list_owned_items(inter.user.id)
-        out: List[app_commands.Choice[str]] = []
-        for emoji, qty in owned:
-            meta = OBJETS.get(emoji) or {}
-            typ = str(meta.get("type", ""))
-            if typ not in ("soin", "regen", "bouclier"):
-                continue
-            label = meta.get("nom") or meta.get("label") or typ
-            display = f"{emoji} — {label} (x{qty})"
-            if cur and (cur not in emoji and cur not in str(label).lower()):
-                continue
-            out.append(app_commands.Choice(name=display[:100], value=emoji))
-            if len(out) >= 20:
-                break
-        return out
+    # ─────────────────────────────────────────────────────────
+    # Leaderboard : configuration et actions liées
+    # ─────────────────────────────────────────────────────────
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(
+        name="lb_set",
+        description="(Admin) Définit le salon du leaderboard persistant et le poste/édite immédiatement."
+    )
+    @app_commands.describe(channel="Le salon où afficher le leaderboard")
+    async def lb_set(self, inter: discord.Interaction, channel: discord.TextChannel):
+        if not inter.guild:
+            return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
 
-    # ──────────── Helpers ────────────
-    async def _consume(self, uid: int, emoji: str) -> bool:
+        # 1) mémorise le salon
+        set_leaderboard_channel(inter.guild.id, channel.id)
+
+        # 2) demande au cog leaderboard_live de créer/éditer le message unique
+        await inter.response.defer(ephemeral=True, thinking=True)
         try:
-            q = int(await get_item_qty(uid, emoji) or 0)
-            if q <= 0: return False
-            ok = await remove_item(uid, emoji, 1)
-            return bool(ok)
+            from cogs.leaderboard_live import trigger_lb_update_now
+            await trigger_lb_update_now(self.bot, inter.guild.id, reason="set_channel")
         except Exception:
-            return False
+            pass
 
-    async def _roll_val(self, info: dict, default: int) -> int:
-        if not isinstance(info, dict):
-            return int(default)
-        if "min" in info and "max" in info:
-            try:
-                a = int(info.get("min", 0)); b = int(info.get("max", 0))
-                if a > b: a, b = b, a
-                import random
-                return random.randint(a, b)
-            except Exception:
-                pass
-        for k in ("valeur","value","amount","heal","soin","degats","dmg"):
-            if k in info:
-                try: return int(info[k])
-                except Exception: continue
-        return int(default)
+        await inter.followup.send(f"✅ Leaderboard configuré dans {channel.mention}.", ephemeral=True)
 
-    def _read_interval(self, info: dict, fallback_secs: int = 60) -> int:
-        # supporte 'intervalle' (utils.py) et 'interval' (autres configs)
-        return int(info.get("intervalle", info.get("interval", fallback_secs)) or fallback_secs)
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(
+        name="lb_clear",
+        description="(Admin) Efface la configuration de salon du leaderboard."
+    )
+    async def lb_clear(self, inter: discord.Interaction):
+        if not inter.guild:
+            return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+        set_leaderboard_channel(inter.guild.id, None)
+        await inter.response.send_message("🗑️ Configuration du leaderboard effacée.", ephemeral=True)
 
-    def _read_duration(self, info: dict, fallback_secs: int = 300) -> int:
-        return int(info.get("duree", info.get("duration", fallback_secs)) or fallback_secs)
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(
+        name="lb_show",
+        description="(Admin) Affiche le salon actuellement configuré pour le leaderboard."
+    )
+    async def lb_show(self, inter: discord.Interaction):
+        if not inter.guild:
+            return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+        chan_id = get_leaderboard_channel(inter.guild.id)
+        if chan_id:
+            ch = inter.guild.get_channel(chan_id)
+            if isinstance(ch, (discord.TextChannel, discord.Thread, discord.ForumChannel)):
+                return await inter.response.send_message(f"📍 Salon configuré : {ch.mention}", ephemeral=True)
+            return await inter.response.send_message(f"📍 Salon configuré : <#{chan_id}> (introuvable ?)", ephemeral=True)
+        return await inter.response.send_message("ℹ️ Aucun salon configuré.", ephemeral=True)
 
-    # ──────────── Actions ────────────
-    async def _do_heal(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
-        target = cible or user
-        amount = await self._roll_val(info, 10)
-        healed = await heal_user(user.id, target.id, amount)
-        gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
-        e = discord.Embed(title="💊 Soin", color=discord.Color.green())
-        if healed <= 0:
-            e.description = f"{user.mention} tente de soigner {target.mention} avec {emoji}, mais les PV sont déjà au max."
-        else:
-            from stats_db import get_hp  # re-lecture pour affichage
-            hp_after, mx = await get_hp(target.id)
-            e.description = f"{user.mention} rend **{healed} PV** à {target.mention} avec {emoji}.\n❤️ **{hp_after-healed}/{mx}** + (**{healed}**) = ❤️ **{hp_after}/{mx}**"
-        if gif and isinstance(gif, str):
-            e.set_image(url=gif)
-        return e
-
-    async def _do_regen(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
-        target = cible or user
-        val = await self._roll_val(info, 2)
-        interval = self._read_interval(info, 60)
-        duration = self._read_duration(info, 300)
-        await add_or_refresh_effect(
-            user_id=target.id, eff_type="regen", value=float(val),
-            duration=duration, interval=interval, source_id=user.id,
-            meta_json=json.dumps({"applied_in": inter.channel.id})
-        )
-        gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
-        e = discord.Embed(
-            title="💕 Régénération",
-            description=f"{user.mention} applique **{emoji}** sur {target.mention} (+{val} PV / {interval}s pendant {duration}s).",
-            color=discord.Color.teal()
-        )
-        if gif and isinstance(gif, str):
-            e.set_image(url=gif)
-        return e
-
-    async def _do_shield(self, inter: discord.Interaction, user: discord.Member, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
-        target = cible or user
-        val = await self._roll_val(info, 5)
-
-        desc = ""
-        # Priorité shields_db si présent
-        if _add_shield and _get_shield:
-            before = 0; after = 0; cap = None
-            try:
-                before = int(await _get_shield(target.id))
-            except Exception:
-                pass
-            try:
-                added = await _add_shield(target.id, val, cap_to_max=True)  # type: ignore[arg-type]
-            except TypeError:
-                added = await _add_shield(target.id, val)  # type: ignore[misc]
-            try:
-                after = int(await _get_shield(target.id))
-            except Exception:
-                after = before + int(val)
-            if _get_max_shield:
-                try:
-                    cap = int(await _get_max_shield(target.id))
-                except Exception:
-                    cap = None
-            gained = max(0, after - before)
-            desc = f"🛡 {target.mention} gagne **{gained} PB**" + (f" (cap {cap})" if cap is not None else "") + "."
-        else:
-            # Fallback stats_db
-            try:
-                from stats_db import get_shield as _get, set_shield as _set
-                before = int(await _get(target.id))
-                after = max(0, before + int(val))
-                await _set(target.id, after)
-                desc = f"🛡 {target.mention} gagne **{after-before} PB**."
-            except Exception:
-                desc = f"🛡 {target.mention} gagne un bouclier."
-
-        e = discord.Embed(title="🛡 Bouclier", description=desc, color=discord.Color.brand_teal())
-        gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
-        if gif and isinstance(gif, str):
-            e.set_image(url=gif)
-        return e
-
-    # ──────────── Slash ────────────
-    @app_commands.command(name="heal", description="Soigner / régénérer / donner un bouclier.")
-    @app_commands.describe(objet="Emoji de l'objet (soin/regen/bouclier)", cible="Cible (par défaut: toi)")
-    @app_commands.autocomplete(objet=_ac_items_heal_like)
-    async def heal(self, inter: discord.Interaction, objet: str, cible: Optional[discord.Member] = None):
-        meta = _info(objet)
-        if not meta:
-            return await inter.response.send_message("❌ Objet inconnu.", ephemeral=True)
-        typ = str(meta.get("type", ""))
-
-        if typ not in ("soin", "regen", "bouclier"):
-            return await inter.response.send_message("❌ Il faut un objet de **soin**, **régénération** ou **bouclier**.", ephemeral=True)
-
-        if not await self._consume(inter.user.id, objet):
-            return await inter.response.send_message(f"❌ Tu n’as pas **{objet}**.", ephemeral=True)
-
-        await inter.response.defer(thinking=True)
-
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(
+        name="lb_refresh",
+        description="(Admin) Recalcule et met à jour le leaderboard persistant (force un refresh immédiat)."
+    )
+    async def lb_refresh(self, inter: discord.Interaction):
+        if not inter.guild:
+            return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+        await inter.response.defer(ephemeral=True, thinking=True)
         try:
-            if typ == "soin":
-                emb = await self._do_heal(inter, inter.user, objet, meta, cible)
-            elif typ == "regen":
-                emb = await self._do_regen(inter, inter.user, objet, meta, cible)
-            else:  # bouclier
-                emb = await self._do_shield(inter, inter.user, meta, cible)
+            from cogs.leaderboard_live import trigger_lb_update_now
+            await trigger_lb_update_now(self.bot, inter.guild.id, reason="manual")
+            await inter.followup.send("🔁 Leaderboard mis à jour.", ephemeral=True)
         except Exception as e:
-            emb = discord.Embed(
-                title="❗ Erreur",
-                description=f"Action interrompue : `{type(e).__name__}`",
-                color=discord.Color.red()
+            await inter.followup.send(f"❌ Impossible de rafraîchir : `{type(e).__name__}`", ephemeral=True)
+
+    # ─────────────────────────────────────────────────────────
+    # Petits utilitaires admin
+    # ─────────────────────────────────────────────────────────
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.command(name="admin_ping", description="(Admin) Ping de santé du bot.")
+    async def admin_ping(self, inter: discord.Interaction):
+        await inter.response.send_message("Pong ✅", ephemeral=True)
+
+    # ─────────────────────────────────────────────────────────
+    # Give d’items (avec autocomplete amélioré)
+    # ─────────────────────────────────────────────────────────
+    @app_commands.command(name="admin_give_item", description="(Admin) Donne un objet à un joueur.")
+    @app_commands.describe(
+        cible="Joueur à qui donner l'objet",
+        objet="Emoji de l'objet (autocomplete)",
+        quantite="Quantité à donner (min 1)",
+        silencieux="Si activé, la réponse est éphémère (par défaut: oui)",
+    )
+    @app_commands.autocomplete(objet=ac_all_items)
+    @app_commands.default_permissions(administrator=True)
+    async def admin_give_item(
+        self,
+        interaction: discord.Interaction,
+        cible: discord.Member,
+        objet: str,
+        quantite: app_commands.Range[int, 1, 999] = 1,
+        silencieux: bool = True,
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+
+        if objet not in OBJETS:
+            return await interaction.response.send_message(
+                "Objet inconnu. Utilise l’autocomplete pour sélectionner un emoji valide.",
+                ephemeral=True,
             )
 
-        await inter.followup.send(embed=emb)
+        await add_item(cible.id, objet, int(quantite))
+
+        info = OBJETS.get(objet) or {}
+        typ = info.get("type", "objet")
+        desc = (
+            f"• Cible : {cible.mention}\n"
+            f"• Objet : **{objet}** (*{typ}*)\n"
+            f"• Quantité : **{quantite}**"
+        )
+
+        # ping mise à jour du leaderboard si le cog live est chargé
+        try:
+            from cogs.leaderboard_live import schedule_lb_update
+            schedule_lb_update(self.bot, interaction.guild.id, "admin_give_item")
+        except Exception:
+            pass
+
+        embed = discord.Embed(
+            title="✅ Item attribué",
+            description=desc,
+            color=discord.Color.green()
+        )
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=silencieux)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=silencieux)
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(HealCog(bot))
+    await bot.add_cog(AdminCog(bot))
