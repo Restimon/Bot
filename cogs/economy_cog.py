@@ -1,5 +1,6 @@
-# cogs/economie.py
+# cogs/economy_cog.py
 from __future__ import annotations
+
 import asyncio
 import random
 import time
@@ -11,9 +12,13 @@ from discord import app_commands, Interaction, Embed, Colour
 from discord.ext import commands
 
 from economy_db import init_economy_db, get_balance, add_balance
-from passifs import trigger  # ← bonus passifs "on_gain_coins"
+from passifs import trigger  # bonus passifs "on_gain_coins"
 
-DB_PATH = "gotvalis.sqlite3"
+# Si tu veux lire le TOP directement en SQL
+try:
+    from economy_db import DB_PATH as ECON_DB_PATH  # type: ignore
+except Exception:
+    ECON_DB_PATH = "gotvalis.sqlite3"
 
 # ─────────────────────────────────────────────────────────────
 # Réglages généraux
@@ -30,16 +35,16 @@ MSG_STREAK_MAX = 5
 
 # Vocal
 VC_TICK_SECONDS = 60       # boucle interne (1 min)
-VC_AWARD_INTERVAL = 30*60  # 30 minutes
+VC_AWARD_INTERVAL = 30 * 60  # 30 minutes
 VC_REWARD_MIN = 2          # base 2..20, puis × ECON_MULTIPLIER
 VC_REWARD_MAX = 20
-VC_MIN_ACTIVE = 2          # ⬅️ nb min de membres ACTIFS requis dans le salon
+VC_MIN_ACTIVE = 2          # nb min de membres ACTIFS requis dans le salon
 
 # Leaderboard
 TOP_LIMIT = 10
 
 
-class Economie(commands.Cog):
+class EconomyCog(commands.Cog):
     """Économie : gains par messages & vocal, /wallet, /give, /top, /earnings."""
 
     def __init__(self, bot: commands.Bot):
@@ -104,9 +109,12 @@ class Economie(commands.Cog):
         # anti-spam : cooldown et longueur minimale
         now = time.time()
         last = self._last_msg_ts.get(user_id, 0.0)
-        if now - last < MSG_COOLDOWN:
+        content = (message.content or "").strip()
+
+        # Exclure messages "vides" (embeds, stickers, pièces jointes sans texte)
+        if len(content) < MSG_MIN_LEN:
             return
-        if len((message.content or "").strip()) < MSG_MIN_LEN:
+        if now - last < MSG_COOLDOWN:
             return
 
         # ok, contribution valide
@@ -186,9 +194,6 @@ class Economie(commands.Cog):
 
                 # 3) Salon "inactif" si moins de VC_MIN_ACTIVE actifs
                 if len(active) < VC_MIN_ACTIVE:
-                    # (Optionnel) purger l'accumulation pour éviter d'empiler dans un salon inactif
-                    # for m in active:
-                    #     self._vc_accum[m.id] = 0
                     continue
 
                 # 4) Créditer uniquement les membres ACTIFS dans un salon ACTIF
@@ -216,6 +221,7 @@ class Economie(commands.Cog):
             description=f"{target.mention} possède **{bal}** GoldValis.",
             colour=Colour.gold()
         )
+        # Privé si on regarde son propre wallet
         await itx.response.send_message(embed=emb, ephemeral=(target.id == itx.user.id))
 
     @app_commands.command(name="give", description="Donne des GoldValis à quelqu'un.")
@@ -286,7 +292,7 @@ class Economie(commands.Cog):
     # Helpers DB (lecture leaderboard & logs)
     # ─────────────────────────────────────────────────────────
     async def _fetch_top(self, limit: int) -> List[Tuple[str, int]]:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with aiosqlite.connect(ECON_DB_PATH) as db:
             async with db.execute(
                 "SELECT user_id, balance FROM wallets ORDER BY balance DESC LIMIT ?",
                 (limit,)
@@ -295,7 +301,7 @@ class Economie(commands.Cog):
         return [(r[0], r[1]) for r in rows]
 
     async def _fetch_logs(self, user_id: int, limit: int = 10) -> List[Tuple[int, int, str]]:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with aiosqlite.connect(ECON_DB_PATH) as db:
             async with db.execute(
                 "SELECT ts, delta, reason FROM wallet_logs WHERE user_id = ? ORDER BY ts DESC LIMIT ?",
                 (str(user_id), limit)
@@ -305,4 +311,4 @@ class Economie(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Economie(bot))
+    await bot.add_cog(EconomyCog(bot))
