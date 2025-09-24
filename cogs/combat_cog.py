@@ -19,6 +19,11 @@ except Exception:
     async def get_shield(user_id: int) -> int:  # type: ignore
         return 0
 
+try:
+    from stats_db import add_shield  # type: ignore
+except Exception:
+    add_shield = None  # type: ignore
+
 # effects_db (avec stubs robustes)
 try:
     from effects_db import (
@@ -41,7 +46,7 @@ except Exception:
     async def transfer_virus_on_attack(*args, **kwargs): return None
     async def get_outgoing_damage_penalty(*args, **kwargs): return 0
 
-# (OPTIONNEL) explication des modifs (poison/réduc/bouclier) pour l'affichage exact
+# (OPTIONNEL) explication des modifs (poison/réduc/bouclier)
 try:
     from effects_db import explain_damage_modifiers  # type: ignore
 except Exception:
@@ -111,18 +116,60 @@ def get_all_tick_targets() -> List[Tuple[int, int]]:
 # Broadcaster des ticks (appelé par effects_db)
 # ─────────────────────────────────────────────────────────────
 async def _effects_broadcaster(bot: commands.Bot, guild_id: int, channel_id: int, payload: Dict):
+    """
+    Supporte un payload spécial quand un bouclier est détruit par un tick:
+      { type: "shield_broken", user_id, cause: "poison" | "infection" | "brulure" }
+    ou bien { shield_broken: true, user_id, cause: ... } (back-compat).
+    Sinon, on affiche l'embed 'lines' classique.
+    """
+    # rediriger vers le salon où la cible a été 'remember' pour ses ticks
     target_gid = guild_id
     target_cid = channel_id
     uid = payload.get("user_id")
     if uid is not None and int(uid) in _tick_channels:
         target_gid, target_cid = _tick_channels[int(uid)]
+
     channel = bot.get_channel(int(target_cid))
     if not channel or not isinstance(channel, (discord.TextChannel, discord.Thread)):
         channel = bot.get_channel(int(channel_id))
-        if not channel: return
-    embed = discord.Embed(title=str(payload.get("title", "GotValis")), color=payload.get("color", 0x2ecc71))
+        if not channel:
+            return
+
+    # Bouclier détruit par un effet ?
+    if payload.get("type") == "shield_broken" or payload.get("shield_broken"):
+        member = None
+        try:
+            gid_obj = bot.get_guild(int(target_gid))
+            if gid_obj and uid:
+                member = gid_obj.get_member(int(uid))
+        except Exception:
+            member = None
+        who = member.mention if member else (f"<@{uid}>" if uid else "Quelqu'un")
+        cause = str(payload.get("cause") or "").strip().lower()
+        cause_txt = ""
+        if cause == "poison":
+            cause_txt = " sous l'effet du poison."
+        elif cause == "infection":
+            cause_txt = " sous l'effet de l'infection."
+        elif cause == "brulure":
+            cause_txt = " sous l'effet de la brûlure."
+
+        emb = discord.Embed(
+            title="🛡️ Bouclier détruit",
+            description=f"Le bouclier de {who} a été **détruit**{cause_txt}",
+            color=discord.Color.blurple()
+        )
+        await channel.send(embed=emb)
+        return
+
+    # Affichage générique pour les autres ticks
+    embed = discord.Embed(
+        title=str(payload.get("title", "GotValis")),
+        color=payload.get("color", 0x2ecc71)
+    )
     lines = payload.get("lines") or []
-    if lines: embed.description = "\n".join(lines)
+    if lines:
+        embed.description = "\n".join(lines)
     await channel.send(embed=embed)
 
 # ─────────────────────────────────────────────────────────────
@@ -213,7 +260,7 @@ class CombatCog(commands.Cog):
             return 0
 
     # ─────────────────────────────────────────────────────────
-    # Pipeline dégâts / soins / effets — résolution réelle
+    # Pipeline dégâts / soins / effets
     # ─────────────────────────────────────────────────────────
     async def _resolve_hit(
         self,
@@ -225,7 +272,7 @@ class CombatCog(commands.Cog):
         note_footer: Optional[str] = None,
     ) -> Tuple[int, int, bool, str]:
 
-        # 1) esquive
+        # esquive
         dodge = await self._compute_dodge_chance(target.id)
         if random.random() < dodge:
             try:
@@ -236,7 +283,7 @@ class CombatCog(commands.Cog):
                 pass
             return 0, 0, True, "\n🛰️ **Esquive !**"
 
-        # 2) passifs pré-défense (peuvent half/cancel/flat)
+        # passifs pré-défense (peuvent half/cancel/flat)
         try:
             predef = await trigger("on_defense_pre",
                                    defender_id=target.id,
@@ -249,10 +296,10 @@ class CombatCog(commands.Cog):
         flat   = int(predef.get("flat_reduce", 0))
         counter_frac = float(predef.get("counter_frac", 0.0) or 0.0)
 
-        # 3) réduction pourcent (🪖)
+        # réduction pourcent (🪖)
         dr_pct = await self._compute_reduction_pct(target.id)
 
-        # 4) calcul final pour stats_db
+        # calcul final pour stats_db
         if cancel:
             dmg_final = 0
         else:
@@ -260,11 +307,11 @@ class CombatCog(commands.Cog):
             dmg_final = int(dmg_final * (1.0 - dr_pct))
             dmg_final = max(0, dmg_final - flat)
 
-        # 5) applique dégâts (gère PB & KO)
+        # applique dégâts (gère PB & KO)
         res = await deal_damage(attacker.id, target.id, int(dmg_final))
         absorbed = int(res.get("absorbed", 0) or 0)
 
-        # 6) contre-attaque ?
+        # contre-attaque ?
         if counter_frac > 0 and dmg_final > 0:
             try:
                 counter = max(1, int(round(dmg_final * counter_frac)))
@@ -272,7 +319,6 @@ class CombatCog(commands.Cog):
             except Exception:
                 pass
 
-        # 7) KO & revive
         ko_txt = ""
         if await is_dead(target.id):
             if await undying_zeyra_check_and_mark(target.id):
@@ -291,7 +337,7 @@ class CombatCog(commands.Cog):
 
         return int(dmg_final), absorbed, False, ko_txt
 
-    # ─────────────── FORMATAGE / AFFICHAGE ───────────────
+    # ========= FORMAT/EMBED =========
     def _format_loss_breakdown(
         self,
         hp_before: int,
@@ -305,57 +351,43 @@ class CombatCog(commands.Cog):
         Construit:
           - line2 (perte détaillée) ex: @Cible perd **(14 ❤️ - 10 🪖 - 2 🧪 | 6 🛡)**
           - line3 (équation)       ex: **22 ❤️ | 6 🛡** - **(14 ❤️ - 10 🪖 - 2 🧪 | 6 🛡)** = **8 ❤️**
-        Règle d’ordre visuel:
-          🪖 sur PV d’abord, puis 🧪 d’abord sur PV puis bascule sur PB.
         """
-        total_reduction = max(0, base_raw - (lost_hp + lost_shield))
-        hel = 0   # helmet_reduction on HP
-        p_hp = 0  # poison reduction on HP
-        p_sh = 0  # poison reduction on Shield
+        total_reduction = max(0, base_raw - lost_hp - lost_shield)
+        hel = 0
+        p_hp = 0
+        p_sh = 0
 
         if explained and isinstance(explained, dict):
-            hel = max(0, int(explained.get("helmet_reduction", 0) or 0))
-            p_hp = max(0, int(explained.get("poison_reduce_hp", 0) or 0))
-            p_sh = max(0, int(explained.get("poison_reduce_shield", 0) or 0))
-
-            # Clamp total to not exceed computed total_reduction
-            used = hel + p_hp + p_sh
-            if used > total_reduction:
-                extra = used - total_reduction
-                # trim 🪖 first, then 🧪 HP, then 🧪 PB
-                cut = min(hel, extra); hel -= cut; extra -= cut
+            hel = int(explained.get("helmet_reduction", 0) or 0)
+            p_hp = int(explained.get("poison_reduce_hp", 0) or 0)
+            p_sh = int(explained.get("poison_reduce_shield", 0) or 0)
+            if hel + p_hp + p_sh > total_reduction:
+                extra = (hel + p_hp + p_sh) - total_reduction
+                trim_hel = min(hel, extra); hel -= trim_hel; extra -= trim_hel
                 if extra > 0:
-                    cut = min(p_hp, extra); p_hp -= cut; extra -= cut
+                    trim_php = min(p_hp, extra); p_hp -= trim_php; extra -= trim_php
                 if extra > 0:
                     p_sh = max(0, p_sh - extra)
         else:
-            # Fallback: on n’invente pas des valeurs précises de 🪖/🧪
-            # On affiche uniquement la perte **(lost_hp ❤️ | lost_shield 🛡)** sans sous-termes,
-            # pour rester correct visuellement si le backend détaillé n’est pas dispo.
-            hel = p_hp = p_sh = 0
+            hel = total_reduction
 
-        # line2: loss detail
-        left_parts: List[str] = []
         heart_chunk = f"{max(0, lost_hp)} ❤️"
         if hel > 0:
-            heart_chunk += f" − {hel} 🪖"
+            heart_chunk += f" - {hel} 🪖"
         if p_hp > 0:
-            heart_chunk += f" − {p_hp} 🧪"
-        left_parts.append(heart_chunk)
+            heart_chunk += f" - {p_hp} 🧪"
 
         shield_chunk = f"{max(0, lost_shield)} 🛡"
         if p_sh > 0:
-            shield_chunk += f" − {p_sh} 🧪"
+            shield_chunk += f" - {p_sh} 🧪"
 
-        line2 = f"@Cible perd **({ ' '.join(left_parts) } | {shield_chunk})**"
-
-        # line3: equation (before − loss = after)
+        line2 = f"@Cible perd **({heart_chunk} | {shield_chunk})**"
         after_hp = max(0, hp_before - lost_hp)
-        after_shield = max(0, shield_before - lost_shield)
+
         line3 = (
-            f"**{hp_before} ❤️ | {shield_before} 🛡** − "
-            f"**({ ' '.join(left_parts) } | {shield_chunk})** = "
-            f"**{after_hp} ❤️ | {after_shield} 🛡**"
+            f"**{hp_before} ❤️ | {shield_before} 🛡** - "
+            f"**({heart_chunk} | {shield_chunk})** = "
+            f"**{after_hp} ❤️**"
         )
         return line2, line3
 
@@ -383,12 +415,10 @@ class CombatCog(commands.Cog):
                 e.set_image(url=gif_url)
             return e
 
-        # line 1 — “final d’abord, bruts entre ()”
         line1 = (
             f"{attacker.mention} inflige **{lost_hp}** (*{base_raw} bruts*) "
             f"dégâts à {target.mention} avec {emoji} !"
         )
-
         line2, line3 = self._format_loss_breakdown(
             hp_before, shield_before, base_raw, lost_hp, lost_shield, explained=explained
         )
@@ -397,6 +427,21 @@ class CombatCog(commands.Cog):
         if gif_url:
             e.set_image(url=gif_url)
         return e
+
+    def _shield_broken_embed(self, member: discord.Member, *, cause: Optional[str] = None) -> discord.Embed:
+        cause_txt = ""
+        c = (cause or "").strip().lower()
+        if c == "poison":
+            cause_txt = " sous l'effet du poison."
+        elif c == "infection":
+            cause_txt = " sous l'effet de l'infection."
+        elif c == "brulure":
+            cause_txt = " sous l'effet de la brûlure."
+        return discord.Embed(
+            title="🛡️ Bouclier détruit",
+            description=f"Le bouclier de {member.mention} a été **détruit**{cause_txt}",
+            color=discord.Color.blurple()
+        )
 
     # ========= ACTIONS CONCRÈTES =========
     async def _roll_value(self, info: dict, key_default: int = 1) -> int:
@@ -447,7 +492,7 @@ class CombatCog(commands.Cog):
         hp_before, _mx = await get_hp(target.id)
         shield_before = await get_shield(target.id)
 
-        # Résolution réelle (stats_db gère PB/KO/éco)
+        # Résolution
         dmg_final, absorbed, dodged, ko_txt = await self._resolve_hit(
             inter, attacker, target, base_after_pen, is_crit, None
         )
@@ -458,9 +503,9 @@ class CombatCog(commands.Cog):
         except Exception:
             pass
 
-        # Décomposition pour l'affichage (optionnelle mais recommandée)
+        # Décomposition explicable (si backend l'offre)
         explained: Optional[Dict[str, int]] = None
-        if explain_damage_modifiers and not dodged:
+        if explain_damage_modifiers:
             try:
                 exp = await explain_damage_modifiers(attacker.id, target.id, base_after_pen)
                 if isinstance(exp, dict):
@@ -473,20 +518,21 @@ class CombatCog(commands.Cog):
                 explained = None
 
         # GIF: critique → CRIT_GIF, sinon GIF spécifique de l’emoji
+        gif_normal = None
         try:
             gif_normal = FIGHT_GIFS.get(emoji)
         except Exception:
             gif_normal = None
-        gif_url = CRIT_GIF if (is_crit && not dodged && dmg_final > 0) else gif_normal
+        gif_url = CRIT_GIF if (is_crit and not dodged and dmg_final > 0) else gif_normal
 
-        # Embed format “final d’abord, bruts entre ()”
+        # Embed combat
         e = self._attack_embed(
             emoji=emoji,
             attacker=attacker,
             target=target,
-            base_raw=base,                # affichage : les bruts initiaux (avant malus attaquant)
-            lost_hp=dmg_final,            # PV réellement perdus
-            lost_shield=absorbed,         # PB réellement absorbés
+            base_raw=base,                # (affichage “bruts”)
+            lost_hp=dmg_final,
+            lost_shield=absorbed,
             hp_before=hp_before,
             shield_before=shield_before,
             ko_txt=ko_txt,
@@ -495,8 +541,17 @@ class CombatCog(commands.Cog):
             explained=explained,
         )
 
-        if is_crit and not dodged and dmg_final > 0:
-            e.add_field(name="💥 Critique !", value=f"x{crit_mult:g}", inline=True)
+        # Envoi principal
+        await inter.followup.send(embed=e)
+
+        # A-près envoi: si le bouclier vient d’être détruit par CE coup, annoncer
+        try:
+            shield_after = await get_shield(target.id)
+        except Exception:
+            shield_after = 0
+        if shield_before > 0 and shield_after == 0:
+            await inter.followup.send(embed=self._shield_broken_embed(target))
+
         return e
 
     async def _apply_chain_attack(
@@ -507,6 +562,7 @@ class CombatCog(commands.Cog):
         emoji: str,
         info: dict
     ) -> discord.Embed:
+        # on laisse _apply_attack poster l'embed principal
         embed = await self._apply_attack(inter, attacker, target, emoji, info)
         try:
             base = await self._roll_value(info, 5)
@@ -610,18 +666,17 @@ class CombatCog(commands.Cog):
 
         typ = info["type"]
         if typ == "attaque":
-            embed = await self._apply_attack(inter, inter.user, cible, objet, info)
+            await self._apply_attack(inter, inter.user, cible, objet, info)
         elif typ == "attaque_chaine":
-            embed = await self._apply_chain_attack(inter, inter.user, cible, objet, info)
+            await self._apply_chain_attack(inter, inter.user, cible, objet, info)
         else:
-            # DOTs : on réutilise le pipe des effets
+            # DOTs
             label = {
                 "poison": "🧪 Poison",
                 "infection": "🧟 Infection",
                 "virus": "🦠 Virus (transfert sur attaque)",
                 "brulure": "🔥 Brûlure",
             }[typ]
-            # application via effets_db
             val = int(info.get("valeur", info.get("value", 1)) or 1)
             interval = int(info.get("interval", info.get("tick", 60)) or 60)
             duration = int(info.get("duree", info.get("duration", 300)) or 300)
@@ -646,9 +701,10 @@ class CombatCog(commands.Cog):
                             f"(val={val}, every {interval}s, dur={duration}s).",
                 color=discord.Color.orange()
             )
+            await inter.followup.send(embed=embed)
 
-        await inter.followup.send(embed=embed)
         await self._maybe_update_leaderboard(inter.guild.id, "fight")
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(CombatCog(bot))
