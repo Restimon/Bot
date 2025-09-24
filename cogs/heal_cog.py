@@ -126,18 +126,24 @@ class HealCog(commands.Cog):
                 except Exception: continue
         return int(default)
 
+    def _read_interval(self, info: dict, fallback_secs: int = 60) -> int:
+        # supporte 'intervalle' (utils.py) et 'interval' (autres configs)
+        return int(info.get("intervalle", info.get("interval", fallback_secs)) or fallback_secs)
+
+    def _read_duration(self, info: dict, fallback_secs: int = 300) -> int:
+        return int(info.get("duree", info.get("duration", fallback_secs)) or fallback_secs)
+
     # ──────────── Actions ────────────
     async def _do_heal(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
         target = cible or user
         amount = await self._roll_val(info, 10)
         healed = await heal_user(user.id, target.id, amount)
-        # gif si dispo
         gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
         e = discord.Embed(title="💊 Soin", color=discord.Color.green())
         if healed <= 0:
             e.description = f"{user.mention} tente de soigner {target.mention} avec {emoji}, mais les PV sont déjà au max."
         else:
-            from stats_db import get_hp  # lecture après
+            from stats_db import get_hp  # re-lecture pour affichage
             hp_after, mx = await get_hp(target.id)
             e.description = f"{user.mention} rend **{healed} PV** à {target.mention} avec {emoji}.\n❤️ **{hp_after-healed}/{mx}** + (**{healed}**) = ❤️ **{hp_after}/{mx}**"
         if gif and isinstance(gif, str):
@@ -147,8 +153,8 @@ class HealCog(commands.Cog):
     async def _do_regen(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
         target = cible or user
         val = await self._roll_val(info, 2)
-        interval = int(info.get("interval", info.get("tick", 60)) or 60)
-        duration = int(info.get("duree", info.get("duration", 300)) or 300)
+        interval = self._read_interval(info, 60)
+        duration = self._read_duration(info, 300)
         await add_or_refresh_effect(
             user_id=target.id, eff_type="regen", value=float(val),
             duration=duration, interval=interval, source_id=user.id,
@@ -177,7 +183,6 @@ class HealCog(commands.Cog):
             except Exception:
                 pass
             try:
-                # cap_to_max si on a la fonction améliorée, sinon simple ajout
                 added = await _add_shield(target.id, val, cap_to_max=True)  # type: ignore[arg-type]
             except TypeError:
                 added = await _add_shield(target.id, val)  # type: ignore[misc]
