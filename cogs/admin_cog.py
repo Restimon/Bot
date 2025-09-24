@@ -100,30 +100,99 @@ async def ac_all_items(interaction: discord.Interaction, current: str) -> List[a
     cur = (current or "").strip().lower()
     out: List[app_commands.Choice[str]] = []
 
-    # Construction d’un index recherche (emoji + alias + label court)
-    for emoji, info in OBJETS.items():
-        label = _short_label(emoji, info)
-        haystack = f"{emoji} {label}".lower()
-        aliases = " ".join(_ITEM_ALIASES.get(emoji, []))
-        haystack_full = f"{haystack} {aliases}".lower()
+    # On peut aussi prioriser certains types si tu veux un ordre custom.
+    TYPE_ORDER = {
+        "attaque": 10,
+        "attaque_chaine": 11,
+        "soin": 20,
+        "regen": 21,
+        "bouclier": 30,
+        "reduction": 31,   # ← 🪖
+        "esquive+": 32,
+        "immunite": 33,
+        "poison": 40,
+        "infection": 41,
+        "virus": 42,
+        "brulure": 43,
+        "mysterybox": 50,
+        "vol": 51,
+        "vaccin": 52,
+    }
 
-        if not cur or cur in haystack_full:
-            name = f"{emoji} • {label}"
+    def _type_order(t: str) -> int:
+        return TYPE_ORDER.get(t, 99)
+
+    # on trie pour avoir un ordre stable et lisible
+    for emoji, info in sorted(OBJETS.items(), key=lambda kv: (_type_order(kv[1].get("type", "")), kv[0])):
+        try:
+            typ = str(info.get("type", "") or "")
+            label = typ
+            if typ == "attaque":
+                for k in ("degats", "dmg", "value", "valeur"):
+                    if k in info:
+                        try:
+                            d = int(info.get(k, 0) or 0)
+                            if d:
+                                label = f"attaque {d}"
+                                break
+                        except Exception:
+                            pass
+            elif typ == "attaque_chaine":
+                d1 = int(info.get("degats_principal", info.get("dmg_main", info.get("valeur", 0))) or 0)
+                d2 = int(info.get("degats_secondaire", info.get("dmg_chain", 0)) or 0)
+                label = f"attaque {d1}+{d2}" if d1 or d2 else "attaque chaîne"
+            elif typ == "soin":
+                s = int(info.get("soin", info.get("value", info.get("valeur", 0))) or 0)
+                label = f"soin {s}" if s else "soin"
+            elif typ in ("poison", "infection", "brulure", "virus"):
+                d = int(info.get("degats", info.get("value", info.get("valeur", 0))) or 0)
+                itv = int(info.get("intervalle", info.get("interval", 60)) or 60)
+                label = f"{typ} {d}/{max(1, itv)//60}m" if d else f"{typ}/{max(1, itv)//60}m"
+            elif typ == "regen":
+                v = int(info.get("valeur", info.get("value", 0)) or 0)
+                itv = int(info.get("intervalle", info.get("interval", 60)) or 60)
+                label = f"regen +{v}/{max(1, itv)//60}m" if v else "regen"
+            elif typ == "bouclier":
+                val = int(info.get("valeur", info.get("value", 0)) or 0)
+                label = f"bouclier {val}" if val else "bouclier"
+            elif typ == "reduction":
+                val = info.get("valeur", info.get("value", 0))
+                # affiche "casque" pour être plus parlant
+                if isinstance(val, (int, float)) and val:
+                    try:
+                        pct = int(float(val) * 100)
+                        label = f"casque -{pct}% dmg"
+                    except Exception:
+                        label = "casque (réduction)"
+                else:
+                    label = "casque (réduction)"
+            elif typ == "esquive+":
+                val = info.get("valeur", info.get("value", 0))
+                if isinstance(val, (int, float)):
+                    try:
+                        pct = int(float(val) * 100)
+                        label = f"esquive +{pct}%"
+                    except Exception:
+                        label = "esquive+"
+                else:
+                    label = "esquive+"
+            elif typ == "immunite":
+                label = "immunité"
+            else:
+                label = typ or "objet"
+        except Exception:
+            label = "objet"
+
+        name = f"{emoji} • {label}"
+        # Filtre : on matche aussi sur quelques alias utiles
+        aliases = (label.lower(), typ.lower())
+        hay = " ".join((name.lower(),) + aliases)
+        if not cur or cur in hay:
             out.append(app_commands.Choice(name=name[:100], value=emoji))
-            if len(out) >= 20:
-                break
-
-    # Si rien trouvé et l’utilisateur a tapé un alias exact (ex: “casque”), on force l’ajout de 🪖
-    if not out and cur:
-        for emoji, alias_list in _ITEM_ALIASES.items():
-            if any(cur in a.lower() for a in alias_list):
-                info = OBJETS.get(emoji, {})
-                name = f"{emoji} • {_short_label(emoji, info)}"
-                out.append(app_commands.Choice(name=name[:100], value=emoji))
+            if len(out) >= 25:  # ← Discord autorise jusqu’à 25
                 break
 
     return out
-
 
 class AdminTools(commands.Cog):
     """Commandes Admin (réservées aux administrateurs)."""
