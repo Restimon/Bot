@@ -19,11 +19,6 @@ except Exception:
     async def get_shield(user_id: int) -> int:  # type: ignore
         return 0
 
-try:
-    from stats_db import add_shield  # type: ignore
-except Exception:
-    add_shield = None  # type: ignore
-
 # effects_db (avec stubs robustes)
 try:
     from effects_db import (
@@ -46,7 +41,7 @@ except Exception:
     async def transfer_virus_on_attack(*args, **kwargs): return None
     async def get_outgoing_damage_penalty(*args, **kwargs): return 0
 
-# (OPTIONNEL) explication des modifs (poison/réduc/bouclier)
+# (OPTIONNEL) explication des modifs (poison/réduc/bouclier) pour l'affichage exact
 try:
     from effects_db import explain_damage_modifiers  # type: ignore
 except Exception:
@@ -218,7 +213,7 @@ class CombatCog(commands.Cog):
             return 0
 
     # ─────────────────────────────────────────────────────────
-    # Pipeline dégâts / soins / effets
+    # Pipeline dégâts / soins / effets — résolution réelle
     # ─────────────────────────────────────────────────────────
     async def _resolve_hit(
         self,
@@ -230,7 +225,7 @@ class CombatCog(commands.Cog):
         note_footer: Optional[str] = None,
     ) -> Tuple[int, int, bool, str]:
 
-        # esquive
+        # 1) esquive
         dodge = await self._compute_dodge_chance(target.id)
         if random.random() < dodge:
             try:
@@ -241,7 +236,7 @@ class CombatCog(commands.Cog):
                 pass
             return 0, 0, True, "\n🛰️ **Esquive !**"
 
-        # passifs pré-défense (peuvent half/cancel/flat)
+        # 2) passifs pré-défense (peuvent half/cancel/flat)
         try:
             predef = await trigger("on_defense_pre",
                                    defender_id=target.id,
@@ -254,10 +249,10 @@ class CombatCog(commands.Cog):
         flat   = int(predef.get("flat_reduce", 0))
         counter_frac = float(predef.get("counter_frac", 0.0) or 0.0)
 
-        # réduction pourcent (🪖)
+        # 3) réduction pourcent (🪖)
         dr_pct = await self._compute_reduction_pct(target.id)
 
-        # calcul final pour stats_db
+        # 4) calcul final pour stats_db
         if cancel:
             dmg_final = 0
         else:
@@ -265,11 +260,11 @@ class CombatCog(commands.Cog):
             dmg_final = int(dmg_final * (1.0 - dr_pct))
             dmg_final = max(0, dmg_final - flat)
 
-        # applique dégâts (gère PB & KO)
+        # 5) applique dégâts (gère PB & KO)
         res = await deal_damage(attacker.id, target.id, int(dmg_final))
         absorbed = int(res.get("absorbed", 0) or 0)
 
-        # contre-attaque ?
+        # 6) contre-attaque ?
         if counter_frac > 0 and dmg_final > 0:
             try:
                 counter = max(1, int(round(dmg_final * counter_frac)))
@@ -277,6 +272,7 @@ class CombatCog(commands.Cog):
             except Exception:
                 pass
 
+        # 7) KO & revive
         ko_txt = ""
         if await is_dead(target.id):
             if await undying_zeyra_check_and_mark(target.id):
@@ -295,7 +291,7 @@ class CombatCog(commands.Cog):
 
         return int(dmg_final), absorbed, False, ko_txt
 
-    # ========= FORMAT/EMBED =========
+    # ─────────────── FORMATAGE / AFFICHAGE ───────────────
     def _format_loss_breakdown(
         self,
         hp_before: int,
@@ -309,58 +305,57 @@ class CombatCog(commands.Cog):
         Construit:
           - line2 (perte détaillée) ex: @Cible perd **(14 ❤️ - 10 🪖 - 2 🧪 | 6 🛡)**
           - line3 (équation)       ex: **22 ❤️ | 6 🛡** - **(14 ❤️ - 10 🪖 - 2 🧪 | 6 🛡)** = **8 ❤️**
+        Règle d’ordre visuel:
+          🪖 sur PV d’abord, puis 🧪 d’abord sur PV puis bascule sur PB.
         """
-        # Split reductions
-        total_reduction = max(0, base_raw - lost_hp - lost_shield)
-        hel = 0
-        p_hp = 0
-        p_sh = 0
+        total_reduction = max(0, base_raw - (lost_hp + lost_shield))
+        hel = 0   # helmet_reduction on HP
+        p_hp = 0  # poison reduction on HP
+        p_sh = 0  # poison reduction on Shield
 
         if explained and isinstance(explained, dict):
-            hel = int(explained.get("helmet_reduction", 0) or 0)
-            p_hp = int(explained.get("poison_reduce_hp", 0) or 0)
-            p_sh = int(explained.get("poison_reduce_shield", 0) or 0)
-            # clamp to total_reduction just in case
-            if hel + p_hp + p_sh > total_reduction:
-                extra = (hel + p_hp + p_sh) - total_reduction
-                # trim helmet first
-                trim_hel = min(hel, extra)
-                hel -= trim_hel
-                extra -= trim_hel
+            hel = max(0, int(explained.get("helmet_reduction", 0) or 0))
+            p_hp = max(0, int(explained.get("poison_reduce_hp", 0) or 0))
+            p_sh = max(0, int(explained.get("poison_reduce_shield", 0) or 0))
+
+            # Clamp total to not exceed computed total_reduction
+            used = hel + p_hp + p_sh
+            if used > total_reduction:
+                extra = used - total_reduction
+                # trim 🪖 first, then 🧪 HP, then 🧪 PB
+                cut = min(hel, extra); hel -= cut; extra -= cut
                 if extra > 0:
-                    trim_php = min(p_hp, extra)
-                    p_hp -= trim_php
-                    extra -= trim_php
+                    cut = min(p_hp, extra); p_hp -= cut; extra -= cut
                 if extra > 0:
                     p_sh = max(0, p_sh - extra)
         else:
-            hel = total_reduction
-            p_hp = 0
-            p_sh = 0
+            # Fallback: on n’invente pas des valeurs précises de 🪖/🧪
+            # On affiche uniquement la perte **(lost_hp ❤️ | lost_shield 🛡)** sans sous-termes,
+            # pour rester correct visuellement si le backend détaillé n’est pas dispo.
+            hel = p_hp = p_sh = 0
 
         # line2: loss detail
-        left_chunks: List[str] = []
-        # ❤️ chunk always first (with optional -🪖 and -🧪 after)
+        left_parts: List[str] = []
         heart_chunk = f"{max(0, lost_hp)} ❤️"
         if hel > 0:
-            heart_chunk += f" - {hel} 🪖"
+            heart_chunk += f" − {hel} 🪖"
         if p_hp > 0:
-            heart_chunk += f" - {p_hp} 🧪"
-        left_chunks.append(heart_chunk)
+            heart_chunk += f" − {p_hp} 🧪"
+        left_parts.append(heart_chunk)
 
-        # shield side (after the bar)
         shield_chunk = f"{max(0, lost_shield)} 🛡"
         if p_sh > 0:
-            shield_chunk += f" - {p_sh} 🧪"
+            shield_chunk += f" − {p_sh} 🧪"
 
-        line2 = f"@Cible perd **({ ' '.join(left_chunks) } | {shield_chunk})**"
+        line2 = f"@Cible perd **({ ' '.join(left_parts) } | {shield_chunk})**"
 
-        # line3: equation (state before - loss = after)
+        # line3: equation (before − loss = after)
         after_hp = max(0, hp_before - lost_hp)
+        after_shield = max(0, shield_before - lost_shield)
         line3 = (
-            f"**{hp_before} ❤️ | {shield_before} 🛡** - "
-            f"**({ ' '.join(left_chunks) } | {shield_chunk})** = "
-            f"**{after_hp} ❤️**"
+            f"**{hp_before} ❤️ | {shield_before} 🛡** − "
+            f"**({ ' '.join(left_parts) } | {shield_chunk})** = "
+            f"**{after_hp} ❤️ | {after_shield} 🛡**"
         )
         return line2, line3
 
@@ -388,7 +383,7 @@ class CombatCog(commands.Cog):
                 e.set_image(url=gif_url)
             return e
 
-        # line 1 — “final first, raw in ()”
+        # line 1 — “final d’abord, bruts entre ()”
         line1 = (
             f"{attacker.mention} inflige **{lost_hp}** (*{base_raw} bruts*) "
             f"dégâts à {target.mention} avec {emoji} !"
@@ -452,7 +447,7 @@ class CombatCog(commands.Cog):
         hp_before, _mx = await get_hp(target.id)
         shield_before = await get_shield(target.id)
 
-        # Résolution
+        # Résolution réelle (stats_db gère PB/KO/éco)
         dmg_final, absorbed, dodged, ko_txt = await self._resolve_hit(
             inter, attacker, target, base_after_pen, is_crit, None
         )
@@ -463,13 +458,12 @@ class CombatCog(commands.Cog):
         except Exception:
             pass
 
-        # Décomposition explicable (si backend l'offre)
+        # Décomposition pour l'affichage (optionnelle mais recommandée)
         explained: Optional[Dict[str, int]] = None
-        if explain_damage_modifiers:
+        if explain_damage_modifiers and not dodged:
             try:
                 exp = await explain_damage_modifiers(attacker.id, target.id, base_after_pen)
                 if isinstance(exp, dict):
-                    # attendu: helmet_reduction, poison_reduce_hp, poison_reduce_shield
                     explained = {
                         "helmet_reduction": int(exp.get("helmet_reduction", 0) or 0),
                         "poison_reduce_hp": int(exp.get("poison_reduce_hp", 0) or 0),
@@ -479,21 +473,20 @@ class CombatCog(commands.Cog):
                 explained = None
 
         # GIF: critique → CRIT_GIF, sinon GIF spécifique de l’emoji
-        gif_normal = None
         try:
             gif_normal = FIGHT_GIFS.get(emoji)
         except Exception:
             gif_normal = None
-        gif_url = CRIT_GIF if (is_crit and not dodged and dmg_final > 0) else gif_normal
+        gif_url = CRIT_GIF if (is_crit && not dodged && dmg_final > 0) else gif_normal
 
         # Embed format “final d’abord, bruts entre ()”
         e = self._attack_embed(
             emoji=emoji,
             attacker=attacker,
             target=target,
-            base_raw=base,                # on affiche les bruts AVANT pénalités attaquant (si tu veux, mets base_after_pen)
-            lost_hp=dmg_final,
-            lost_shield=absorbed,
+            base_raw=base,                # affichage : les bruts initiaux (avant malus attaquant)
+            lost_hp=dmg_final,            # PV réellement perdus
+            lost_shield=absorbed,         # PB réellement absorbés
             hp_before=hp_before,
             shield_before=shield_before,
             ko_txt=ko_txt,
