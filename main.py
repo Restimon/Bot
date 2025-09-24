@@ -121,7 +121,6 @@ INITIAL_EXTENSIONS = [
     "cogs.heal_cog",
 
     "cogs.daily_cog",
-    "cogs.economie",
     "cogs.economy_cog",
     "cogs.shop_cog",
     "cogs.inventory_cog",
