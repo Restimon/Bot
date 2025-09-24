@@ -296,7 +296,7 @@ async def _get_career_total(uid: int, min_floor: int) -> int:
 # ==== Cog ======================================================================
 class Info(commands.Cog):
     def __init__(self, bot: commands.Bot):
-        self.bot = bot)
+        self.bot = bot
 
     async def _render_info_embed(self, member: discord.Member | discord.User, guild: Optional[discord.Guild] = None) -> discord.Embed:
         uid = member.id
