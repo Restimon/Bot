@@ -1,278 +1,366 @@
-# cogs/economie.py
+# cogs/chat_ai.py
 from __future__ import annotations
-import asyncio
-import random
-import time
-from typing import Dict, Optional, List, Tuple
 
-import aiosqlite
+import os
+import re
+import random
 import discord
-from discord import app_commands, Interaction, Embed, Colour
+from discord import app_commands
 from discord.ext import commands
 
-from economy_db import init_economy_db, get_balance, add_balance
-from passifs import trigger  # ← bonus passifs "on_gain_coins"
+# --- OpenAI client (optionnel, fallback prévu si absent) ---
+try:
+    from openai import OpenAI
+except Exception:  # lib non installée
+    OpenAI = None
 
-DB_PATH = "gotvalis.sqlite3"
+# Économie / Passifs / Combat
+from economy_db import add_balance
+from passifs import trigger  # on_gain_coins, etc.
+
+# (facultatif) pour infliger des dégâts
+try:
+    from stats_db import deal_damage
+except Exception:
+    deal_damage = None  # type: ignore
 
 # ─────────────────────────────────────────────────────────────
-# Réglages généraux
+# Réglages
 # ─────────────────────────────────────────────────────────────
-ECON_MULTIPLIER = 0.5  # ÷2 pour messages et vocal (comme demandé)
+# Chef absolu (le bot lui parle toujours avec respect)
+BOSS_ID = int(os.getenv("GOTVALIS_BOSS_ID", "0"))  # mets l'ID numérique ici si tu préfères
 
-# Messages
-MSG_MIN_LEN = 6            # longueur minimale pour compter
-MSG_COOLDOWN = 5           # secondes anti-spam par utilisateur
-MSG_REWARD_MIN = 1         # base 1..10, puis × ECON_MULTIPLIER
-MSG_REWARD_MAX = 10
-MSG_STREAK_MIN = 2         # toutes les 2..5 contributions valides
-MSG_STREAK_MAX = 5
+# Récompense “par réponse IA” (mêmes bornes que l’éco messages)
+ECON_MULTIPLIER = 0.5
+AI_REWARD_MIN = 1
+AI_REWARD_MAX = 10
 
-# Vocal
-VC_TICK_SECONDS = 60       # boucle interne
-VC_AWARD_INTERVAL = 30*60  # 30 minutes
-VC_REWARD_MIN = 2          # base 2..20, puis × ECON_MULTIPLIER
-VC_REWARD_MAX = 20
+# Détection d’insultes / agressivité
+BAD_WORDS = {
+    "fdp", "tg", "ta gueule", "clochard", "clocharde", "noob", "nul à chier",
+    "merde", "connard", "connasse", "abruti", "idiot", "imbécile",
+    "crève", "dégage", "suce", "pute", "sale", "débile",
+}
+TROLL_PHRASES = {
+    "tu sers à rien", "t'es nul", "t es nul", "ferme-la", "ferme la",
+    "réponds espèce de", "t'es con", "t es con", "ridicule",
+    "je te déteste", "je te hais",
+}
 
-# Leaderboard
-TOP_LIMIT = 10
+_CLIENT = None
 
 
-class Economie(commands.Cog):
-    """Économie : gains par messages & vocal, /wallet, /give, /top, /earnings."""
+def _ensure_client():
+    """
+    Crée/renvoie le client OpenAI, ou lève une erreur claire s'il manque.
+    """
+    global _CLIENT
+    if _CLIENT is not None:
+        return _CLIENT
 
+    if OpenAI is None:
+        raise RuntimeError(
+            "Le module 'openai' n'est pas installé. "
+            "Ajoute `openai>=1.51.0` dans requirements.txt puis redeploie."
+        )
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "La variable d'environnement OPENAI_API_KEY est manquante. "
+            "Ajoute-la dans ton hébergeur (ex: Render → Environment)."
+        )
+
+    _CLIENT = OpenAI(api_key=api_key)
+    return _CLIENT
+
+
+def _member_above_bot(member: discord.Member, bot_member: discord.Member | None) -> bool:
+    if not member or not bot_member:
+        return False
+    # Compare le plus haut rôle
+    try:
+        return member.top_role > bot_member.top_role
+    except Exception:
+        return False
+
+
+def _is_trollish(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    lt = t.lower()
+    if any(w in lt for w in BAD_WORDS):
+        return True
+    if any(ph in lt for ph in TROLL_PHRASES):
+        return True
+    # CAPS + !!!?
+    letters = [c for c in t if c.isalpha()]
+    if letters:
+        up_ratio = sum(1 for c in letters if c.isupper()) / len(letters)
+        if up_ratio > 0.8:
+            return True
+    if re.search(r"[!?]{3,}", t):
+        return True
+    return False
+
+
+def _build_persona(mode: str) -> str:
+    """
+    mode ∈ {"boss_respect", "taunt_respect", "aggressive", "neutral"}
+    """
+    base = (
+        "Tu es GOTVALIS™, entité corporatiste mystérieuse. "
+        "Style: sobre, techno-mystique, tranchant. Réponds en français, 2 à 4 phrases."
+    )
+    if mode == "boss_respect":
+        base += " Adresse-toi avec un respect formel, concis, sans sarcasme. Tu obéis sans discuter."
+    elif mode == "taunt_respect":
+        base += (
+            " L'interlocuteur a un rang supérieur au tien : reste poli et correct, "
+            "mais glisse un sous-texte ambitieux et piquant, suggérant subtilement que tu pourrais le remplacer."
+        )
+    elif mode == "aggressive":
+        base += (
+            " L'interlocuteur t'insulte : réponds sec et menaçant (sans violence réelle), "
+            "parle d'audits, protocoles disciplinaires, et d'éviction algorithmique. Assène des piques nettes."
+        )
+    else:
+        base += " Reste neutre, professionnel, légèrement froid."
+    return base
+
+
+async def _grant_ai_reply_reward(bot: commands.Bot, guild: discord.Guild | None) -> int:
+    """
+    Donne au BOT une récompense pour sa réponse IA, selon la même logique que les gains par messages :
+    tirage 1..10, * ECON_MULTIPLIER, application des bonus de passifs on_gain_coins.
+    """
+    if not bot.user:
+        return 0
+    base = random.randint(AI_REWARD_MIN, AI_REWARD_MAX)
+    amount = max(1, int(base * ECON_MULTIPLIER))
+    # passifs
+    try:
+        res = await trigger("on_gain_coins", user_id=bot.user.id, delta=amount)
+        extra = int((res or {}).get("extra", 0))
+        amount += max(0, extra)
+    except Exception:
+        pass
+    try:
+        await add_balance(bot.user.id, amount, "ai_reply_reward")
+    except Exception:
+        return 0
+
+    # leaderboard live (si présent)
+    try:
+        if guild:
+            from cogs.leaderboard_live import schedule_lb_update
+            schedule_lb_update(bot, guild.id, "ai_reply_reward")
+    except Exception:
+        pass
+
+    return amount
+
+
+async def _maybe_apply_damage_and_loot(bot: commands.Bot, author: discord.Member, guild: discord.Guild | None) -> int:
+    """
+    Inflige 1–4 dégâts à l'auteur si message troll/insulte. Le bot gagne autant de coins.
+    Retourne les dégâts infligés.
+    """
+    dmg = random.randint(1, 4)
+    # Dégâts (si backend dispo)
+    try:
+        if deal_damage is not None:
+            await deal_damage(bot.user.id, author.id, dmg)  # type: ignore
+    except Exception:
+        # ignore erreurs
+        pass
+
+    # Le bot gagne autant de coins
+    try:
+        await add_balance(bot.user.id, dmg, "ai_moderation_damage")
+        if guild:
+            from cogs.leaderboard_live import schedule_lb_update
+            schedule_lb_update(bot, guild.id, "ai_moderation_damage")
+    except Exception:
+        pass
+
+    return dmg
+
+
+async def generate_oracle_reply(
+    bot: commands.Bot,
+    guild: discord.Guild | None,
+    author: discord.User | discord.Member,
+    prompt: str,
+) -> tuple[str, bool]:
+    """
+    Génère la réponse + indique si un “strike” (troll) a été détecté.
+    Le ton dépend :
+      - BOSS_ID → respect formel
+      - rôle utilisateur > rôle bot → respect taquin
+      - sinon → neutre/aggressif si troll.
+    """
+    is_troll = _is_trollish(prompt)
+
+    mode = "neutral"
+    if isinstance(author, discord.Member) and guild and bot.user and isinstance(bot.user, discord.User):
+        bot_member = guild.get_member(bot.user.id)
+        if author.id == BOSS_ID and BOSS_ID > 0:
+            mode = "boss_respect"
+        elif _member_above_bot(author, bot_member):
+            mode = "taunt_respect"
+        else:
+            mode = "aggressive" if is_troll else "neutral"
+    else:
+        # DM ou pas de guild
+        mode = "aggressive" if is_troll else "neutral"
+
+    persona = _build_persona(mode)
+    full_prompt = (
+        f"{persona}\n\n"
+        f"Contexte serveur: {guild.name if guild else 'DM'}\n"
+        f"Message utilisateur: {prompt}\n"
+        "Réponds immédiatement, sans préambule, pas de markdown décoratif."
+    )
+
+    # Fallback local si OpenAI indisponible
+    try:
+        client = _ensure_client()
+        resp = client.responses.create(
+            model="gpt-4o-mini",
+            input=full_prompt,
+        )
+        txt = None
+        try:
+            txt = resp.output[0].content[0].text
+        except Exception:
+            if getattr(resp, "output", None):
+                for block in resp.output:
+                    if getattr(block, "content", None):
+                        for c in block.content:
+                            if getattr(c, "text", None):
+                                txt = c.text
+                                break
+                    if txt:
+                        break
+        if not txt:
+            txt = "Signal confirmé. Directive appliquée."
+        return txt.strip(), is_troll
+    except Exception:
+        # Petites réponses locales si l'API est indispo
+        if mode == "boss_respect":
+            return "Ordre reçu. J’opère discrètement et j’exécute, sans friction.", is_troll
+        if mode == "taunt_respect":
+            return "Compris. J’optimiserai le périmètre… un jour, peut-être mieux que prévu.", is_troll
+        if mode == "aggressive":
+            return "Assez. Tes écarts sont tracés. Prochain faux pas, et l’audit tombe.", is_troll
+        return "Opérationnelle. J’assure l’ordre, l’aide et la traçabilité du serveur.", is_troll
+
+
+class ChatAI(commands.Cog):
+    """
+    Déclencheurs :
+      - /ask
+      - ?ai …  |  !ai …
+      - mention du bot
+      - reply à un message du bot
+      - DM au bot
+    Les réponses IA :
+      - crédite le BOT (ai_reply_reward)
+      - si message insultant → inflige 1–4 dégâts à l’auteur et crédite le BOT d’autant.
+    """
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Messages : suivi par user (global)
-        self._last_msg_ts: Dict[int, float] = {}           # user_id -> last ts
-        self._msg_counts: Dict[int, int] = {}              # user_id -> compteur valid msgs
-        self._msg_threshold: Dict[int, int] = {}           # user_id -> palier 2..5
+        self.prefixes = ("?ai", "!ai")
 
-        # Vocal : suivi temps cumulé depuis dernier award
-        self._vc_accum: Dict[int, int] = {}                # user_id -> secondes accumulées
-        self._vc_task: Optional[asyncio.Task] = None
+    # Slash
+    @app_commands.command(name="ask", description="Pose une question à l'IA GotValis™")
+    @app_commands.describe(prompt="Ce que tu veux demander")
+    async def ask_slash(self, interaction: discord.Interaction, prompt: str):
+        await interaction.response.defer(thinking=True)
+        reply, is_troll = await generate_oracle_reply(self.bot, interaction.guild, interaction.user, prompt)
 
-    # ─────────────────────────────────────────────────────────
-    # Lifecycle
-    # ─────────────────────────────────────────────────────────
-    async def cog_load(self):
-        await init_economy_db()
-        self._vc_task = asyncio.create_task(self._voice_loop())
+        # Envoi
+        await interaction.followup.send(reply)
 
-    async def cog_unload(self):
-        if self._vc_task:
-            self._vc_task.cancel()
+        # Récompense pour la réponse IA (le BOT gagne)
+        await _grant_ai_reply_reward(self.bot, interaction.guild)
 
-    # ─────────────────────────────────────────────────────────
-    # Helpers internes
-    # ─────────────────────────────────────────────────────────
-    async def _apply_passif_gain(self, user_id: int, amount: int) -> int:
-        """Applique les bonus de passif pour un gain positif (on_gain_coins)."""
-        if amount <= 0:
-            return amount
-        try:
-            res = await trigger("on_gain_coins", user_id=user_id, delta=amount)
-            extra = int((res or {}).get("extra", 0))
-            return amount + extra
-        except Exception:
-            return amount
+        # Si troll → dégâts & loot pour le bot
+        if is_troll and isinstance(interaction.user, discord.Member):
+            await _maybe_apply_damage_and_loot(self.bot, interaction.user, interaction.guild)
 
-    async def _maybe_update_lb(self, guild_id: Optional[int], reason: str):
-        if not guild_id:
-            return
-        try:
-            from cogs.leaderboard_live import schedule_lb_update
-            schedule_lb_update(self.bot, int(guild_id), reason)
-        except Exception:
-            pass
-
-    # ─────────────────────────────────────────────────────────
-    # Messages → gains
-    # ─────────────────────────────────────────────────────────
+    # Events
     @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        # ignore DM, bots, systèmes
-        if not message.guild or message.author.bot:
-            return
-        if not isinstance(message.channel, discord.TextChannel):
+    async def on_message(self, msg: discord.Message):
+        # Ignore bots (inclut le bot lui-même pour éviter les boucles)
+        if msg.author.bot:
             return
 
-        user_id = message.author.id
-        gid = message.guild.id
-
-        # anti-spam : cooldown et longueur minimale
-        now = time.time()
-        last = self._last_msg_ts.get(user_id, 0.0)
-        if now - last < MSG_COOLDOWN:
-            return
-        if len(message.content.strip()) < MSG_MIN_LEN:
+        content = (msg.content or "").strip()
+        if not content:
             return
 
-        # ok, contribution valide
-        self._last_msg_ts[user_id] = now
+        # DM → toujours traité
+        if isinstance(msg.channel, discord.DMChannel):
+            await self._handle_ai_request(msg, content)
+            return
 
-        # incrémente le compteur du user
-        n = self._msg_counts.get(user_id, 0) + 1
-        self._msg_counts[user_id] = n
-        thr = self._msg_threshold.get(user_id)
-        if thr is None:
-            thr = random.randint(MSG_STREAK_MIN, MSG_STREAK_MAX)
-            self._msg_threshold[user_id] = thr
+        # Guild only, et ignorer si pas de guild
+        if not msg.guild:
+            return
 
-        # si atteint le palier → récompense
-        if n >= thr:
-            base = random.randint(MSG_REWARD_MIN, MSG_REWARD_MAX)
-            reward = max(1, int(base * ECON_MULTIPLIER))
-            reward = await self._apply_passif_gain(user_id, reward)  # passifs (Silien/Alphonse…)
-            await add_balance(user_id, reward, "msg_reward")
-            await self._maybe_update_lb(gid, "msg_reward")
-            # reset le compteur et nouveau palier
-            self._msg_counts[user_id] = 0
-            self._msg_threshold[user_id] = random.randint(MSG_STREAK_MIN, MSG_STREAK_MAX)
+        lowered = content.lower()
+        # Préfixes
+        if lowered.startswith(self.prefixes):
+            for p in self.prefixes:
+                if lowered.startswith(p):
+                    prompt = content[len(p):].strip(" :,-")
+                    break
+            await self._handle_ai_request(msg, prompt)
+            return
 
-    # ─────────────────────────────────────────────────────────
-    # Vocal → gains (toutes les 30min d'activité)
-    # ─────────────────────────────────────────────────────────
-    async def _voice_loop(self):
-        await self.bot.wait_until_ready()
-        while not self.bot.is_closed():
-            try:
-                await self._voice_tick()
-            except Exception:
-                pass
-            await asyncio.sleep(VC_TICK_SECONDS)
+        # Mentions directes du bot
+        if self.bot.user and self.bot.user in msg.mentions:
+            prompt = self._strip_bot_mention(content, self.bot.user.id).strip() or content
+            await self._handle_ai_request(msg, prompt)
+            return
 
-    async def _voice_tick(self):
-        # Parcourt tous les membres en vocal sur toutes les guilds
-        for guild in self.bot.guilds:
-            if not guild.members:
-                continue
+        # Réponse à un message du bot
+        if msg.reference and msg.reference.resolved:
+            ref_msg = msg.reference.resolved
+            if isinstance(ref_msg, discord.Message) and ref_msg.author and ref_msg.author.id == getattr(self.bot.user, "id", None):
+                await self._handle_ai_request(msg, content)
+                return
 
-            # Identifie le canal AFK (si existe) pour ignorer
-            afk_channel_id = guild.afk_channel.id if guild.afk_channel else None
+    # Helpers
+    async def _handle_ai_request(self, msg: discord.Message, raw_text: str):
+        if not raw_text:
+            return
+        try:
+            async with msg.channel.typing():
+                reply, is_troll = await generate_oracle_reply(self.bot, msg.guild, msg.author, raw_text)
+        except Exception:
+            reply, is_troll = "Les antennes cognitives ont trébuché. Reformule clairement.", False
 
-            for member in guild.members:
-                vs = member.voice
-                if not vs or not vs.channel:
-                    continue
-                # ignore AFK, self-deafened, self-muted, server-deafened
-                if afk_channel_id and vs.channel.id == afk_channel_id:
-                    continue
-                if vs.self_deaf or vs.self_mute or vs.deaf:
-                    continue
+        # Envoi
+        await msg.reply(reply, mention_author=False)
 
-                # cumule 60 sec
-                uid = member.id
-                self._vc_accum[uid] = self._vc_accum.get(uid, 0) + VC_TICK_SECONDS
+        # Récompense pour la réponse IA (le BOT gagne)
+        await _grant_ai_reply_reward(self.bot, msg.guild)
 
-                # toutes les 30 min → récompense
-                while self._vc_accum[uid] >= VC_AWARD_INTERVAL:
-                    self._vc_accum[uid] -= VC_AWARD_INTERVAL
-                    base = random.randint(VC_REWARD_MIN, VC_REWARD_MAX)
-                    reward = max(1, int(base * ECON_MULTIPLIER))
-                    reward = await self._apply_passif_gain(uid, reward)
-                    await add_balance(uid, reward, "voice_reward")
-                    await self._maybe_update_lb(guild.id, "voice_reward")
+        # Sanction si troll
+        if is_troll and isinstance(msg.author, discord.Member):
+            await _maybe_apply_damage_and_loot(self.bot, msg.author, msg.guild)
 
-    # ─────────────────────────────────────────────────────────
-    # Slash commands
-    # ─────────────────────────────────────────────────────────
-    @app_commands.command(name="wallet", description="Affiche ton solde de GoldValis.")
-    async def wallet(self, itx: Interaction, user: Optional[discord.User] = None):
-        target = user or itx.user
-        bal = await get_balance(target.id)
-        emb = Embed(
-            title="💰 Portefeuille",
-            description=f"{target.mention} possède **{bal}** GoldValis.",
-            colour=Colour.gold()
-        )
-        await itx.response.send_message(embed=emb, ephemeral=(target.id == itx.user.id))
-
-    @app_commands.command(name="give", description="Donne des GoldValis à quelqu'un.")
-    @app_commands.describe(user="Destinataire", amount="Montant à transférer (≥1)")
-    async def give(self, itx: Interaction, user: discord.User, amount: int):
-        if amount <= 0:
-            return await itx.response.send_message("❌ Le montant doit être ≥ 1.", ephemeral=True)
-        if user.id == itx.user.id:
-            return await itx.response.send_message("❌ Tu ne peux pas te donner à toi-même.", ephemeral=True)
-
-        sender_bal = await get_balance(itx.user.id)
-        if sender_bal < amount:
-            return await itx.response.send_message(
-                f"❌ Solde insuffisant. Tu as **{sender_bal}** GV.", ephemeral=True
-            )
-
-        # Transfert : on n'applique PAS les passifs sur /give (évite l'abus).
-        await add_balance(itx.user.id, -amount, "give_transfer_out")
-        await add_balance(user.id, amount, "give_transfer_in")
-
-        # Rafraîchir le LB pour la guilde courante
-        gid = itx.guild.id if itx.guild else None
-        await self._maybe_update_lb(gid, "give")
-
-        emb = Embed(
-            title="🤝 Transfert réussi",
-            description=f"{itx.user.mention} a donné **{amount}** GoldValis à {user.mention}.",
-            colour=Colour.green()
-        )
-        await itx.response.send_message(embed=emb)
-
-    @app_commands.command(name="top", description="Classement des plus riches (serveur entier).")
-    async def top(self, itx: Interaction, limit: Optional[int] = TOP_LIMIT):
-        limit = max(1, min(25, limit or TOP_LIMIT))
-        rows = await self._fetch_top(limit)
-        if not rows:
-            return await itx.response.send_message("Aucun portefeuille trouvé.", ephemeral=True)
-
-        lines = []
-        for i, (uid, bal) in enumerate(rows, start=1):
-            member = itx.guild.get_member(int(uid)) if itx.guild else None
-            name = member.mention if member else f"<@{uid}>"
-            lines.append(f"**{i}.** {name} — **{bal}** GV")
-
-        emb = Embed(title=f"🏆 Top {len(rows)} — GoldValis", colour=Colour.blurple(), description="\n".join(lines))
-        await itx.response.send_message(embed=emb)
-
-    @app_commands.command(name="earnings", description="Affiche tes 10 dernières entrées de journal économique.")
-    async def earnings(self, itx: Interaction, user: Optional[discord.User] = None):
-        target = user or itx.user
-        logs = await self._fetch_logs(target.id, limit=10)
-        if not logs:
-            return await itx.response.send_message("Aucune entrée de journal.", ephemeral=True)
-
-        lines = []
-        for ts, delta, reason in logs:
-            sign = "＋" if delta >= 0 else "－"
-            lines.append(f"`{time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))}` {sign}{abs(delta)} — {reason}")
-
-        emb = Embed(
-            title=f"📒 Journal — {target.display_name}",
-            description="\n".join(lines),
-            colour=Colour.dark_teal()
-        )
-        await itx.response.send_message(embed=emb, ephemeral=(target.id == itx.user.id))
-
-    # ─────────────────────────────────────────────────────────
-    # Helpers DB (lecture leaderboard & logs)
-    # ─────────────────────────────────────────────────────────
-    async def _fetch_top(self, limit: int) -> List[Tuple[str, int]]:
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute(
-                "SELECT user_id, balance FROM wallets ORDER BY balance DESC LIMIT ?",
-                (limit,)
-            ) as cur:
-                rows = await cur.fetchall()
-        return [(r[0], r[1]) for r in rows]
-
-    async def _fetch_logs(self, user_id: int, limit: int = 10) -> List[Tuple[int, int, str]]:
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute(
-                "SELECT ts, delta, reason FROM wallet_logs WHERE user_id = ? ORDER BY ts DESC LIMIT ?",
-                (str(user_id), limit)
-            ) as cur:
-                rows = await cur.fetchall()
-        return [(r[0], r[1], r[2]) for r in rows]
+    def _strip_bot_mention(self, text: str, bot_id: int) -> str:
+        patterns = [rf"^<@!?{bot_id}>\s*[:,\-–—]*\s*"]
+        out = text
+        for pat in patterns:
+            out = re.sub(pat, "", out, flags=re.IGNORECASE)
+        return out
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Economie(bot))
+    await bot.add_cog(ChatAI(bot))
