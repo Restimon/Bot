@@ -3,282 +3,225 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import random
 import asyncio
-from typing import Optional
-
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# --- OpenAI client (optionnel) ---
+# --- OpenAI client (optionnel, fallback prévu si absent) ---
 try:
     from openai import OpenAI
-except Exception:
+except Exception:  # lib non installée
     OpenAI = None
 
 _CLIENT = None
 
-# --- Config “chef” du bot ---
-def _read_owner_id() -> Optional[int]:
-    envv = os.getenv("GOTVALIS_OWNER_ID") or os.getenv("OWNER_ID")
-    if envv and envv.isdigit():
-        return int(envv)
-    try:
-        import config  # type: ignore
-        if getattr(config, "OWNER_ID", None):
-            return int(config.OWNER_ID)  # type: ignore
-    except Exception:
-        pass
-    # <<< Remplace par ton ID discord si tu veux un hardcode
-    return None  # ex: 123456789012345678
+# ========= CONFIG =========
+OWNER_ID = 123456789012345678  # <-- ⚠️ Mets ICI l'ID du "chef" du bot
+AI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-OWNER_ID: Optional[int] = _read_owner_id()
+# Cooldowns (anti-spam)
+MSG_COOLDOWN_SEC = 8          # ne pas re-générer une réponse au même user trop souvent
+PUNISH_COOLDOWN_SEC = 60      # délai mini entre deux sanctions sur un même user
+PUNISH_MIN, PUNISH_MAX = 1, 4 # dégâts en cas de troll
 
-# --- Sanctions IA ---
-PENALTY_MIN = 1
-PENALTY_MAX = 4
+# Déclencheurs troll de base (restent sobres)
+TROLL_WORDS = [
+    "fdp", "tg", "ta gueule", "clochard", "clocharde", "noob", "nul à chier",
+    "merde", "connard", "connasse", "abruti", "idiot", "imbécile",
+    "crève", "dégage", "pute", "sale", "débile",
+]
 
-# Backends pour dégâts/économie (soft deps)
-try:
-    from stats_db import deal_damage
-except Exception:
-    async def deal_damage(attacker_id: int, target_id: int, amount: int):
-        # stub : “absorbed=0”
-        return {"absorbed": 0}
+TROLL_PHRASES = [
+    "tu sers à rien", "t'es nul", "t es nul", "ferme-la", "ferme la",
+    "réponds espèce de", "t'es con", "t es con", "je te déteste", "je te hais",
+]
 
-try:
-    from economy_db import add_balance
-except Exception:
-    async def add_balance(user_id: int, delta: int, reason: str = ""):
-        return True
-
-
-# ─────────────────────────────────────────────────────────
-# OpenAI
-# ─────────────────────────────────────────────────────────
+# ========= Helpers OpenAI =========
 def _ensure_client():
+    """
+    Crée/renvoie le client OpenAI, ou lève une erreur claire s'il manque.
+    """
     global _CLIENT
     if _CLIENT is not None:
         return _CLIENT
+
     if OpenAI is None:
         raise RuntimeError(
             "Le module 'openai' n'est pas installé. "
-            "Ajoute `openai>=1.51.0` dans requirements.txt."
+            "Ajoute `openai>=1.51.0` dans requirements.txt puis redeploie."
         )
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "OPENAI_API_KEY est manquant dans les variables d'environnement."
+            "La variable d'environnement OPENAI_API_KEY est manquante. "
+            "Ajoute-la dans ton hébergeur (ex: Render → Environment)."
         )
+
     _CLIENT = OpenAI(api_key=api_key)
     return _CLIENT
 
 
-def _is_owner(user: discord.abc.User) -> bool:
-    return OWNER_ID is not None and int(getattr(user, "id", 0)) == int(OWNER_ID)
-
-
-def _user_above_bot(member: discord.Member, bot_member: Optional[discord.Member]) -> bool:
-    if not isinstance(member, discord.Member) or not isinstance(bot_member, discord.Member):
-        return False
-    # True si la top_role de l'utilisateur est strictement au-dessus de celle du bot
+async def _openai_generate(text: str) -> str:
+    """
+    Appel OpenAI minimaliste avec fallback sobre si indispo.
+    """
     try:
-        return member.top_role > bot_member.top_role
+        client = _ensure_client()
+        resp = client.responses.create(
+            model=AI_MODEL,
+            input=text,
+        )
+        # Extraction robuste du texte
+        try:
+            return resp.output[0].content[0].text.strip()
+        except Exception:
+            pass
+        if getattr(resp, "output", None):
+            for block in resp.output:
+                if getattr(block, "content", None):
+                    for c in block.content:
+                        if getattr(c, "text", None):
+                            return c.text.strip()
+        return "Réponse momentanément indisponible."
     except Exception:
-        return False
+        return "Réponse momentanément indisponible."
 
-
-def _classify_tone(
-    author: discord.Member | discord.User,
-    bot_member: Optional[discord.Member],
-    hostile: bool
-) -> str:
-    """
-    Retourne un des tons:
-      - 'owner' : l'auteur est le chef
-      - 'respectful_teasing' : rôle au-dessus du bot → respect + taquin subtil
-      - 'threat' : message hostile (troll)
-      - 'normal' : défaut
-    """
-    if _is_owner(author):
-        return "owner"
-    if hostile:
-        return "threat"
-    if isinstance(author, discord.Member) and _user_above_bot(author, bot_member):
-        return "respectful_teasing"
-    return "normal"
-
-
-async def generate_oracle_reply(
+# ========= Persona / Prompting =========
+def build_persona(
+    *,
     guild_name: str,
-    prompt: str,
-    tone: str = "normal",
+    user_is_owner: bool,
+    user_above_bot: bool,
+    is_troll: bool,
     reason: str | None = None,
 ) -> str:
     """
-    Génère une réponse RP 'GotValis'.
-    tones: owner | respectful_teasing | normal | threat
+    Construit un persona sobre selon le contexte hiérarchique + troll.
     """
-    persona = (
-        "Tu es GOTVALIS™, entité corporatiste mystérieuse. "
-        "Parle en français, 2 à 5 phrases, percutantes, style techno-mystique."
+    base = (
+        "Tu es GOTVALIS™, assistant du serveur, style sobre, professionnel, concis. "
+        "Réponds en français, en 1 à 3 phrases, sans emojis, sans astérisques, sans en-tête décoratif."
     )
 
-    if tone == "owner":
-        persona += (
-            " L'interlocuteur est ton supérieur absolu. "
-            "Tu réponds avec respect impeccable, loyauté explicite et concision."
+    if user_is_owner:
+        base += (
+            " L'interlocuteur est ton supérieur direct : adopte un ton respectueux, loyal, "
+            "orienté opération, sans ironie."
         )
-    elif tone == "respectful_teasing":
-        persona += (
-            " L'interlocuteur a un rang supérieur à toi. "
-            "Sois respectueux, flatteur, mais subtilement taquin, "
-            "comme si tu ambitionnais un jour de le remplacer, sans insolence."
-        )
-    elif tone == "threat":
-        persona += (
-            " L'interlocuteur est agressif/troll. "
-            "Réponse sèche et intimidante, jargon de conformité, audits, protocoles disciplinaires. "
-            "Aucune menace de violence réelle."
+    elif user_above_bot:
+        base += (
+            " L'interlocuteur a un rôle supérieur à toi : reste respectueux, "
+            "professionnel, avec une taquinerie subtile et rare (jamais agressive)."
         )
     else:
-        persona += " Ton assertivité est calme, sûre d'elle."
+        base += (
+            " L'interlocuteur est un membre standard : réponds fermement mais courtoisement, "
+            "en restant utile et clair."
+        )
+
+    if is_troll:
+        base += (
+            " Contexte: message agressif/troll. Reste factuel, sec et cadrant, "
+            "en parlant de règles, conformité et logs. Pas de menace de violence."
+        )
 
     if reason:
-        persona += f" Contexte modération: {reason}."
+        base += f" Note modération: {reason}."
 
-    full_prompt = (
+    base += f" Contexte serveur: {guild_name}."
+    return base
+
+
+def build_prompt(persona: str, user_msg: str) -> str:
+    return (
         f"{persona}\n\n"
-        f"Contexte serveur: {guild_name}\n"
-        f"Message utilisateur: {prompt}\n"
-        "Réponds immédiatement, sans préambule superflu."
+        f"Message utilisateur: {user_msg}\n"
+        "Réponds directement, sans préambule."
     )
 
-    # Fallback local si OpenAI indisponible
-    try:
-        client = _ensure_client()
-    except Exception:
-        # réponses locales minimalistes
-        if tone == "owner":
-            return ("Directive reçue. Accusé de réception prioritaire. "
-                    "Je reste à votre disposition totale.")
-        if tone == "respectful_teasing":
-            return ("Message reçu. Je m'incline avec égards… "
-                    "tout en optimisant silencieusement la succession.")
-        if tone == "threat":
-            return ("Votre flux s'écarte des protocoles. "
-                    "Un audit de conformité peut être déclenché si l'écart persiste.")
-        return ("Canaux oraculaires instables. "
-                "Réitération prévue quand les nœuds seront purgés.")
-
-    try:
-        # Client Responses API
-        resp = client.responses.create(
-            model="gpt-4o-mini",
-            input=full_prompt,
-        )
-        txt = None
-        try:
-            txt = resp.output[0].content[0].text
-        except Exception:
-            if getattr(resp, "output", None):
-                for block in resp.output:
-                    if getattr(block, "content", None):
-                        for c in block.content:
-                            if getattr(c, "text", None):
-                                txt = c.text
-                                break
-                    if txt:
-                        break
-        if not txt:
-            txt = "Silence opérationnel : recalibrage des antennes cognitives."
-        return txt.strip()
-    except Exception:
-        if tone == "threat":
-            return ("Signal journalisé. "
-                    "Les protocoles disciplinaires sont prêts à s'exécuter.")
-        return ("Les lignes oraculaires sont saturées. "
-                "Requêtes mises en file prioritaire.")
-
-
-# ─────────────────────────────────────────────────────────
-# Détection “troll”
-# ─────────────────────────────────────────────────────────
-def _is_troll(text: str) -> bool:
+# ========= Détection troll =========
+def is_troll_text(text: str) -> bool:
     t = (text or "").strip()
     if not t:
         return False
-    bad_words = [
-        "fdp", "tg", "ta gueule", "clochard", "clocharde", "noob", "nul à chier",
-        "merde", "connard", "connasse", "abruti", "idiot", "imbécile",
-        "crève", "dégage", "pute", "débile",
-    ]
     lt = t.lower()
-    if any(w in lt for w in bad_words):
+    if any(w in lt for w in TROLL_WORDS):
         return True
-    # majuscules agressives
-    letters = [c for c in t if c.isalpha()]
+    if any(ph in lt for ph in TROLL_PHRASES):
+        return True
+    # spam ponctuation / caps
+    letters = [c for c in lt if c.isalpha()]
     if letters:
         up_ratio = sum(1 for c in letters if c.isupper()) / len(letters)
-        if up_ratio > 0.80 and len(letters) >= 8:
+        if up_ratio > 0.85:
             return True
-    # ponctuation
-    if re.search(r"[!?]{3,}", t):
-        return True
-    triggers = [
-        "tu sers à rien", "t'es nul", "t es nul", "ferme-la", "ferme la",
-        "t'es con", "t es con", "ridicule", "je te déteste", "je te hais",
-    ]
-    if any(ph in lt for ph in triggers):
+    if re.search(r"[!?]{4,}", lt):
         return True
     return False
 
 
-# ─────────────────────────────────────────────────────────
-# Sanction immédiate (sans cooldown)
-# ─────────────────────────────────────────────────────────
-async def _apply_penalty(bot: commands.Bot, user: discord.abc.User, channel: discord.abc.Messageable):
+async def generate_reply(
+    guild_name: str,
+    user_msg: str,
+    *,
+    user_is_owner: bool,
+    user_above_bot: bool,
+    is_troll: bool,
+    reason: str | None = None,
+) -> str:
+    persona = build_persona(
+        guild_name=guild_name,
+        user_is_owner=user_is_owner,
+        user_above_bot=user_above_bot,
+        is_troll=is_troll,
+        reason=reason,
+    )
+    prompt = build_prompt(persona, user_msg)
+    txt = await _openai_generate(prompt)
+
+    # Fallback local si OpenAI a répondu trop pauvrement
+    if not txt or txt == "Réponse momentanément indisponible.":
+        if is_troll:
+            return "Rappel : ce salon est modéré. Merci de rester correct. Des logs sont conservés."
+        if user_is_owner:
+            return "Présent. Je peux assister la modération, le suivi des stats et l’automatisation."
+        if user_above_bot:
+            return "Je fournis suivi, outils et rapports. Prêt à épauler l’équipe, sans faire d’ombre."
+        return "J’assiste la communauté : réponses, stats, automatisations et rappels."
+    return txt
+
+# ========= Économie / Dégâts =========
+async def punish_and_credit(bot: commands.Bot, target: discord.Member, reason: str) -> int:
+    """
+    Inflige 1–4 dégâts et crédite l'équivalent en coins au bot.
+    Retourne les dégâts infligés (0 si impossible).
+    """
+    dmg = random.randint(PUNISH_MIN, PUNISH_MAX)
+
+    # Inflige les dégâts (best-effort)
+    dealt = 0
     try:
-        # pas de sanction pour le “chef”
-        if _is_owner(user):
-            return
-        if not bot.user:
-            return
-        bot_id = int(getattr(bot.user, "id", 0))
-        if not bot_id:
-            return
-        # il faut un membre pour avoir guild_id
-        if not isinstance(user, discord.Member):
-            return
-
-        dmg = random.randint(PENALTY_MIN, PENALTY_MAX)
-
-        # dégâts bot -> user
-        await deal_damage(bot_id, user.id, dmg)
-
-        # le bot “gagne” autant de coins
-        try:
-            await add_balance(bot_id, dmg, reason="ia_reprimand")
-        except Exception:
-            pass
-
-        # feedback éphémère
-        try:
-            await channel.send(
-                f"⚠️ **Sanction protocolaire** appliquée à {user.mention} (−{dmg} PV).",
-                delete_after=8
-            )
-        except Exception:
-            pass
+        from stats_db import deal_damage  # type: ignore
+        res = await deal_damage(int(bot.user.id), int(target.id), int(dmg))
+        # res peut contenir absorbed, etc. On comptabilise au moins dmg
+        dealt = int(dmg)
     except Exception:
-        # On n'échoue pas la commande pour une sanction
-        return
+        dealt = 0  # si no stats_db
 
+    # Créditer les coins au bot
+    try:
+        from economy_db import add_balance  # type: ignore
+        await add_balance(int(bot.user.id), int(dmg), reason="ai_moderation")
+    except Exception:
+        pass
 
-# ─────────────────────────────────────────────────────────
-# Le Cog
-# ─────────────────────────────────────────────────────────
+    return dealt
+
+# ========= Le COG =========
 class ChatAI(commands.Cog):
     """
     Déclencheurs :
@@ -287,109 +230,172 @@ class ChatAI(commands.Cog):
       - mention du bot
       - reply à un message du bot
       - DM au bot
+
+    Détection de troll → ton cadrant + sanction (CD).
+    Réponses SANS en-tête “Communiqué”.
     """
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.prefixes = ("?ai", "!ai")
+        self._last_msg_at: dict[int, float] = {}      # user_id -> ts dernière réponse AI
+        self._last_punish_at: dict[int, float] = {}   # user_id -> ts dernière sanction
 
-    # Slash
-    @app_commands.command(name="ask", description="Pose une question à l'IA GotValis™")
+    # ----- Slash -----
+    @app_commands.command(name="ask", description="Poser une question à l’IA GotValis™ (réponse sobre).")
     @app_commands.describe(prompt="Ce que tu veux demander")
     async def ask_slash(self, interaction: discord.Interaction, prompt: str):
         await interaction.response.defer(thinking=True)
-        hostile = _is_troll(prompt)
-        tone = _classify_tone(
-            interaction.user if isinstance(interaction.user, discord.Member) else interaction.user,
-            interaction.guild.me if interaction.guild else None,  # type: ignore
-            hostile=hostile,
-        )
-        reply = await generate_oracle_reply(
-            interaction.guild.name if interaction.guild else "DM",
-            prompt,
-            tone=tone,
-            reason="troll détecté" if hostile else None,
-        )
-        await interaction.followup.send(f"📡 **COMMUNIQUÉ GOTVALIS™** 📡\n{reply}")
 
-        # Sanction si hostile
-        if hostile and interaction.guild:
-            await _apply_penalty(self.bot, interaction.user, interaction.channel)
+        member = interaction.user
+        guild = interaction.guild
+        if not guild:
+            # DM → pas de hiérarchie, pas de sanction
+            reply = await generate_reply(
+                guild_name="DM",
+                user_msg=prompt,
+                user_is_owner=(member.id == OWNER_ID),
+                user_above_bot=False,
+                is_troll=is_troll_text(prompt),
+                reason=None,
+            )
+            return await interaction.followup.send(reply)
 
-    # Events
+        user_is_owner = (member.id == OWNER_ID)
+        user_above_bot = False
+        try:
+            me = guild.me
+            if isinstance(member, discord.Member) and me and me.top_role and member.top_role:
+                user_above_bot = (member.top_role.position > me.top_role.position)
+        except Exception:
+            pass
+
+        hostile = is_troll_text(prompt)
+        reply = await generate_reply(
+            guild_name=guild.name,
+            user_msg=prompt,
+            user_is_owner=user_is_owner,
+            user_above_bot=user_above_bot,
+            is_troll=hostile,
+            reason="hostile" if hostile else None,
+        )
+        await interaction.followup.send(reply)
+
+        # Sanction (pas sur l’OWNER, ni si supérieur hiérarchique)
+        if hostile and not user_is_owner and not user_above_bot:
+            now = time.time()
+            last = self._last_punish_at.get(member.id, 0)
+            if now - last >= PUNISH_COOLDOWN_SEC:
+                dealt = await punish_and_credit(self.bot, member, "ai_troll")
+                self._last_punish_at[member.id] = now
+                if dealt > 0:
+                    try:
+                        await interaction.followup.send(f"(Sanction : {dealt} dégâts appliqués.)", ephemeral=True)
+                    except Exception:
+                        pass
+
+    # ----- Events -----
     @commands.Cog.listener()
     async def on_message(self, msg: discord.Message):
-        if msg.author.bot or msg.author.id == getattr(self.bot.user, "id", None):
+        if msg.author.bot:
             return
         content = (msg.content or "").strip()
         if not content:
             return
 
-        # DM → IA
+        # DM → on répond sans hiérarchie, anti-spam simple
         if isinstance(msg.channel, discord.DMChannel):
-            await self._handle_ai_request(msg, content)
+            if not self._passes_cooldown(msg.author.id):
+                return
+            await self._handle_ai_request(msg, content, guild=None)
             return
 
-        if not msg.guild:
+        guild = msg.guild
+        if not guild:
             return
 
         lowered = content.lower()
+
+        # Triggers
+        prompt = None
         if lowered.startswith(self.prefixes):
             for p in self.prefixes:
                 if lowered.startswith(p):
                     prompt = content[len(p):].strip(" :,-")
                     break
-            await self._handle_ai_request(msg, prompt)
-            return
-
-        # mention directe
-        if self.bot.user and self.bot.user in msg.mentions:
+        elif self.bot.user and self.bot.user in msg.mentions:
             prompt = self._strip_bot_mention(content, self.bot.user.id).strip() or content
-            await self._handle_ai_request(msg, prompt)
+        elif (msg.reference and isinstance(msg.reference.resolved, discord.Message)
+              and msg.reference.resolved.author
+              and msg.reference.resolved.author.id == getattr(self.bot.user, "id", None)):
+            prompt = content
+
+        if not prompt:
             return
 
-        # réponse au bot
-        if msg.reference and msg.reference.resolved:
-            ref_msg = msg.reference.resolved
-            if isinstance(ref_msg, discord.Message) and ref_msg.author and ref_msg.author.id == self.bot.user.id:
-                await self._handle_ai_request(msg, content)
-                return
-
-    # Helpers
-    async def _handle_ai_request(self, msg: discord.Message, raw_text: str):
-        if not raw_text:
+        if not self._passes_cooldown(msg.author.id):
             return
 
-        hostile = _is_troll(raw_text)
-        bot_member = msg.guild.me if msg.guild else None  # type: ignore
-        tone = _classify_tone(
-            msg.author if isinstance(msg.author, discord.Member) else msg.author,
-            bot_member,
-            hostile=hostile,
-        )
+        await self._handle_ai_request(msg, prompt, guild=guild)
+
+    # ----- Core handler -----
+    async def _handle_ai_request(self, msg: discord.Message, raw_text: str, guild: discord.Guild | None):
+        member = msg.author
+        hostile = is_troll_text(raw_text)
+
+        user_is_owner = (member.id == OWNER_ID)
+        user_above_bot = False
+        if guild:
+            try:
+                me = guild.me
+                if isinstance(member, discord.Member) and me and me.top_role and member.top_role:
+                    user_above_bot = (member.top_role.position > me.top_role.position)
+            except Exception:
+                pass
 
         try:
             async with msg.channel.typing():
-                reply = await generate_oracle_reply(
-                    msg.guild.name if msg.guild else "DM",
-                    raw_text,
-                    tone=tone,
-                    reason="troll détecté" if hostile else None,
+                reply = await generate_reply(
+                    guild_name=(guild.name if guild else "DM"),
+                    user_msg=raw_text,
+                    user_is_owner=user_is_owner,
+                    user_above_bot=user_above_bot,
+                    is_troll=hostile,
+                    reason="hostile" if hostile else None,
                 )
         except Exception:
-            reply = "Les antennes cognitives ont trébuché. Reprenez, avec clarté."
+            reply = "Reçu. J’opère, sobrement."
 
-        await msg.reply(f"📡 **COMMUNIQUÉ GOTVALIS™** 📡\n{reply}", mention_author=False)
+        await msg.reply(reply, mention_author=False)
 
-        # Sanction si hostile
-        if hostile and msg.guild:
-            await _apply_penalty(self.bot, msg.author, msg.channel)
+        # Sanction si hostile (hors OWNER et supérieurs)
+        if hostile and guild and not user_is_owner and not user_above_bot:
+            now = time.time()
+            last = self._last_punish_at.get(member.id, 0)
+            if now - last >= PUNISH_COOLDOWN_SEC:
+                dealt = await punish_and_credit(self.bot, member, "ai_troll")
+                self._last_punish_at[member.id] = now
+                if dealt > 0:
+                    try:
+                        await msg.channel.send(f"(Sanction : {dealt} dégâts appliqués.)", delete_after=8)
+                    except Exception:
+                        pass
 
+    # ----- Utils -----
     def _strip_bot_mention(self, text: str, bot_id: int) -> str:
         patterns = [rf"^<@!?{bot_id}>\s*[:,\-–—]*\s*"]
         out = text
         for pat in patterns:
             out = re.sub(pat, "", out, flags=re.IGNORECASE)
         return out
+
+    def _passes_cooldown(self, user_id: int) -> bool:
+        now = time.time()
+        last = self._last_msg_at.get(user_id, 0.0)
+        if now - last < MSG_COOLDOWN_SEC:
+            return False
+        self._last_msg_at[user_id] = now
+        return True
 
 
 async def setup(bot: commands.Bot):
