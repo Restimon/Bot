@@ -1,8 +1,10 @@
+# cogs/combat_cog.py
 from __future__ import annotations
 
 import asyncio
 import json
 import random
+import time
 from typing import Dict, Tuple, List, Optional
 
 import discord
@@ -99,9 +101,54 @@ def get_all_tick_targets() -> List[Tuple[int, int]]:
     return list(seen)
 
 # ─────────────────────────────────────────────────────────────
+# Helpers d’affichage & calcul
+# ─────────────────────────────────────────────────────────────
+def _fmt_parentheses_damage(raw: int, absorbed: int = 0, reduced: int = 0) -> str:
+    """
+    Construit la parenthèse explicative: (10 PV - 5 🛡 - 3 🪖)
+    N’affiche pas les éléments à 0 pour rester compact.
+    """
+    parts = [f"{raw} PV"]
+    if absorbed > 0:
+        parts.append(f"- {absorbed} 🛡")
+    if reduced > 0:
+        parts.append(f"- {reduced} 🪖")
+    return "(" + " ".join(parts) + ")"
+
+async def _sum_effect_value(user_id: int, rows: List[tuple], *types_: str) -> float:
+    out = 0.0
+    wanted = set(types_)
+    for eff_type, value, interval, next_ts, end_ts, source_id, meta_json in rows:
+        if eff_type in wanted:
+            try: out += float(value or 0.0)
+            except Exception: pass
+    return out
+
+async def _get_active_reduction_factor(user_id: int) -> float:
+    """
+    Retourne la réduction active (0..0.95) d’après effects_db.list_effects et passifs.
+    Additionne les effets de type 'reduction', 'reduction_temp', 'reduction_valen' + bonus passifs.
+    """
+    try:
+        rows = await list_effects(user_id)
+    except Exception:
+        rows = []
+    base = await _sum_effect_value(user_id, rows, "reduction", "reduction_temp", "reduction_valen")
+    try:
+        extra = float(await get_extra_reduction_percent(user_id) or 0.0)
+    except Exception:
+        extra = 0.0
+    fac = max(0.0, min(0.95, base + extra))
+    return fac
+
+# ─────────────────────────────────────────────────────────────
 # Broadcaster des ticks (appelé par effects_db)
 # ─────────────────────────────────────────────────────────────
 async def _effects_broadcaster(bot: commands.Bot, guild_id: int, channel_id: int, payload: Dict):
+    """
+    Essaie d’afficher les ticks avec la même parenthèse (raw − 🛡 − 🪖) si le payload
+    fournit suffisamment d’infos. Sinon, fallback sur payload['lines'].
+    """
     target_gid = guild_id
     target_cid = channel_id
     uid = payload.get("user_id")
@@ -110,10 +157,39 @@ async def _effects_broadcaster(bot: commands.Bot, guild_id: int, channel_id: int
     channel = bot.get_channel(int(target_cid))
     if not channel or not isinstance(channel, (discord.TextChannel, discord.Thread)):
         channel = bot.get_channel(int(channel_id))
-        if not channel: return
-    embed = discord.Embed(title=str(payload.get("title", "GotValis")), color=payload.get("color", 0x2ecc71))
-    lines = payload.get("lines") or []
-    if lines: embed.description = "\n".join(lines)
+        if not channel:
+            return
+
+    title = str(payload.get("title", "Action de GotValis"))
+    color = int(payload.get("color", 0xE67E22))
+
+    # Tentative de reconstruction "à l’ancienne"
+    raw = payload.get("raw")         # dégâts bruts du tick
+    absorbed = payload.get("absorbed", 0)
+    reduced = payload.get("reduced", 0)
+    hp_before = payload.get("hp_before")
+    hp_after = payload.get("hp_after")
+    mention = payload.get("mention")  # cible sous forme de mention si fournie
+
+    embed = discord.Embed(title=title, color=color)
+
+    if isinstance(raw, int) and isinstance(hp_before, int) and isinstance(hp_after, int):
+        paren = _fmt_parentheses_damage(raw, int(absorbed or 0), int(reduced or 0))
+        who = str(mention) if mention else "La cible"
+        lines = [
+            f"{who} subit **{paren}**.",
+            f"❤️ **{hp_before} PV** - **{paren}** = ❤️ **{hp_after} PV**",
+        ]
+        rem = payload.get("remaining_txt")
+        if rem:
+            lines.append(rem)
+        embed.description = "\n".join(lines)
+    else:
+        # Fallback: lignes brutes passées par l’effet
+        lines = payload.get("lines") or []
+        if lines:
+            embed.description = "\n".join(lines)
+
     await channel.send(embed=embed)
 
 # ─────────────────────────────────────────────────────────────
@@ -136,7 +212,7 @@ class CombatCog(commands.Cog):
         asyncio.create_task(runner())
 
     # ─────────────────────────────────────────────────────────
-    # Helpers
+    # Helpers inventaire
     # ─────────────────────────────────────────────────────────
     async def _consume_item(self, user_id: int, emoji: str) -> bool:
         try:
@@ -159,28 +235,17 @@ class CombatCog(commands.Cog):
         except Exception:
             pass
 
-    async def _sum_effect_value(self, user_id: int, *types_: str) -> float:
-        out = 0.0
+    async def _compute_dodge_chance(self, user_id: int) -> float:
+        try:
+            base = float(await get_extra_dodge_chance(user_id) or 0.0)
+        except Exception:
+            base = 0.0
         try:
             rows = await list_effects(user_id)
-            wanted = set(types_)
-            for eff_type, value, interval, next_ts, end_ts, source_id, meta_json in rows:
-                if eff_type in wanted:
-                    try: out += float(value)
-                    except Exception: pass
         except Exception:
-            pass
-        return out
-
-    async def _compute_dodge_chance(self, user_id: int) -> float:
-        base = await get_extra_dodge_chance(user_id)
-        buffs = await self._sum_effect_value(user_id, "esquive", "esquive+")
+            rows = []
+        buffs = await _sum_effect_value(user_id, rows, "esquive", "esquive+")
         return min(base + float(buffs), 0.95)
-
-    async def _compute_reduction_pct(self, user_id: int) -> float:
-        base = await get_extra_reduction_percent(user_id)
-        buffs = await self._sum_effect_value(user_id, "reduction", "reduction_temp", "reduction_valen")
-        return min(base + float(buffs), 0.90)
 
     async def _calc_outgoing_penalty(self, attacker_id: int, base: int) -> int:
         try:
@@ -214,8 +279,19 @@ class CombatCog(commands.Cog):
         base_damage: int,
         is_crit_flag: bool,
         note_footer: Optional[str] = None,
-    ) -> Tuple[int, int, bool, str]:
+    ) -> Dict[str, int | bool | str]:
+        """
+        Retourne un dict:
+        {
+          'lost': int,        # PV réellement perdus (après PB)
+          'absorbed': int,    # PB consommé
+          'reduced': int,     # réduction totale (🪖 + éventuels flats)
+          'dodged': bool,
+          'ko_txt': str
+        }
+        """
 
+        # Esquive ?
         dodge = await self._compute_dodge_chance(target.id)
         if random.random() < dodge:
             try:
@@ -224,8 +300,9 @@ class CombatCog(commands.Cog):
                               final_taken=0, dodged=True)
             except Exception:
                 pass
-            return 0, 0, True, "\n🛰️ **Esquive !**"
+            return {'lost': 0, 'absorbed': 0, 'reduced': 0, 'dodged': True, 'ko_txt': ""}
 
+        # Hooks pré-défense
         try:
             predef = await trigger("on_defense_pre",
                                    defender_id=target.id,
@@ -233,34 +310,45 @@ class CombatCog(commands.Cog):
                                    incoming=int(base_damage)) or {}
         except Exception:
             predef = {}
+
         cancel = bool(predef.get("cancel"))
         half   = bool(predef.get("half"))
         flat   = int(predef.get("flat_reduce", 0))
         counter_frac = float(predef.get("counter_frac", 0.0) or 0.0)
 
-        dr_pct = await self._compute_reduction_pct(target.id)
+        # Réduction 🪖 cumulée
+        dr_pct = await _get_active_reduction_factor(target.id)
 
+        # Calcul: on part des dégâts "bruts" (post-crit, post-malus sortant)
         if cancel:
-            dmg_final = 0
+            dmg_after_dr_flat = 0
         else:
-            dmg_final = int(base_damage * (0.5 if half else 1.0))
-            dmg_final = int(dmg_final * (1.0 - dr_pct))
-            dmg_final = max(0, dmg_final - flat)
+            step1 = int(round(base_damage * (0.5 if half else 1.0)))
+            step2 = int(round(step1 * (1.0 - dr_pct)))
+            dmg_after_dr_flat = max(0, step2 - max(0, flat))
 
-        res = await deal_damage(attacker.id, target.id, int(dmg_final))
+        # Partie affichage: total réduit = (base - ce qui reste avant PB)
+        reduced_total = max(0, base_damage - dmg_after_dr_flat)
+
+        # Application réelle: PB puis PV
+        res = await deal_damage(attacker.id, target.id, int(dmg_after_dr_flat))
         absorbed = int(res.get("absorbed", 0) or 0)
+        lost = int(res.get("lost", 0) or 0)
 
-        if counter_frac > 0 and dmg_final > 0:
+        # Contre-attaque éventuelle
+        if counter_frac > 0 and dmg_after_dr_flat > 0:
             try:
-                counter = max(1, int(round(dmg_final * counter_frac)))
+                counter = max(1, int(round(dmg_after_dr_flat * counter_frac)))
                 await deal_damage(target.id, attacker.id, counter)
             except Exception:
                 pass
 
+        # KO / anti-KO
         ko_txt = ""
         if await is_dead(target.id):
             if await undying_zeyra_check_and_mark(target.id):
-                await heal_user(target.id, 1)
+                # remet à 1 PV
+                await heal_user(healer_id=target.id, target_id=target.id, amount=1)
                 ko_txt = "\n⭐ **Volonté de Fracture** : survit à 1 PV."
             else:
                 await revive_full(target.id)
@@ -269,11 +357,11 @@ class CombatCog(commands.Cog):
         try:
             await trigger("on_defense_after",
                           defender_id=target.id, attacker_id=attacker.id,
-                          final_taken=dmg_final, dodged=False)
+                          final_taken=lost, dodged=False)
         except Exception:
             pass
 
-        return int(dmg_final), absorbed, False, ko_txt
+        return {'lost': lost, 'absorbed': absorbed, 'reduced': reduced_total, 'dodged': False, 'ko_txt': ko_txt}
 
     # ========= AFFICHAGE “ANCIEN STYLE” (avec GIF en bas) =========
     def _oldstyle_embed(
@@ -282,7 +370,10 @@ class CombatCog(commands.Cog):
         attacker: discord.Member,
         target: discord.Member,
         hp_before: int,
-        pv_lost: int,
+        raw_damage: int,
+        lost: int,
+        absorbed: int,
+        reduced: int,
         hp_after: int,
         ko_txt: str,
         dodged: bool,
@@ -291,13 +382,15 @@ class CombatCog(commands.Cog):
     ) -> discord.Embed:
         title = f"{emoji} Action de GotValis"
         e = discord.Embed(title=title, color=discord.Color.orange())
+
         if dodged:
             e.description = f"{attacker.mention} tente {emoji} sur {target.mention}…\n🛰️ **Esquive !**{ko_txt}"
         else:
+            paren = _fmt_parentheses_damage(raw_damage, absorbed, reduced)
             lines = [
-                f"{attacker.mention} inflige **{pv_lost}** dégâts à {target.mention} avec {emoji} !",
-                f"{target.mention} perd (**{pv_lost} PV**)",
-                f"❤️ **{hp_before} PV** - (**{pv_lost} PV**) = ❤️ **{hp_after} PV**"
+                f"{attacker.mention} inflige {emoji} sur {target.mention} !",
+                f"{target.mention} perd **{paren}**",
+                f"❤️ **{hp_before} PV** - **{paren}** = ❤️ **{hp_after} PV**"
             ]
             if ko_txt:
                 lines.append(ko_txt.strip())
@@ -306,9 +399,9 @@ class CombatCog(commands.Cog):
         if isinstance(gif_url, str) and (gif_url.startswith("http://") or gif_url.startswith("https://")):
             e.set_image(url=gif_url)
         return e
-        
+
     # ========= ACTIONS CONCRÈTES =========
-    async def _roll_value(self, info: dict, key_default: int = 1) -> int:
+    async def _roll_value(self, info: dict, key_default: int = 5) -> int:
         if isinstance(info, dict):
             if "min" in info and "max" in info:
                 try:
@@ -335,16 +428,16 @@ class CombatCog(commands.Cog):
     ) -> discord.Embed:
         # Base dégâts
         base = await self._roll_value(info, 5)
-        # Critiques
-        crit_chance = float(info.get("crit_chance", 0.10) or 0.0)
+
+        # Critiques (supporte 'crit' ou 'crit_chance')
+        crit_chance = float(info.get("crit", info.get("crit_chance", 0.10)) or 0.0)
         crit_mult   = float(info.get("crit_mult", 1.5) or 1.0)
         is_crit = (random.random() < max(0.0, min(crit_chance, 1.0)))
         if is_crit:
             base = int(round(base * max(1.0, crit_mult)))
 
         # Malus d'attaque
-        base -= int(await self._calc_outgoing_penalty(attacker.id, base))
-        base = max(0, base)
+        base = max(0, base - int(await self._calc_outgoing_penalty(attacker.id, base)))
 
         # Virus : transfert avant le coup
         try:
@@ -354,33 +447,43 @@ class CombatCog(commands.Cog):
 
         # Résolution
         hp_before, _ = await get_hp(target.id)
-        dmg_final, absorbed, dodged, ko_txt = await self._resolve_hit(
-            inter, attacker, target, base, is_crit, None
-        )
+        result = await self._resolve_hit(inter, attacker, target, base, is_crit, None)
+        lost = int(result["lost"])
+        absorbed = int(result["absorbed"])
+        reduced = int(result["reduced"])
+        dodged = bool(result["dodged"])
+        ko_txt = str(result["ko_txt"])
         hp_after, _ = await get_hp(target.id)
 
         # Hook passifs
         try:
-            await trigger("on_attack", attacker_id=attacker.id, target_id=target.id, damage_done=dmg_final)
+            await trigger("on_attack", attacker_id=attacker.id, target_id=target.id, damage_done=lost)
         except Exception:
             pass
 
         # GIF: critique → CRIT_GIF, sinon GIF spécifique de l’emoji
         gif_normal = None
         try:
-            gif_normal = FIGHT_GIFS.get(emoji)
+            gif_normal = FIGHT_GIFS.get(emoji) or (OBJETS.get(emoji) or {}).get("gif")  # fallback
         except Exception:
             gif_normal = None
-        gif_url = CRIT_GIF if (is_crit and not dodged and dmg_final > 0) else gif_normal
+        gif_url = CRIT_GIF if (is_crit and not dodged and lost > 0) else gif_normal
 
-        # Embed
+        # Embed (parenthèse: base bruts, -PB absorbé, -réduction)
         e = self._oldstyle_embed(
-            emoji, attacker, target, hp_before, dmg_final, hp_after, ko_txt, dodged, gif_url=gif_url
+            emoji, attacker, target,
+            hp_before,
+            base,               # RAW
+            lost,
+            absorbed,
+            reduced,
+            hp_after,
+            ko_txt,
+            dodged,
+            gif_url=gif_url
         )
-        if is_crit and not dodged and dmg_final > 0:
+        if is_crit and not dodged and lost > 0:
             e.add_field(name="💥 Critique !", value=f"x{crit_mult:g}", inline=True)
-        if absorbed > 0 and not dodged:
-            e.add_field(name="🛡 Bouclier", value=f"-{absorbed} absorbés", inline=True)
         return e
 
     async def _apply_chain_attack(
@@ -392,6 +495,7 @@ class CombatCog(commands.Cog):
         info: dict
     ) -> discord.Embed:
         embed = await self._apply_attack(inter, attacker, target, emoji, info)
+        # seconde frappe “chaîne” simplifiée
         try:
             base = await self._roll_value(info, 5)
             base = int(round(base * float(info.get("chain_factor", 0.6) or 0.6)))
@@ -505,7 +609,7 @@ class CombatCog(commands.Cog):
                 "brulure": "🔥 Brûlure",
             }[typ]
             # application via effets_db
-            val = int(info.get("valeur", info.get("value", 1)) or 1)
+            val = int(info.get("valeur", info.get("value", info.get("degats", 1))) or 1)
             interval = int(info.get("interval", info.get("tick", 60)) or 60)
             duration = int(info.get("duree", info.get("duration", 300)) or 300)
 
