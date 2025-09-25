@@ -22,11 +22,38 @@ except Exception:
     async def add_or_refresh_effect(*args, **kwargs):  # type: ignore
         return True
 
+# On réutilise la mémorisation de salon de combat_cog pour router les ticks
+try:
+    from cogs.combat_cog import remember_tick_channel  # type: ignore
+except Exception:
+    def remember_tick_channel(user_id: int, guild_id: int, channel_id: int) -> None:
+        """Fallback no-op si combat_cog n'est pas chargé."""
+        return
+
 # Catalogue d’objets
 try:
     from utils import OBJETS
 except Exception:
     OBJETS: Dict[str, Dict] = {}
+
+
+# ─────────────────────────────────────────────────────────────
+# Helpers d’affichage
+# ─────────────────────────────────────────────────────────────
+def _fmt_secs(secs: int) -> str:
+    """Transforme 10800 -> '3 h', 5400 -> '1 h 30 min', 90 -> '1 min'."""
+    try:
+        s = int(secs)
+    except Exception:
+        return f"{secs}s"
+    s = max(0, s)
+    m, s = divmod(s, 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h} h {m} min" if m else f"{h} h"
+    if m:
+        return f"{m} min"
+    return f"{s} s"
 
 
 def _info(emoji: str) -> Optional[Dict]:
@@ -155,6 +182,10 @@ class HealCog(commands.Cog):
         val = await self._roll_val(info, 2)
         interval = self._read_interval(info, 60)
         duration = self._read_duration(info, 300)
+
+        # ➜ mémorise le salon pour les ticks
+        remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
+
         await add_or_refresh_effect(
             user_id=target.id, eff_type="regen", value=float(val),
             duration=duration, interval=interval, source_id=user.id,
@@ -163,7 +194,8 @@ class HealCog(commands.Cog):
         gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
         e = discord.Embed(
             title="💕 Régénération",
-            description=f"{user.mention} applique **{emoji}** sur {target.mention} (+{val} PV / {interval}s pendant {duration}s).",
+            description=f"{user.mention} applique **{emoji}** sur {target.mention} "
+                        f"(+{val} PV / {_fmt_secs(interval)} pendant {_fmt_secs(duration)}).",
             color=discord.Color.teal()
         )
         if gif and isinstance(gif, str):
