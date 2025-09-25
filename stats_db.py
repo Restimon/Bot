@@ -1,4 +1,3 @@
-# stats_db.py
 from __future__ import annotations
 import os, shutil, time
 from typing import Tuple, Optional, List, Dict, Any
@@ -290,7 +289,7 @@ async def revive_with_hp(user_id: int, hp: int) -> None:
         await db.commit()
 
 # ─────────────────────────────────────────────────────────────
-# Leaderboards metrics
+# Leaderboards metrics (facultatif)
 # ─────────────────────────────────────────────────────────────
 VALID_METRICS = {"kills", "deaths", "dmg_dealt", "dmg_taken", "heal_done"}
 
