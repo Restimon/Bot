@@ -186,6 +186,23 @@ def _fmt_duration_secs(s: int) -> str:
     return _fmt_interval_secs(s)
 
 # ─────────────────────────────────────────────────────────────
+# Touch helpers (leaderboard + stats)
+# ─────────────────────────────────────────────────────────────
+def _touch_stats_and_lb(bot: commands.Bot, guild_id: int, *user_ids: int, reason: str = "combat"):
+    # leaderboard live
+    try:
+        from cogs.leaderboard_live import schedule_lb_update
+        schedule_lb_update(bot, guild_id, reason)
+    except Exception:
+        pass
+    # /stats touch (flush vocal + refresh caches)
+    try:
+        from cogs.stats_cog import schedule_stats_touch
+        schedule_stats_touch(bot, guild_id, *user_ids)
+    except Exception:
+        pass
+
+# ─────────────────────────────────────────────────────────────
 # Le COG
 # ─────────────────────────────────────────────────────────────
 class CombatCog(commands.Cog):
@@ -194,6 +211,8 @@ class CombatCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         set_broadcaster(lambda gid, cid, pld: asyncio.create_task(_effects_broadcaster(self.bot, gid, cid, pld)))
+        # exposer la fonction pour d'autres cogs (heal)
+        setattr(self.bot, "gv_remember_tick_channel", remember_tick_channel)
         self._start_effects_loop_once()
 
     def _start_effects_loop_once(self):
@@ -220,13 +239,6 @@ class CombatCog(commands.Cog):
     def _obj_info(self, emoji: str) -> Optional[Dict]:
         info = OBJETS.get(emoji)
         return dict(info) if isinstance(info, dict) else None
-
-    async def _maybe_update_leaderboard(self, guild_id: int, reason: str):
-        try:
-            from cogs.leaderboard_live import schedule_lb_update
-            schedule_lb_update(self.bot, guild_id, reason)
-        except Exception:
-            pass
 
     async def _sum_effect_value(self, user_id: int, *types_: str) -> float:
         out = 0.0
@@ -360,11 +372,6 @@ class CombatCog(commands.Cog):
         lost_shield: int,
         explained: Optional[Dict[str, int]] = None,
     ) -> Tuple[str, str]:
-        """
-        Construit:
-          - line2 (perte détaillée)
-          - line3 (équation)
-        """
         total_reduction = max(0, base_raw - lost_hp - lost_shield)
         hel = 0
         p_hp = 0
@@ -570,6 +577,8 @@ class CombatCog(commands.Cog):
         if shield_before > 0 and shield_after == 0:
             await inter.followup.send(embed=self._shield_broken_embed(target))
 
+        # Touch refresh (stats + leaderboard)
+        _touch_stats_and_lb(self.bot, inter.guild.id, attacker.id, target.id, reason="fight")
         return e
 
     async def _apply_chain_attack(
@@ -591,6 +600,7 @@ class CombatCog(commands.Cog):
                 await self._resolve_hit(inter, attacker, target, base, False, None)
         except Exception:
             pass
+        _touch_stats_and_lb(self.bot, inter.guild.id, attacker.id, target.id, reason="fight")
         return embed
 
     # ========= Inventaire réel pour l’auto-complétion =========
@@ -673,101 +683,4 @@ class CombatCog(commands.Cog):
             return await inter.response.send_message("Tu ne peux pas t’attaquer toi-même.", ephemeral=True)
 
         info = self._obj_info(objet)
-        if not info or info.get("type") not in ("attaque", "attaque_chaine", "poison", "infection", "virus", "brulure"):
-            return await inter.response.send_message("Objet invalide : il faut un **objet offensif**.", ephemeral=True)
-
-        if not await self._consume_item(inter.user.id, objet):
-            return await inter.response.send_message(f"Tu n’as pas **{objet}** dans ton inventaire.", ephemeral=True)
-
-        await inter.response.defer(thinking=True)
-
-        typ = str(info["type"]).lower()
-        if typ in ("attaque", "attaque_chaine"):
-            if typ == "attaque":
-                await self._apply_attack(inter, inter.user, cible, objet, info)
-            else:
-                await self._apply_chain_attack(inter, inter.user, cible, objet, info)
-            await self._maybe_update_leaderboard(inter.guild.id, "fight")
-            return
-
-        # ───────────── Effets (Poison / Infection / Virus / Brûlure) ─────────────
-        # 1) on mémorise le salon pour les ticks
-        remember_tick_channel(cible.id, inter.guild.id, inter.channel.id)
-
-        # 2) lecture des paramètres
-        val       = int(info.get("valeur", info.get("value", 1)) or 1)
-        interval  = int(info.get("interval", info.get("intervalle", 60)) or 60)
-        duration  = int(info.get("duration", info.get("duree", 1800)) or 1800)
-        gif       = info.get("gif") or info.get("gif_attack")
-
-        # 3) application de l’effet (avec immunités gérées par effects_db)
-        pre = await trigger("on_effect_pre_apply", user_id=cible.id, eff_type=typ) or {}
-        if pre.get("blocked"):
-            return await inter.followup.send(f"⛔ {cible.mention} est **immunisé(e)** : {pre.get('reason','')}")
-        ok = await add_or_refresh_effect(
-            user_id=cible.id, eff_type=typ, value=float(val),
-            duration=duration, interval=interval,
-            source_id=inter.user.id, meta_json=json.dumps({"applied_in": inter.channel.id})
-        )
-        if not ok:
-            return await inter.followup.send(f"🚫 {cible.mention} est **immunisé(e)**.")
-
-        # 4) EMBED “Action de GotValis” — identique à l’ancien style
-        verbs = {
-            "poison":    "a empoisonné",
-            "infection": "a infecté",
-            "virus":     "a appliqué virus sur",
-            "brulure":   "a brûlé",
-        }
-        title_emoji = {
-            "poison": "🧪",
-            "infection": "🧫",
-            "virus": "🦠",
-            "brulure": "🔥",
-        }
-        action = verbs.get(typ, "a appliqué")
-        head = discord.Embed(title=f"{title_emoji.get(typ, '🧪')} Action de GotValis", color=discord.Color.orange())
-        head.description = f"{inter.user.mention} {action} {cible.mention} avec {objet}."
-
-        # (optionnel) aperçu PB : on affiche la ligne PB si la cible a du bouclier
-        try:
-            sh_before = await get_shield(cible.id)
-        except Exception:
-            sh_before = 0
-        if sh_before > 0:
-            lose = min(val, sh_before)  # aperçu visuel (pas d'application réelle ici)
-            head.description += f"\n🛡 {sh_before} PB - (**{lose} PB**) = 🛡 {sh_before - lose} PB"
-
-        if isinstance(gif, str):
-            head.set_image(url=gif)
-
-        await inter.followup.send(embed=head)
-
-        # 5) EMBED d’information “Contamination toxique …”
-        info_title = {
-            "poison": "Contamination toxique",
-            "infection": "Infection",
-            "virus": "Virus (transfert sur attaque)",
-            "brulure": "Brûlure",
-        }.get(typ, "Effet appliqué")
-
-        d1 = f"Le {typ} infligera **{val} PV** toutes les **{_fmt_interval_secs(interval)}** pendant **{_fmt_duration_secs(duration)}**."
-        extra = ""
-        if typ == "poison":
-            extra = "\n⚠️ Les attaques de la cible infligeront **1 dégât de moins**."
-        elif typ == "virus":
-            extra = "\n↔️ L'effet **se transfère** sur attaque."
-        info_emb = discord.Embed(
-            title=f"{title_emoji.get(typ, '🧪')} {info_title}",
-            description=d1 + extra,
-            color=discord.Color.dark_teal()
-        )
-        if isinstance(gif, str):
-            info_emb.set_image(url=gif)
-        await inter.followup.send(embed=info_emb)
-
-        await self._maybe_update_leaderboard(inter.guild.id, "fight")
-
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(CombatCog(bot))
+        if not info or info.get("type")
