@@ -836,3 +836,6 @@ class CombatCog(commands.Cog):
 
             # Annonces comme tes captures
             await self._announce_dot_apply(inter, inter.user, cible, typ, objet, val, interval, duration)
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(CombatCog(bot))
