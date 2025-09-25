@@ -8,27 +8,19 @@ from discord.ext import commands
 from typing import Optional, List, Tuple, Dict
 
 # DBs
-from inventory_db import get_item_qty, remove_item, add_item, get_all_items
+from inventory_db import get_item_qty, remove_item, get_all_items
 from stats_db import heal_user
 try:
     from shields_db import add_shield as _add_shield, get_shield as _get_shield, get_max_shield as _get_max_shield
 except Exception:
     _add_shield = _get_shield = _get_max_shield = None  # fallbacks gérés plus bas
 
-# Effets (pour HoT si nécessaire)
+# Effets (pour HoT)
 try:
     from effects_db import add_or_refresh_effect
 except Exception:
     async def add_or_refresh_effect(*args, **kwargs):  # type: ignore
         return True
-
-# On réutilise la mémorisation de salon de combat_cog pour router les ticks
-try:
-    from cogs.combat_cog import remember_tick_channel  # type: ignore
-except Exception:
-    def remember_tick_channel(user_id: int, guild_id: int, channel_id: int) -> None:
-        """Fallback no-op si combat_cog n'est pas chargé."""
-        return
 
 # Catalogue d’objets
 try:
@@ -37,32 +29,12 @@ except Exception:
     OBJETS: Dict[str, Dict] = {}
 
 
-# ─────────────────────────────────────────────────────────────
-# Helpers d’affichage
-# ─────────────────────────────────────────────────────────────
-def _fmt_secs(secs: int) -> str:
-    """Transforme 10800 -> '3 h', 5400 -> '1 h 30 min', 90 -> '1 min'."""
-    try:
-        s = int(secs)
-    except Exception:
-        return f"{secs}s"
-    s = max(0, s)
-    m, s = divmod(s, 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h} h {m} min" if m else f"{h} h"
-    if m:
-        return f"{m} min"
-    return f"{s} s"
-
-
 def _info(emoji: str) -> Optional[Dict]:
     meta = OBJETS.get(emoji)
     return dict(meta) if isinstance(meta, dict) else None
 
 
 async def _list_owned_items(uid: int) -> List[Tuple[str, int]]:
-    """Inventaire réel (robuste) pour l’autocomplétion."""
     out: List[Tuple[str, int]] = []
     try:
         rows = await get_all_items(uid)
@@ -70,8 +42,7 @@ async def _list_owned_items(uid: int) -> List[Tuple[str, int]]:
             for r in rows:
                 if isinstance(r, (list, tuple)) and len(r) >= 2:
                     e, q = str(r[0]), int(r[1])
-                    if e and q > 0:
-                        out.append((e, q))
+                    if e and q > 0: out.append((e, q))
                 elif isinstance(r, dict):
                     e = str(r.get("emoji") or r.get("item") or r.get("id") or r.get("key") or "")
                     q = int(r.get("qty") or r.get("quantity") or r.get("count") or r.get("n") or 0)
@@ -79,22 +50,18 @@ async def _list_owned_items(uid: int) -> List[Tuple[str, int]]:
         elif isinstance(rows, dict):
             for e, q in rows.items():
                 try:
-                    if int(q) > 0:
-                        out.append((str(e), int(q)))
+                    if int(q) > 0: out.append((str(e), int(q)))
                 except Exception:
                     continue
     except Exception:
         pass
-    # fallback: on check tout le catalogue
     if not out:
         for e in OBJETS.keys():
             try:
                 q = int(await get_item_qty(uid, e) or 0)
-                if q > 0:
-                    out.append((e, q))
+                if q > 0: out.append((e, q))
             except Exception:
                 continue
-    # merge/tri
     merged: Dict[str, int] = {}
     for e, q in out:
         merged[e] = merged.get(e, 0) + int(q)
@@ -136,6 +103,12 @@ class HealCog(commands.Cog):
         except Exception:
             return False
 
+    def _read_interval(self, info: dict, fallback_secs: int = 60) -> int:
+        return int(info.get("intervalle", info.get("interval", fallback_secs)) or fallback_secs)
+
+    def _read_duration(self, info: dict, fallback_secs: int = 300) -> int:
+        return int(info.get("duree", info.get("duration", fallback_secs)) or fallback_secs)
+
     async def _roll_val(self, info: dict, default: int) -> int:
         if not isinstance(info, dict):
             return int(default)
@@ -152,13 +125,6 @@ class HealCog(commands.Cog):
                 try: return int(info[k])
                 except Exception: continue
         return int(default)
-
-    def _read_interval(self, info: dict, fallback_secs: int = 60) -> int:
-        # supporte 'intervalle' (utils.py) et 'interval' (autres configs)
-        return int(info.get("intervalle", info.get("interval", fallback_secs)) or fallback_secs)
-
-    def _read_duration(self, info: dict, fallback_secs: int = 300) -> int:
-        return int(info.get("duree", info.get("duration", fallback_secs)) or fallback_secs)
 
     # ──────────── Actions ────────────
     async def _do_heal(self, inter: discord.Interaction, user: discord.Member, emoji: str, info: dict, cible: Optional[discord.Member]) -> discord.Embed:
@@ -183,8 +149,13 @@ class HealCog(commands.Cog):
         interval = self._read_interval(info, 60)
         duration = self._read_duration(info, 300)
 
-        # ➜ mémorise le salon pour les ticks
-        remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
+        # mémorise le salon des ticks (via combat_cog)
+        try:
+            fn = getattr(self.bot, "gv_remember_tick_channel", None)
+            if callable(fn):
+                fn(target.id, inter.guild.id, inter.channel.id)
+        except Exception:
+            pass
 
         await add_or_refresh_effect(
             user_id=target.id, eff_type="regen", value=float(val),
@@ -192,10 +163,14 @@ class HealCog(commands.Cog):
             meta_json=json.dumps({"applied_in": inter.channel.id})
         )
         gif = info.get("gif_heal") or info.get("gif") or info.get("gif_attack")
+        mins = max(1, int(round(interval/60)))
+        total_mins = max(1, int(round(duration/60)))
+        hours = total_mins // 60
+        dur_txt = f"{hours} heures" if hours >= 1 and total_mins % 60 == 0 else f"{total_mins} minutes"
         e = discord.Embed(
             title="💕 Régénération",
             description=f"{user.mention} applique **{emoji}** sur {target.mention} "
-                        f"(+{val} PV / {_fmt_secs(interval)} pendant {_fmt_secs(duration)}).",
+                        f"(+{val} PV / **{mins} min** pendant **{dur_txt}**).",
             color=discord.Color.teal()
         )
         if gif and isinstance(gif, str):
@@ -207,7 +182,6 @@ class HealCog(commands.Cog):
         val = await self._roll_val(info, 5)
 
         desc = ""
-        # Priorité shields_db si présent
         if _add_shield and _get_shield:
             before = 0; after = 0; cap = None
             try:
@@ -230,7 +204,6 @@ class HealCog(commands.Cog):
             gained = max(0, after - before)
             desc = f"🛡 {target.mention} gagne **{gained} PB**" + (f" (cap {cap})" if cap is not None else "") + "."
         else:
-            # Fallback stats_db
             try:
                 from stats_db import get_shield as _get, set_shield as _set
                 before = int(await _get(target.id))
