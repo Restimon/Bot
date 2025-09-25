@@ -290,7 +290,7 @@ async def revive_with_hp(user_id: int, hp: int) -> None:
         await db.commit()
 
 # ─────────────────────────────────────────────────────────────
-# Leaderboards metrics (facultatif)
+# Leaderboards metrics
 # ─────────────────────────────────────────────────────────────
 VALID_METRICS = {"kills", "deaths", "dmg_dealt", "dmg_taken", "heal_done"}
 
