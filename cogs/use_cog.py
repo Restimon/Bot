@@ -1,217 +1,279 @@
 # cogs/use_cog.py
 from __future__ import annotations
 
-import random, time
-from typing import List, Optional, Tuple
+import json
+from typing import Optional, Dict, List, Tuple
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# Inventaire
-from inventory_db import get_all_items, get_item_qty, add_item, remove_item
-# Économie (coins pour la box)
-from economy_db import add_balance
-
-# Effets (optionnels)
+# Inventaire / objets
+from inventory_db import get_item_qty, remove_item, get_all_items
 try:
-    from effects_db import add_or_refresh_effect, remove_effect
+    from utils import OBJETS
 except Exception:
-    async def add_or_refresh_effect(*args, **kwargs): return True
-    async def remove_effect(*args, **kwargs): return None
+    OBJETS: Dict[str, Dict] = {}
 
-# Catalogue & esquive
-from utils import OBJETS, get_evade_chance
-
-# Buff 👟 en mémoire (utilisé par utils.get_evade_chance)
+# HP / PB
+from stats_db import heal_user, get_hp
 try:
-    from data import esquive_status
+    from shields_db import add_shield as _add_shield, get_shield as _get_shield, get_max_shield as _get_max_shield
 except Exception:
-    esquive_status = {}
+    _add_shield = _get_shield = _get_max_shield = None  # fallback gérés plus bas
 
-# MAJ classement live (facultatif)
+# Effets périodiques / temporaires
 try:
-    from cogs.leaderboard_live import schedule_lb_update
+    from effects_db import add_or_refresh_effect
 except Exception:
-    def schedule_lb_update(*args, **kwargs): return
+    async def add_or_refresh_effect(*args, **kwargs):  # type: ignore
+        return True
 
-USE_KEYS = {"📦", "🔍", "💉", "👟", "🪖", "⭐️"}
+# Pour broadcaster les ticks au bon salon (partagé avec combat_cog)
+try:
+    from cogs.combat_cog import remember_tick_channel  # type: ignore
+except Exception:
+    def remember_tick_channel(user_id: int, guild_id: int, channel_id: int) -> None:  # type: ignore
+        pass
 
-def _item_label(emoji: str) -> str:
-    d = OBJETS.get(emoji, {})
-    if emoji == "📦": return "📦 • Mystery Box (3 récompenses)"
-    if emoji == "🔍": return "🔍 • Vol (vole 1 objet à la cible)"
-    if emoji == "💉": return "💉 • Vaccin (retire les debuffs)"
-    if emoji == "👟": return f"👟 • Esquive+ (+{int(d.get('valeur',0)*100)}% {int(d.get('duree',0))//3600}h)"
-    if emoji == "🪖": return f"🪖 • Réduction ({int(d.get('valeur',0)*100)}% {int(d.get('duree',0))//3600}h)"
-    if emoji == "⭐️": return f"⭐️ • Immunité ({int(d.get('duree',0))//3600}h)"
-    return f"{emoji}"
 
-async def _ac_use(inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-    inv = await get_all_items(inter.user.id)  # [(emoji, qty)] ou similaire
-    cur = (current or "").strip().lower()
-    out: List[app_commands.Choice[str]] = []
-    for emoji, qty in inv:
-        if emoji in USE_KEYS and int(qty or 0) > 0:
-            label = _item_label(emoji)
-            if not cur or cur in label.lower():
-                out.append(app_commands.Choice(name=f"{label} ×{qty}", value=emoji))
-                if len(out) >= 20: break
-    return out
+def _info(emoji: str) -> Optional[Dict]:
+    meta = OBJETS.get(emoji)
+    return dict(meta) if isinstance(meta, dict) else None
 
-def _gif(emoji: str) -> Optional[str]:
-    d = OBJETS.get(emoji, {})
-    if d.get("type") in ("soin", "regen") or emoji == "💉":
-        return d.get("gif_heal") or d.get("gif")
-    return d.get("gif") or d.get("gif_attack")
 
-def _pool_box(exclude_box=True) -> List[str]:
-    pool: List[str] = []
-    for e, d in OBJETS.items():
-        if exclude_box and e == "📦": continue
-        w = 26 - int(d.get("rarete", 25))
-        if w > 0: pool.extend([e]*w)
-    pool.extend(["💰COINS"]*14)  # coins ~ rareté 12
-    return pool
+async def _list_owned_items(uid: int) -> List[Tuple[str, int]]:
+    """Inventaire robuste pour autocompléter."""
+    out: List[Tuple[str, int]] = []
+    try:
+        rows = await get_all_items(uid)
+        if isinstance(rows, list):
+            for r in rows:
+                if isinstance(r, (list, tuple)) and len(r) >= 2:
+                    e, q = str(r[0]), int(r[1])
+                    if e and q > 0:
+                        out.append((e, q))
+                elif isinstance(r, dict):
+                    e = str(r.get("emoji") or r.get("item") or r.get("id") or r.get("key") or "")
+                    q = int(r.get("qty") or r.get("quantity") or r.get("count") or r.get("n") or 0)
+                    if e and q > 0:
+                        out.append((e, q))
+        elif isinstance(rows, dict):
+            for e, q in rows.items():
+                try:
+                    if int(q) > 0:
+                        out.append((str(e), int(q)))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return sorted(out, key=lambda t: t[0])
 
-async def _box_rewards(user: discord.Member) -> Tuple[str, List[str]]:
-    pool = _pool_box(True)
-    lines: List[str] = []
-    for _ in range(3):
-        pick = random.choice(pool)
-        if pick == "💰COINS":
-            amt = random.randint(15, 25)
-            await add_balance(user.id, amt, "mysterybox")
-            lines.append(f"💰 **+{amt}** GotCoins")
-        else:
-            await add_item(user.id, pick, 1)
-            lines.append(f"{pick} **+1**")
-    return "🎁 Récompenses", lines
+
+def _fmt_interval_secs(s: int) -> str:
+    s = max(1, int(s))
+    if s % 3600 == 0:
+        h = s // 3600
+        return f"{h} heure" if h == 1 else f"{h} heures"
+    if s % 60 == 0:
+        m = s // 60
+        return f"{m} minute" if m == 1 else f"{m} minutes"
+    return f"{s} s"
+
 
 class UseCog(commands.Cog):
-    """Commande /use : 📦 🔍 💉 👟 🪖 ⭐️"""
+    """Commande /use pour utiliser des objets non offensifs (soin, regen, bouclier, buffs) sur soi **ou** sur une cible."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="use", description="Utiliser 📦 🔍 💉 👟 🪖 ⭐️")
-    @app_commands.describe(objet="Emoji de l'objet", cible="Cible (requis pour 🔍)")
-    @app_commands.autocomplete(objet=_ac_use)
-    async def use_cmd(self, inter: discord.Interaction, objet: str, cible: Optional[discord.Member] = None):
-        if not inter.guild:
-            return await inter.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
+    # ---------- Autocomplétion : on ne propose pas les objets offensifs ----------
+    async def _ac_items_use(self, inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        cur = (current or "").strip().lower()
+        owned = await _list_owned_items(inter.user.id)
 
-        if objet not in USE_KEYS:
-            return await inter.response.send_message("❌ Objet non utilisable avec /use.", ephemeral=True)
+        offensive = {"attaque", "attaque_chaine", "poison", "infection", "virus", "brulure"}
+        out: List[app_commands.Choice[str]] = []
+        for emoji, qty in owned:
+            meta = OBJETS.get(emoji) or {}
+            typ = str(meta.get("type", ""))
+            if typ in offensive:
+                continue
+            label = meta.get("nom") or meta.get("label") or typ or "objet"
+            display = f"{emoji} — {label} (x{qty})"
+            if cur and (cur not in emoji and cur not in str(label).lower()):
+                continue
+            out.append(app_commands.Choice(name=display[:100], value=emoji))
+            if len(out) >= 20:
+                break
+        return out
 
-        # Possession & consommation
-        if int(await get_item_qty(inter.user.id, objet) or 0) <= 0:
-            return await inter.response.send_message("❌ Tu n'as pas cet objet.", ephemeral=True)
-        if not await remove_item(inter.user.id, objet, 1):
-            return await inter.response.send_message("❌ Impossible d'utiliser l'objet.", ephemeral=True)
-
-        title = "🎯 Utilisation d'objet"
-        desc_lines: List[str] = []
-        color = discord.Color.blurple()
-        gif = _gif(objet)
-
-        if objet == "📦":
-            title = "📦 Mystery Box ouverte !"
-            section, rewards = await _box_rewards(inter.user)
-            desc_lines.append(f"**{section}**")
-            desc_lines += [f"• {r}" for r in rewards]
-
-        elif objet == "🔍":
-            # Cible valide ?
-            if (cible is None) or cible.bot or cible.id == inter.user.id:
-                # Rembourse l'objet
-                await add_item(inter.user.id, "🔍", 1)
-                return await inter.response.send_message("❌ Spécifie une **cible valide** (humaine, différente de toi).", ephemeral=True)
-
-            evade = float(get_evade_chance(str(inter.guild.id), str(cible.id)))
-            if random.random() < max(0.0, min(0.95, evade)):
-                title = "🔍 Vol raté"
-                desc_lines.append(f"{cible.mention} a **esquivé** ta tentative ({int(evade*100)}%).")
-            else:
-                # Sac pondéré par le stock RÉEL de la cible
-                inv_target = await get_all_items(cible.id)
-                bag: List[str] = []
-                for e, q in inv_target:
-                    q = int(q or 0)
-                    if q > 0:
-                        bag.extend([e] * q)
-                if not bag:
-                    title = "🔍 Vol raté"
-                    desc_lines.append(f"{cible.mention} n'a **rien** à voler.")
-                else:
-                    stolen = random.choice(bag)
-                    # Retire chez la cible → ajoute au voleur
-                    if int(await get_item_qty(cible.id, stolen) or 0) <= 0:
-                        title = "🔍 Vol raté"
-                        desc_lines.append(f"{cible.mention} n'a **plus** cet objet.")
-                    elif not await remove_item(cible.id, stolen, 1):
-                        title = "🔍 Vol raté"
-                        desc_lines.append("Le transfert a échoué.")
-                    else:
-                        await add_item(inter.user.id, stolen, 1)
-                        title = "🔍 Vol réussi !"
-                        desc_lines.append(f"Tu as volé **{stolen}** à {cible.mention} !")
-
-        elif objet == "💉":
-            title = "💉 Vaccination"
-            removed_any = False
-            for eff in ("poison", "infection", "virus", "brulure"):
-                try:
-                    await remove_effect(inter.user.id, eff)
-                    removed_any = True
-                except Exception:
-                    pass
-            desc_lines.append("Effets négatifs **retirés**." if removed_any else "Aucun effet négatif à retirer.")
-
-        elif objet == "👟":
-            title = "👟 Esquive accrue"
-            d = OBJETS.get("👟", {})
-            val = float(d.get("valeur", 0.2)); dur = int(d.get("duree", 3*3600))
-            gid = str(inter.guild.id); uid = str(inter.user.id)
-            esquive_status.setdefault(gid, {})[uid] = {"start": time.time(), "duration": dur, "valeur": val}
-            desc_lines.append(f"**+{int(val*100)}%** d'esquive pendant **{dur//3600}h**.")
-
-        elif objet == "🪖":
-            title = "🪖 Réduction des dégâts"
-            d = OBJETS.get("🪖", {})
-            val = float(d.get("valeur", 0.5)); dur = int(d.get("duree", 4*3600))
-            ok = await add_or_refresh_effect(user_id=inter.user.id, eff_type="reduction",
-                                             value=val, duration=dur, interval=0,
-                                             source_id=inter.user.id, meta_json=None)
-            desc_lines.append(
-                f"Réduction **{int(val*100)}%** pendant **{dur//3600}h**." if ok else
-                "L'effet a été **bloqué** (immunité)."
-            )
-
-        elif objet == "⭐️":
-            title = "⭐️ Immunité"
-            dur = int(OBJETS.get("⭐️", {}).get("duree", 2*3600))
-            ok = await add_or_refresh_effect(user_id=inter.user.id, eff_type="immunite",
-                                             value=1.0, duration=dur, interval=0,
-                                             source_id=inter.user.id, meta_json=None)
-            desc_lines.append(
-                f"**Immunisé** pendant **{dur//3600}h**." if ok else
-                "Application **bloquée** (déjà immunisé ?)."
-            )
-
-        embed = discord.Embed(
-            title=title,
-            description="\n".join(desc_lines) if desc_lines else " ",
-            color=color
-        )
-        if gif: embed.set_image(url=gif)
-
+    # ---------- Helpers ----------
+    async def _consume(self, uid: int, emoji: str) -> bool:
         try:
-            schedule_lb_update(self.bot, inter.guild.id, reason=f"use:{objet}")
+            q = int(await get_item_qty(uid, emoji) or 0)
+            if q <= 0:
+                return False
+            ok = await remove_item(uid, emoji, 1)
+            return bool(ok)
         except Exception:
-            pass
+            return False
 
-        await inter.response.send_message(embed=embed)
+    def _roll_val(self, info: dict, default: int) -> int:
+        if not isinstance(info, dict):
+            return int(default)
+        if "min" in info and "max" in info:
+            try:
+                import random
+                a = int(info.get("min", 0)); b = int(info.get("max", 0))
+                if a > b: a, b = b, a
+                return random.randint(a, b)
+            except Exception:
+                pass
+        for k in ("valeur","value","amount","heal","soin","degats","dmg"):
+            if k in info:
+                try: return int(info[k])
+                except Exception: continue
+        return int(default)
+
+    # ---------- Slash ----------
+    @app_commands.command(name="use", description="Utiliser un objet de soutien sur toi ou sur une cible.")
+    @app_commands.describe(objet="Emoji de l'objet (soin/regen/bouclier/buffs...)", cible="Cible (optionnel, par défaut: toi)")
+    @app_commands.autocomplete(objet=_ac_items_use)
+    async def use(self, inter: discord.Interaction, objet: str, cible: Optional[discord.Member] = None):
+        meta = _info(objet)
+        if not meta:
+            return await inter.response.send_message("❌ Objet inconnu.", ephemeral=True)
+
+        typ = str(meta.get("type", "")).lower()
+
+        # Les objets offensifs doivent passer par /fight
+        if typ in {"attaque", "attaque_chaine", "poison", "infection", "virus", "brulure"}:
+            return await inter.response.send_message("⚠️ Utilise plutôt **/fight** pour les objets offensifs.", ephemeral=True)
+
+        # Ciblage : par défaut on prend la cible fournie ; si self_only => forcer sur soi
+        target: discord.Member = cible or inter.user
+        if meta.get("self_only", False):
+            target = inter.user
+
+        # Consommation toujours chez l’UTILISATEUR (pas chez la cible)
+        if not await self._consume(inter.user.id, objet):
+            return await inter.response.send_message(f"❌ Tu n’as pas **{objet}**.", ephemeral=True)
+
+        await inter.response.defer(thinking=True)
+
+        # Branches principales
+        try:
+            if typ == "soin":
+                amount = self._roll_val(meta, 10)
+                healed = await heal_user(inter.user.id, target.id, amount)
+                hp_after, mx = await get_hp(target.id)
+                gif = meta.get("gif_heal") or meta.get("gif") or meta.get("gif_attack")
+                if healed <= 0:
+                    desc = f"{inter.user.mention} tente de soigner {target.mention} avec {objet}, mais les PV sont déjà au max."
+                else:
+                    desc = (
+                        f"{inter.user.mention} rend **{healed} PV** à {target.mention} avec {objet}.\n"
+                        f"❤️ **{hp_after-healed}/{mx}** + (**{healed}**) = ❤️ **{hp_after}/{mx}**"
+                    )
+                emb = discord.Embed(title="💊 Soin", description=desc, color=discord.Color.green())
+                if isinstance(gif, str):
+                    emb.set_image(url=gif)
+                return await inter.followup.send(embed=emb)
+
+            if typ == "regen":
+                val = self._roll_val(meta, 2)
+                interval = int(meta.get("interval", meta.get("intervalle", 60)) or 60)
+                duration = int(meta.get("duration", meta.get("duree", 1800)) or 1800)
+                remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
+                await add_or_refresh_effect(
+                    user_id=target.id, eff_type="regen", value=float(val),
+                    duration=duration, interval=interval, source_id=inter.user.id,
+                    meta_json=json.dumps({"applied_in": inter.channel.id})
+                )
+                gif = meta.get("gif_heal") or meta.get("gif") or meta.get("gif_attack")
+                emb = discord.Embed(
+                    title="💕 Régénération",
+                    description=(
+                        f"{inter.user.mention} applique **{objet}** sur {target.mention} "
+                        f"(+{val} PV / **{_fmt_interval_secs(interval)}** pendant **{_fmt_interval_secs(duration)}**)."
+                    ),
+                    color=discord.Color.teal()
+                )
+                if isinstance(gif, str):
+                    emb.set_image(url=gif)
+                return await inter.followup.send(embed=emb)
+
+            if typ == "bouclier":
+                val = self._roll_val(meta, 5)
+                gif = meta.get("gif_heal") or meta.get("gif") or meta.get("gif_attack")
+
+                if _add_shield and _get_shield:
+                    before = 0
+                    try: before = int(await _get_shield(target.id))
+                    except Exception: pass
+                    try:
+                        added = await _add_shield(target.id, val, cap_to_max=True)  # type: ignore[arg-type]
+                    except TypeError:
+                        added = await _add_shield(target.id, val)  # type: ignore[misc]
+                    try: after = int(await _get_shield(target.id))
+                    except Exception: after = before
+                    gained = max(0, after - before)
+                    desc = f"🛡 {target.mention} gagne **{gained} PB**."
+                else:
+                    # Fallback simplifié via stats_db si dispo
+                    try:
+                        from stats_db import get_shield as _get, set_shield as _set
+                        before = int(await _get(target.id))
+                        after = max(0, before + int(val))
+                        await _set(target.id, after)
+                        desc = f"🛡 {target.mention} gagne **{after-before} PB**."
+                    except Exception:
+                        desc = f"🛡 {target.mention} gagne un bouclier."
+
+                emb = discord.Embed(title="🛡 Bouclier", description=desc, color=discord.Color.brand_teal())
+                if isinstance(gif, str):
+                    emb.set_image(url=gif)
+                return await inter.followup.send(embed=emb)
+
+            # Buffs génériques (réduction, esquive, etc.)
+            # On attend dans OBJETS soit "eff_type", soit on réutilise "type" (ex: reduction_temp).
+            eff_type = str(meta.get("eff_type", typ))
+            if eff_type:
+                val = float(meta.get("valeur", meta.get("value", 0.1)) or 0.1)
+                interval = int(meta.get("interval", meta.get("intervalle", 60)) or 60)
+                duration = int(meta.get("duration", meta.get("duree", 3600)) or 3600)
+                remember_tick_channel(target.id, inter.guild.id, inter.channel.id)
+                await add_or_refresh_effect(
+                    user_id=target.id, eff_type=eff_type, value=float(val),
+                    duration=duration, interval=interval, source_id=inter.user.id,
+                    meta_json=json.dumps({"applied_in": inter.channel.id})
+                )
+                label = meta.get("nom") or meta.get("label") or eff_type
+                emb = discord.Embed(
+                    title=f"✨ {label}",
+                    description=(
+                        f"{inter.user.mention} applique **{objet}** sur {target.mention} "
+                        f"(val={val}, tick **{_fmt_interval_secs(interval)}**, durée **{_fmt_interval_secs(duration)}**)."
+                    ),
+                    color=discord.Color.blurple()
+                )
+                gif = meta.get("gif") or meta.get("gif_heal") or meta.get("gif_attack")
+                if isinstance(gif, str):
+                    emb.set_image(url=gif)
+                return await inter.followup.send(embed=emb)
+
+            # Si on ne sait pas quoi faire
+            return await inter.followup.send("ℹ️ Objet non offensif reconnu, mais aucun effet associé.", ephemeral=True)
+
+        except Exception as e:
+            emb = discord.Embed(
+                title="❗ Erreur",
+                description=f"Action interrompue : `{type(e).__name__}: {e}`",
+                color=discord.Color.red()
+            )
+            return await inter.followup.send(embed=emb)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(UseCog(bot))
