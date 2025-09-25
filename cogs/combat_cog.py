@@ -349,8 +349,9 @@ class CombatCog(commands.Cog):
     ) -> Tuple[str, str]:
         """
         Construit:
-          - line2 (perte détaillée) ex: @Cible perd **(14 ❤️ - 10 🪖 - 2 🧪 | 6 🛡)**
-          - line3 (équation)       ex: **22 ❤️ | 6 🛡** - **(14 ❤️ - 10 🪖 - 2 🧪 | 6 🛡)** = **8 ❤️**
+          - line2 (perte détaillée)
+          - line3 (équation)
+        Cache proprement la partie PB si rien n’est impliqué.
         """
         total_reduction = max(0, base_raw - lost_hp - lost_shield)
         hel = 0
@@ -381,14 +382,27 @@ class CombatCog(commands.Cog):
         if p_sh > 0:
             shield_chunk += f" - {p_sh} 🧪"
 
-        line2 = f"@Cible perd **({heart_chunk} | {shield_chunk})**"
+        include_shield = (shield_before > 0) or (lost_shield > 0) or (p_sh > 0)
+
+        if include_shield:
+            line2 = f"@Cible perd **({heart_chunk} | {shield_chunk})**"
+        else:
+            line2 = f"@Cible perd **({heart_chunk})**"
+
         after_hp = max(0, hp_before - lost_hp)
 
-        line3 = (
-            f"**{hp_before} ❤️ | {shield_before} 🛡** - "
-            f"**({heart_chunk} | {shield_chunk})** = "
-            f"**{after_hp} ❤️**"
-        )
+        if include_shield:
+            line3 = (
+                f"**{hp_before} ❤️ | {shield_before} 🛡** - "
+                f"**({heart_chunk} | {shield_chunk})** = "
+                f"**{after_hp} ❤️**"
+            )
+        else:
+            line3 = (
+                f"**{hp_before} ❤️** - "
+                f"**({heart_chunk})** = "
+                f"**{after_hp} ❤️**"
+            )
         return line2, line3
 
     def _attack_embed(
@@ -406,6 +420,8 @@ class CombatCog(commands.Cog):
         *,
         gif_url: Optional[str] = None,
         explained: Optional[Dict[str, int]] = None,
+        is_crit: bool = False,
+        crit_mult: float = 2.0,
     ) -> discord.Embed:
         e = discord.Embed(title=f"{emoji} Action de GotValis", color=discord.Color.orange())
 
@@ -423,7 +439,13 @@ class CombatCog(commands.Cog):
             hp_before, shield_before, base_raw, lost_hp, lost_shield, explained=explained
         )
 
-        e.description = "\n".join([line1, line2, line3] + ([ko_txt.strip()] if ko_txt else []))
+        lines = [line1, line2, line3]
+        if ko_txt:
+            lines.append(ko_txt.strip())
+        if is_crit:
+            lines.append("💥 **Coup critique !**")
+
+        e.description = "\n".join(lines)
         if gif_url:
             e.set_image(url=gif_url)
         return e
@@ -471,9 +493,9 @@ class CombatCog(commands.Cog):
     ) -> discord.Embed:
         # Base dégâts
         base = await self._roll_value(info, 5)
-        # Critiques
+        # Critiques — ×2 par défaut
         crit_chance = float(info.get("crit_chance", 0.10) or 0.0)
-        crit_mult   = float(info.get("crit_mult", 1.5) or 1.0)
+        crit_mult   = float(info.get("crit_mult", 2.0) or 2.0)
         is_crit = (random.random() < max(0.0, min(crit_chance, 1.0)))
         if is_crit:
             base = int(round(base * max(1.0, crit_mult)))
@@ -530,7 +552,7 @@ class CombatCog(commands.Cog):
             emoji=emoji,
             attacker=attacker,
             target=target,
-            base_raw=base,                # (affichage “bruts”)
+            base_raw=base,                # (affichage “bruts”, avant pénalité attaquant)
             lost_hp=dmg_final,
             lost_shield=absorbed,
             hp_before=hp_before,
@@ -539,12 +561,14 @@ class CombatCog(commands.Cog):
             dodged=dodged,
             gif_url=gif_url,
             explained=explained,
+            is_crit=(is_crit and not dodged and dmg_final > 0),
+            crit_mult=crit_mult,
         )
 
         # Envoi principal
         await inter.followup.send(embed=e)
 
-        # A-près envoi: si le bouclier vient d’être détruit par CE coup, annoncer
+        # Après envoi: si le bouclier vient d’être détruit par CE coup, annoncer
         try:
             shield_after = await get_shield(target.id)
         except Exception:
