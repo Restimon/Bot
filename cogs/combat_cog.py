@@ -683,4 +683,111 @@ class CombatCog(commands.Cog):
             return await inter.response.send_message("Tu ne peux pas t’attaquer toi-même.", ephemeral=True)
 
         info = self._obj_info(objet)
-        if not info or info.get("type")
+        if not info or info.get("type") not in ("attaque", "attaque_chaine", "poison", "infection", "virus", "brulure"):
+            return await inter.response.send_message("Objet invalide : il faut un **objet offensif**.", ephemeral=True)
+
+        # Consommation de l'objet
+        if not await self._consume_item(inter.user.id, objet):
+            return await inter.response.send_message(f"Tu n’as pas **{objet}** dans ton inventaire.", ephemeral=True)
+
+        await inter.response.defer(thinking=True)
+
+        typ = str(info["type"]).lower()
+        # ───────────── Attaques directes ─────────────
+        if typ in ("attaque", "attaque_chaine"):
+            if typ == "attaque":
+                await self._apply_attack(inter, inter.user, cible, objet, info)
+            else:
+                await self._apply_chain_attack(inter, inter.user, cible, objet, info)
+            # refresh (leaderboard + /stats)
+            _touch_stats_and_lb(self.bot, inter.guild.id, inter.user.id, cible.id, reason="fight")
+            return
+
+        # ───────────── Effets (Poison / Infection / Virus / Brûlure) ─────────────
+        # 1) mémorise le salon pour les ticks
+        remember_tick_channel(cible.id, inter.guild.id, inter.channel.id)
+
+        # 2) lecture des paramètres
+        val       = int(info.get("valeur", info.get("value", 1)) or 1)
+        interval  = int(info.get("interval", info.get("intervalle", 60)) or 60)
+        duration  = int(info.get("duration", info.get("duree", 1800)) or 1800)
+        gif       = info.get("gif") or info.get("gif_attack")
+
+        # 3) immunités via passifs/effects_db
+        pre = {}
+        try:
+            pre = await trigger("on_effect_pre_apply", user_id=cible.id, eff_type=typ) or {}
+        except Exception:
+            pass
+        if pre.get("blocked"):
+            await inter.followup.send(f"⛔ {cible.mention} est **immunisé(e)** : {pre.get('reason','')}")
+            # touch quand même (log vocal/refresh)
+            _touch_stats_and_lb(self.bot, inter.guild.id, inter.user.id, cible.id, reason="fight")
+            return
+
+        ok = await add_or_refresh_effect(
+            user_id=cible.id, eff_type=typ, value=float(val),
+            duration=duration, interval=interval,
+            source_id=inter.user.id, meta_json=json.dumps({"applied_in": inter.channel.id})
+        )
+        if not ok:
+            await inter.followup.send(f"🚫 {cible.mention} est **immunisé(e)**.")
+            _touch_stats_and_lb(self.bot, inter.guild.id, inter.user.id, cible.id, reason="fight")
+            return
+
+        # 4) EMBED “Action de GotValis”
+        verbs = {
+            "poison":    "a empoisonné",
+            "infection": "a infecté",
+            "virus":     "a appliqué virus sur",
+            "brulure":   "a brûlé",
+        }
+        title_emoji = {"poison": "🧪", "infection": "🧫", "virus": "🦠", "brulure": "🔥"}
+        action = verbs.get(typ, "a appliqué")
+        head = discord.Embed(title=f"{title_emoji.get(typ, '🧪')} Action de GotValis", color=discord.Color.orange())
+        head.description = f"{inter.user.mention} {action} {cible.mention} avec {objet}."
+
+        # (optionnel) aperçu PB si la cible a du bouclier
+        try:
+            sh_before = await get_shield(cible.id)
+        except Exception:
+            sh_before = 0
+        if sh_before > 0:
+            lose = min(val, sh_before)
+            head.description += f"\n🛡 {sh_before} PB - (**{lose} PB**) = 🛡 {max(0, sh_before - lose)} PB"
+
+        if isinstance(gif, str):
+            head.set_image(url=gif)
+        await inter.followup.send(embed=head)
+
+        # 5) EMBED d’info “Contamination …”
+        info_title = {
+            "poison": "Contamination toxique",
+            "infection": "Infection",
+            "virus": "Virus (transfert sur attaque)",
+            "brulure": "Brûlure",
+        }.get(typ, "Effet appliqué")
+
+        d1 = f"Le {typ} infligera **{val} PV** toutes les **{_fmt_interval_secs(interval)}** pendant **{_fmt_duration_secs(duration)}**."
+        extra = ""
+        if typ == "poison":
+            extra = "\n⚠️ Les attaques de la cible infligeront **1 dégât de moins**."
+        elif typ == "virus":
+            extra = "\n↔️ L'effet **se transfère** sur attaque."
+        info_emb = discord.Embed(
+            title=f"{title_emoji.get(typ, '🧪')} {info_title}",
+            description=d1 + extra,
+            color=discord.Color.dark_teal()
+        )
+        if isinstance(gif, str):
+            info_emb.set_image(url=gif)
+        await inter.followup.send(embed=info_emb)
+
+        # refresh (leaderboard + /stats)
+        _touch_stats_and_lb(self.bot, inter.guild.id, inter.user.id, cible.id, reason="fight")
+
+# ─────────────────────────────────────────────────────────
+# setup du cog
+# ─────────────────────────────────────────────────────────
+async def setup(bot: commands.Bot):
+    await bot.add_cog(CombatCog(bot))
