@@ -8,6 +8,10 @@ import { startStatusEffectTicker } from './utils/statusEffectTicker.js';
 import { startVoiceRewardTicker } from './events/voiceStateUpdate.js';
 import { startLeaderboardTicker } from './utils/leaderboard.js';
 
+// 🔥 AJOUTS : intégration avec le système d’IA (sanctions / HP)
+import { setPunishHandler, setHpProvider } from './utils/ai-reply.js';
+import { Player } from './database/models/Player.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -61,14 +65,61 @@ for (const file of eventFiles) {
 async function start() {
   try {
     await connectDatabase();
+
+    // ─────────────────────────────────────────────
+    // 🔥 LIAISON IA ↔ SYSTÈME DE JEU (sanctions)
+    // ─────────────────────────────────────────────
+    setHpProvider(async (userId) => {
+      const player = await Player.findOne({ userId }).lean();
+      return player?.combat?.hp ?? 100; // valeur par défaut
+    });
+
+    setPunishHandler(async (userId, dmg, reason, message) => {
+      const player = await Player.findOneAndUpdate(
+        { userId },
+        { $setOnInsert: { userId, username: message?.author?.username ?? 'Unknown' } },
+        { upsert: true, new: true }
+      );
+
+      const before = player.combat?.hp ?? 100;
+      const after = Math.max(0, before - Number(dmg || 0));
+
+      // Mets à jour la fiche du joueur
+      player.combat = {
+        ...(player.combat || {}),
+        hp: after,
+        maxHp: player.combat?.maxHp ?? 100,
+        shield: player.combat?.shield ?? 0,
+        maxShield: player.combat?.maxShield ?? 20,
+        isKO: after <= 0 ? true : (player.combat?.isKO ?? false),
+        lastKOAt: after <= 0 ? new Date() : player.combat?.lastKOAt,
+      };
+
+      player.stats = {
+        ...(player.stats || {}),
+        damageTaken: (player.stats?.damageTaken ?? 0) + Number(dmg || 0),
+      };
+
+      player.lastUpdated = new Date();
+      await player.save();
+
+      console.log(`💢 Sanction appliquée à ${player.username}: -${dmg} HP (${before} → ${after})`);
+
+      return { hpBefore: before, hpAfter: after };
+    });
+
+    // ─────────────────────────────────────────────
+    // Connexion du bot
+    // ─────────────────────────────────────────────
     await client.login(config.token);
 
-    // Start tickers after bot is ready
+    // Lancer les tickers une fois prêt
     client.once('ready', () => {
       startStatusEffectTicker(client);
       startVoiceRewardTicker(client);
       startLeaderboardTicker(client);
     });
+
   } catch (error) {
     console.error('❌ Erreur de démarrage:', error);
     process.exit(1);
