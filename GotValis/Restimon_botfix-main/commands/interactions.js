@@ -1,79 +1,79 @@
+// commands/interactions.js
 import { SlashCommandBuilder } from 'discord.js';
 
-// Interaction messages for each command
+// Messages d'interaction
 const INTERACTIONS = {
   slap: {
     self: (user) => `${user} se gifle lui-même... 🤦`,
-    other: (user, target) => `${user} gifle ${target}! 👋💥`
+    other: (user, target) => `${user} gifle ${target}! 👋💥`,
   },
   kiss: {
     self: (user) => `${user} s'embrasse dans le miroir... 💋`,
-    other: (user, target) => `${user} embrasse ${target}! 💋❤️`
+    other: (user, target) => `${user} embrasse ${target}! 💋❤️`,
   },
   hug: {
     self: (user) => `${user} se fait un câlin... 🤗`,
-    other: (user, target) => `${user} fait un câlin à ${target}! 🤗💕`
+    other: (user, target) => `${user} fait un câlin à ${target}! 🤗💕`,
   },
   pat: {
     self: (user) => `${user} se tapote la tête... 😊`,
-    other: (user, target) => `${user} tapote la tête de ${target}! 😊👋`
+    other: (user, target) => `${user} tapote la tête de ${target}! 😊👋`,
   },
   bit: {
     self: (user) => `${user} se mord lui-même... 😬`,
-    other: (user, target) => `${user} mord ${target}! 😬🦷`
+    other: (user, target) => `${user} mord ${target}! 😬🦷`,
   },
   punch: {
     self: (user) => `${user} se donne un coup de poing... 🥊`,
-    other: (user, target) => `${user} frappe ${target}! 🥊💥`
+    other: (user, target) => `${user} frappe ${target}! 🥊💥`,
   },
   love: {
     self: (user) => `${user} s'aime beaucoup... 💖`,
-    other: (user, target) => `${user} aime ${target}! 💖✨`
+    other: (user, target) => `${user} aime ${target}! 💖✨`,
   },
   lick: {
     self: (user) => `${user} se lèche... 👅`,
-    other: (user, target) => `${user} lèche ${target}! 👅💦`
-  }
+    other: (user, target) => `${user} lèche ${target}! 👅💦`,
+  },
 };
 
-// Create all interaction commands
-export const commands = [];
+// Liste d’actions pour les choix
+const ACTIONS = Object.keys(INTERACTIONS);
 
-for (const [action, messages] of Object.entries(INTERACTIONS)) {
-  const command = {
-    data: new SlashCommandBuilder()
-      .setName(action)
-      .setDescription(`${action.charAt(0).toUpperCase() + action.slice(1)} quelqu'un`)
-      .addUserOption(option =>
-        option
-          .setName('cible')
-          .setDescription('La personne à cibler')
-          .setRequired(false)
-      ),
-    async execute(interaction) {
-      const target = interaction.options.getUser('cible');
-      const user = interaction.user;
+// ✅ Une seule commande exportée (data + execute)
+export const data = new SlashCommandBuilder()
+  .setName('interactions')
+  .setDescription('Effectue une interaction (slap, kiss, hug, etc.)')
+  .addStringOption(option =>
+    option
+      .setName('action')
+      .setDescription('Type d’interaction')
+      .setRequired(true)
+      .addChoices(
+        ...ACTIONS.map(a => ({ name: a.charAt(0).toUpperCase() + a.slice(1), value: a }))
+      )
+  )
+  .addUserOption(option =>
+    option
+      .setName('cible')
+      .setDescription('La personne à cibler')
+      .setRequired(false)
+  );
 
-      let message;
-      if (!target || target.id === user.id) {
-        message = messages.self(user.toString());
-      } else {
-        message = messages.other(user.toString(), target.toString());
-      }
+export async function execute(interaction) {
+  const action = interaction.options.getString('action');
+  const target = interaction.options.getUser('cible');
+  const user = interaction.user;
 
-      await interaction.reply({ content: message });
-    }
-  };
+  const messages = INTERACTIONS[action];
+  if (!messages) {
+    return interaction.reply({ content: 'Interaction inconnue.', ephemeral: true });
+  }
 
-  commands.push(command);
+  const content =
+    !target || target.id === user.id
+      ? messages.self(user.toString())
+      : messages.other(user.toString(), target.toString());
+
+  await interaction.reply({ content });
 }
-
-// Export individual commands for registration
-export const slap = commands[0];
-export const kiss = commands[1];
-export const hug = commands[2];
-export const pat = commands[3];
-export const bit = commands[4];
-export const punch = commands[5];
-export const love = commands[6];
-export const lick = commands[7];
