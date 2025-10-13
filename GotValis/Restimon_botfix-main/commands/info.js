@@ -29,49 +29,48 @@ export async function execute(interaction) {
       });
     }
 
-    // Get guild member to get join date
     const member = await interaction.guild.members.fetch(targetUser.id);
     const joinedAt = member.joinedAt;
 
-    // Calculate 7 days ago for stats
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    // Get voice sessions in last 7 days
     const voiceSessions = await ActivitySession.find({
       userId: targetUser.id,
       type: 'voice',
       startTime: { $gte: sevenDaysAgo },
     });
 
-    // Calculate total voice time in minutes
     let totalVoiceMinutes = 0;
     voiceSessions.forEach(session => {
       totalVoiceMinutes += session.duration;
     });
 
-    // Get message count in last 7 days
     const messageCount = await ActivitySession.countDocuments({
       userId: targetUser.id,
       type: 'message',
       startTime: { $gte: sevenDaysAgo },
     });
 
-    // Format voice time
     const voiceHours = Math.floor(totalVoiceMinutes / 60);
     const voiceMinutes = totalVoiceMinutes % 60;
     const voiceTimeStr = voiceHours > 0
       ? `${voiceHours} h ${voiceMinutes} min`
       : `${voiceMinutes} min`;
 
-    // Get leaderboard ranking by coins
     const higherRankedPlayers = await Player.countDocuments({
       'economy.coins': { $gt: player.economy.coins }
     });
     const rank = higherRankedPlayers + 1;
-    const rankingText = rank <= 20 ? `#${rank}` : 'Non classé';
 
-    // Build embed
+    let rankingText;
+    if (rank === 1) rankingText = '🥇 1er';
+    else if (rank === 2) rankingText = '🥈 2e';
+    else if (rank === 3) rankingText = '🥉 3e';
+    else if (rank <= 10) rankingText = `🎖️ Top 10 (#${rank})`;
+    else if (rank <= 50) rankingText = `🏅 Top 50 (#${rank})`;
+    else rankingText = 'Non classé';
+
     const embed = new EmbedBuilder()
       .setColor(COLORS.INFO)
       .setTitle(`📊 Stats — ${targetUser.username}`)
@@ -93,22 +92,22 @@ export async function execute(interaction) {
           inline: true,
         },
         {
-          name: '🏅 Classement (Points)',
+          name: '🏅 Classement',
           value: rankingText,
           inline: false,
         },
         {
-          name: '⚔️ Dégâts totaux (vie)',
+          name: '⚔️ Dégâts totaux',
           value: `${player.stats.damageDealt || 0}`,
           inline: true,
         },
         {
-          name: '💚 Soins totaux (vie)',
+          name: '💚 Soins totaux',
           value: `${player.stats.healingDone || 0}`,
           inline: true,
         },
         {
-          name: '⚔️ Kills / 💀 Morts (vie)',
+          name: '⚔️ Kills / 💀 Morts',
           value: `${player.stats.kills} / ${player.stats.deaths}`,
           inline: true,
         }
