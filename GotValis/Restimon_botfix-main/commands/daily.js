@@ -141,7 +141,7 @@ export async function execute(interaction) {
       .setTitle('🎁 Récompense quotidienne')
       .addFields(
         { name: 'Streak :', value: `${newStreak} (bonus +${streakBonus})`, inline: false },
-        { name: 'GotCoins gagnés', value: `+${totalCoins}`, inline: false },
+        { name: 'GotCoins gagnés', value: `+${totalCoins} (base ${baseCoins} + bonus +${streakBonus})`, inline: false },
         { name: '🎟️ Tickets', value: `+${DAILY_TICKETS} (total: ${totalTickets})`, inline: true },
         { name: 'Objets', value: objetsValue, inline: true },
         { name: 'Solde actuel', value: `${player.economy.coins.toLocaleString()}`, inline: false }
