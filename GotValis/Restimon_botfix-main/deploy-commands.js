@@ -8,25 +8,33 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const commands = [];
-const commandsPath = join(__dirname, 'commands');
-const files = readdirSync(commandsPath).filter(f => f.endsWith('.js'));
 
-for (const file of files) {
+// Charger toutes les commandes
+const commandsPath = join(__dirname, 'commands');
+const commandFiles = readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+
+for (const file of commandFiles) {
   const filePath = join(commandsPath, file);
-  try {
-    const mod = await import(`file://${filePath}`);
-    if (mod?.data?.toJSON) {
-      commands.push(mod.data.toJSON());
-      console.log(`✅ ajout: ${mod.data.name}`);
-    } else {
-      console.warn(`⚠️ ignorée (pas de data.toJSON): ${file}`);
-    }
-  } catch (e) {
-    console.error(`❌ import échoué: ${file}`, e);
+  const command = await import(`file://${filePath}`);
+
+  if ('data' in command) {
+    commands.push(command.data.toJSON());
+    console.log(`✅ Commande ajoutée: ${command.data.name}`);
   }
 }
 
+// Déployer les commandes
 const rest = new REST().setToken(config.token);
-console.log(`🌍 Déploiement global de ${commands.length} commandes...`);
-const data = await rest.put(Routes.applicationCommands(config.clientId), { body: commands });
-console.log(`✅ ${data.length} commandes globales actives`);
+
+try {
+  console.log(`🔄 Déploiement de ${commands.length} commandes slash...`);
+
+  const data = await rest.put(
+    Routes.applicationCommands(config.clientId),
+    { body: commands },
+  );
+
+  console.log(`✅ ${data.length} commandes slash déployées avec succès !`);
+} catch (error) {
+  console.error('❌ Erreur lors du déploiement:', error);
+}
