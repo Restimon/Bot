@@ -7,21 +7,24 @@ export const data = new SlashCommandBuilder()
   .setName('daily')
   .setDescription('Réclamez votre récompense quotidienne');
 
-const DAILY_COOLDOWN = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
 const MAX_STREAK = 20;
 const BASE_COINS_MIN = 10;
 const BASE_COINS_MAX = 20;
 const DAILY_TICKETS = 1;
 const DAILY_ITEMS = 2;
+const DAILY_ITEM_POOL = ['🍀', '🩹'];
 
-// Possible items for daily rewards (low tier items)
-const DAILY_ITEM_POOL = ['🍀', '🩹']; // Trèfle (heal 1) and Bandage (heal 5)
+function cleanItemLabel(raw) {
+  const t = String(raw ?? '').trim().replace(/^\[+|\]+$/g, '');
+  const m = /Soigne\s+(\d+)\s*PV?/i.exec(t);
+  return m ? `Soin ${m[1]}` : t;
+}
 
 export async function execute(interaction) {
   await interaction.deferReply();
 
   try {
-    // Get or create player
     let player = await Player.findOne({ userId: interaction.user.id });
 
     if (!player) {
@@ -32,130 +35,128 @@ export async function execute(interaction) {
           lastClaimed: null,
           currentStreak: 0,
           maxStreak: 0,
-        }
+        },
       });
     }
 
     const now = new Date();
     const lastClaimed = player.daily?.lastClaimed;
 
-    // Check if 24 hours have passed
     if (lastClaimed) {
       const timeSinceLastClaim = now - lastClaimed;
       const timeRemaining = DAILY_COOLDOWN - timeSinceLastClaim;
 
       if (timeRemaining > 0) {
-        // Still on cooldown
         const hoursRemaining = Math.floor(timeRemaining / (1000 * 60 * 60));
-        const minutesRemaining = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        const minutesRemaining = Math.floor(
+          (timeRemaining % (1000 * 60 * 60)) / (1000 * 60)
+        );
 
         const embed = new EmbedBuilder()
           .setColor('#E74C3C')
           .setTitle('⏰ Récompense quotidienne déjà réclamée')
           .setDescription(
             `Vous avez déjà réclamé votre récompense quotidienne aujourd'hui.\n\n` +
-            `⏱️ Prochain daily dans : **${hoursRemaining}h ${minutesRemaining}m**`
+              `⏱️ Prochain daily dans : **${hoursRemaining}h ${minutesRemaining}m**`
           )
-          .setFooter({ text: `Streak actuel : ${player.daily.currentStreak} jour${player.daily.currentStreak > 1 ? 's' : ''}` })
+          .setFooter({
+            text: `Streak actuel : ${player.daily.currentStreak} jour${
+              player.daily.currentStreak > 1 ? 's' : ''
+            }`,
+          })
           .setTimestamp();
 
         return await interaction.editReply({ embeds: [embed] });
       }
     }
 
-    // Calculate streak
     let newStreak = 1;
-
     if (lastClaimed) {
       const hoursSinceLastClaim = (now - lastClaimed) / (1000 * 60 * 60);
-
-      // If claimed within 48 hours, continue streak
       if (hoursSinceLastClaim <= 48) {
         newStreak = Math.min((player.daily.currentStreak || 0) + 1, MAX_STREAK);
       } else {
-        // Streak broken, reset to 1
         newStreak = 1;
       }
     }
 
-    // Calculate rewards
-    const baseCoins = Math.floor(Math.random() * (BASE_COINS_MAX - BASE_COINS_MIN + 1)) + BASE_COINS_MIN;
-    const streakBonus = Math.min(newStreak, MAX_STREAK); // +1 coin per streak day (max 20)
+    const baseCoins =
+      Math.floor(Math.random() * (BASE_COINS_MAX - BASE_COINS_MIN + 1)) +
+      BASE_COINS_MIN;
+    const streakBonus = Math.min(newStreak, MAX_STREAK);
     const totalCoins = baseCoins + streakBonus;
 
-    // Generate 2 random items from pool
     const items = [];
     for (let i = 0; i < DAILY_ITEMS; i++) {
-      const randomEmoji = DAILY_ITEM_POOL[Math.floor(Math.random() * DAILY_ITEM_POOL.length)];
+      const randomEmoji =
+        DAILY_ITEM_POOL[Math.floor(Math.random() * DAILY_ITEM_POOL.length)];
       items.push(randomEmoji);
     }
 
-    // Apply rewards
     player.economy.coins += totalCoins;
     player.economy.totalEarned = (player.economy.totalEarned || 0) + totalCoins;
     player.economy.tickets = (player.economy.tickets || 0) + DAILY_TICKETS;
 
-    // Add items to inventory
     for (const itemEmoji of items) {
-      const existingItem = player.inventory.find(item => item.itemName === itemEmoji);
+      const existingItem = player.inventory.find(
+        (item) => item.itemName === itemEmoji
+      );
       if (existingItem) {
         existingItem.quantity += 1;
       } else {
         player.inventory.push({
           itemName: itemEmoji,
-          quantity: 1
+          quantity: 1,
         });
       }
     }
 
-    // Update daily data
-    if (!player.daily) {
-      player.daily = {};
-    }
+    if (!player.daily) player.daily = {};
     player.daily.lastClaimed = now;
     player.daily.currentStreak = newStreak;
-    player.daily.maxStreak = Math.max(player.daily.maxStreak || 0, newStreak);
+    player.daily.maxStreak = Math.max(
+      player.daily.maxStreak || 0,
+      newStreak
+    );
     player.lastUpdated = now;
-
     await player.save();
 
-    // Create items display
-    const itemsList = items.map(emoji => {
+    const grouped = new Map();
+    for (const emoji of items) {
       const itemData = getItemCategory(emoji);
-      return `1x ${emoji} [${itemData.description}]`;
-    });
-
-    // Count total tickets
-    const totalTickets = player.economy.tickets;
-
-    // Format tickets and items in columns
-    let rewardsText = `🎟️ **Tickets**${' '.repeat(15)}**Objets**\n`;
-    rewardsText += `+${DAILY_TICKETS} (total: ${totalTickets})${' '.repeat(10)}${itemsList[0] || ''}\n`;
-    for (let i = 1; i < itemsList.length; i++) {
-      rewardsText += `${' '.repeat(25)}${itemsList[i]}\n`;
+      const label = cleanItemLabel(itemData?.description || '');
+      if (!grouped.has(emoji)) grouped.set(emoji, { emoji, qty: 0, label });
+      grouped.get(emoji).qty += 1;
     }
 
-    // Create embed
+    const objetsLines = [...grouped.values()].map(
+      ({ emoji, qty, label }) => `${qty}x ${emoji} [${label}]`
+    );
+    const objetsValue = objetsLines.length ? objetsLines.join('\n') : '—';
+
+    const totalTickets = player.economy.tickets;
+
     const embed = new EmbedBuilder()
       .setColor('#F39C12')
       .setTitle('🎁 Récompense quotidienne')
-      .setDescription(
-        `**Streak : ${newStreak}** (bonus +${streakBonus})\n\n` +
-        `**GotCoins gagnés**\n+${totalCoins}\n\n` +
-        rewardsText + '\n' +
-        `**Solde actuel**\n${player.economy.coins.toLocaleString()}`
+      .addFields(
+        { name: 'Streak :', value: `${newStreak} (bonus +${streakBonus})`, inline: false },
+        { name: 'GotCoins gagnés', value: `+${totalCoins}`, inline: false },
+        { name: '🎟️ Tickets', value: `+${DAILY_TICKETS} (total: ${totalTickets})`, inline: true },
+        { name: 'Objets', value: objetsValue, inline: true },
+        { name: 'Solde actuel', value: `${player.economy.coins.toLocaleString()}`, inline: false }
       )
       .setFooter({
-        text: `Prochaine récompense dans 24h • Streak max: ${player.daily.maxStreak}`
+        text: `Prochaine récompense dans 24h • Streak max: ${player.daily.maxStreak}`,
       })
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
-
   } catch (error) {
     console.error('Error in /daily command:', error);
     await interaction.editReply({
-      content: '❌ Une erreur est survenue lors de la réclamation de votre récompense quotidienne.',
+      content:
+        '❌ Une erreur est survenue lors de la réclamation de votre récompense quotidienne.',
       ephemeral: true,
     });
   }
