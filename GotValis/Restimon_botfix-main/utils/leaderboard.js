@@ -4,32 +4,6 @@ import { Leaderboard } from '../database/models/Leaderboard.js';
 
 const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
-export async function generateLeaderboardEmbed(guildId, displayCount = 10) {
-  const players = await Player.find({}).sort({ 'economy.coins': -1 }).limit(displayCount);
-  if (!players.length) {
-    return new EmbedBuilder()
-      .setColor('#FFD700')
-      .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
-      .setDescription('Aucun joueur dans le classement pour le moment.')
-      .setFooter({ text: '💡 Les GotCoins représentent votre richesse accumulée.' })
-      .setTimestamp();
-  }
-  let description = '';
-  players.forEach((player, index) => {
-    const rank = index + 1;
-    const medal = MEDALS[rank] || `${rank}.`;
-    const coins = player.economy.coins;
-    const hp = player.combat.hp;
-    description += `${medal} **${player.username}** → 💰 **${coins}** GotCoins | ❤️ **${hp}** PV\n`;
-  });
-  return new EmbedBuilder()
-    .setColor('#FFD700')
-    .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
-    .setDescription(description)
-    .setFooter({ text: '💡 Les GotCoins représentent votre richesse accumulée.' })
-    .setTimestamp();
-}
-
 async function ensureGuild(client, guildId) {
   const cached = client.guilds.cache.get(guildId);
   if (cached) return cached;
@@ -39,6 +13,77 @@ async function ensureGuild(client, guildId) {
     if (e?.code === 10004 || e?.code === 50001) return null;
     throw e;
   }
+}
+
+/**
+ * Génère l'embed du classement :
+ *  - noms = displayName (pseudo serveur)
+ *  - seulement les membres encore présents sur la guilde
+ */
+export async function generateLeaderboardEmbed(client, guildId, displayCount = 10) {
+  const guild = await ensureGuild(client, guildId);
+  if (!guild) {
+    return new EmbedBuilder()
+      .setColor('#FFD700')
+      .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
+      .setDescription('Le bot n’est pas présent sur cette guilde.')
+      .setTimestamp();
+  }
+
+  // On récupère tous les membres pour :
+  // 1) filtrer ceux encore dans la guilde
+  // 2) récupérer le displayName (pseudo serveur)
+  const members = await guild.members.fetch().catch(() => null);
+  if (!members) {
+    return new EmbedBuilder()
+      .setColor('#FFD700')
+      .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
+      .setDescription('Impossible de récupérer les membres de la guilde.')
+      .setTimestamp();
+  }
+
+  const memberIds = new Set(members.map(m => m.id));
+
+  // On prend tous les joueurs classés par coins, puis on filtre pour ne garder
+  // que ceux qui sont encore dans la guilde. On s’arrête à displayCount.
+  const sortedPlayers = await Player.find({})
+    .sort({ 'economy.coins': -1 })
+    .limit(100); // marge pour filtrer
+
+  const inGuild = [];
+  for (const p of sortedPlayers) {
+    if (memberIds.has(p.userId)) inGuild.push(p);
+    if (inGuild.length >= displayCount) break;
+  }
+
+  if (inGuild.length === 0) {
+    return new EmbedBuilder()
+      .setColor('#FFD700')
+      .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
+      .setDescription('Aucun membre du serveur dans le classement pour le moment.')
+      .setFooter({ text: '💡 Les GotCoins représentent votre richesse accumulée.' })
+      .setTimestamp();
+  }
+
+  let description = '';
+  inGuild.forEach((player, index) => {
+    const rank = index + 1;
+    const medal = MEDALS[rank] || `${rank}.`;
+    const coins = player.economy?.coins ?? 0;
+    const hp = player.combat?.hp ?? 100;
+
+    const member = members.get(player.userId);
+    const displayName = member?.displayName || member?.user?.username || player.username || 'Joueur';
+
+    description += `${medal} **${displayName}** → 💰 **${coins}** GotCoins | ❤️ **${hp}** PV\n`;
+  });
+
+  return new EmbedBuilder()
+    .setColor('#FFD700')
+    .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
+    .setDescription(description)
+    .setFooter({ text: '💡 Les GotCoins représentent votre richesse accumulée.' })
+    .setTimestamp();
 }
 
 export async function updateLeaderboard(client, guildId) {
@@ -58,7 +103,7 @@ export async function updateLeaderboard(client, guildId) {
       return false;
     }
 
-    const embed = await generateLeaderboardEmbed(guildId, lb.displayCount);
+    const embed = await generateLeaderboardEmbed(client, guildId, lb.displayCount);
 
     let msg = null;
     if (lb.messageId) {
