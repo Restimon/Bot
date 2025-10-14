@@ -1,28 +1,12 @@
-// Leaderboard utility functions
 import { EmbedBuilder } from 'discord.js';
 import { Player } from '../database/models/Player.js';
 import { Leaderboard } from '../database/models/Leaderboard.js';
 
-// Medal emojis for top 3
-const MEDALS = {
-  1: '🥇',
-  2: '🥈',
-  3: '🥉',
-};
+const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
-/**
- * Generate leaderboard embed
- * @param {string} guildId - Guild ID
- * @param {number} displayCount - Number of players to display (10 or 20)
- * @returns {Promise<EmbedBuilder>} Leaderboard embed
- */
 export async function generateLeaderboardEmbed(guildId, displayCount = 10) {
-  // Get all players sorted by coins (descending)
-  const players = await Player.find({})
-    .sort({ 'economy.coins': -1 })
-    .limit(displayCount);
-
-  if (players.length === 0) {
+  const players = await Player.find({}).sort({ 'economy.coins': -1 }).limit(displayCount);
+  if (!players.length) {
     return new EmbedBuilder()
       .setColor('#FFD700')
       .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
@@ -30,102 +14,107 @@ export async function generateLeaderboardEmbed(guildId, displayCount = 10) {
       .setFooter({ text: '💡 Les GotCoins représentent votre richesse accumulée.' })
       .setTimestamp();
   }
-
-  // Build leaderboard description
   let description = '';
-
   players.forEach((player, index) => {
     const rank = index + 1;
     const medal = MEDALS[rank] || `${rank}.`;
     const coins = player.economy.coins;
     const hp = player.combat.hp;
-
     description += `${medal} **${player.username}** → 💰 **${coins}** GotCoins | ❤️ **${hp}** PV\n`;
   });
-
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor('#FFD700')
     .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
     .setDescription(description)
     .setFooter({ text: '💡 Les GotCoins représentent votre richesse accumulée.' })
     .setTimestamp();
-
-  return embed;
 }
 
-/**
- * Update leaderboard message
- * @param {Object} client - Discord client
- * @param {string} guildId - Guild ID
- * @returns {Promise<boolean>} Success status
- */
+async function ensureGuild(client, guildId) {
+  const cached = client.guilds.cache.get(guildId);
+  if (cached) return cached;
+  try {
+    return await client.guilds.fetch(guildId);
+  } catch (e) {
+    if (e?.code === 10004 || e?.code === 50001) return null;
+    throw e;
+  }
+}
+
 export async function updateLeaderboard(client, guildId) {
   try {
-    const leaderboard = await Leaderboard.findOne({ guildId });
+    const lb = await Leaderboard.findOne({ guildId });
+    if (!lb) return false;
 
-    if (!leaderboard) {
+    const guild = await ensureGuild(client, guildId);
+    if (!guild) {
+      await Leaderboard.deleteOne({ guildId });
       return false;
     }
 
-    const guild = await client.guilds.fetch(guildId);
-    const channel = await guild.channels.fetch(leaderboard.channelId);
-
+    const channel = await guild.channels.fetch(lb.channelId).catch(() => null);
     if (!channel) {
-      console.error(`Leaderboard channel not found for guild ${guildId}`);
+      await Leaderboard.deleteOne({ guildId });
       return false;
     }
 
-    const message = await channel.messages.fetch(leaderboard.messageId);
+    const embed = await generateLeaderboardEmbed(guildId, lb.displayCount);
 
-    if (!message) {
-      console.error(`Leaderboard message not found for guild ${guildId}`);
-      return false;
+    let msg = null;
+    if (lb.messageId) {
+      msg = await channel.messages.fetch(lb.messageId).catch(() => null);
     }
 
-    const embed = await generateLeaderboardEmbed(guildId, leaderboard.displayCount);
+    if (!msg || msg.author?.id !== client.user.id) {
+      const newMsg = await channel.send({ embeds: [embed] }).catch(() => null);
+      if (!newMsg) return false;
+      lb.messageId = newMsg.id;
+      lb.lastUpdated = new Date();
+      await lb.save();
+      return true;
+    }
 
-    await message.edit({ embeds: [embed] });
+    await msg.edit({ embeds: [embed] }).catch(async (e) => {
+      if (e?.code === 50005 || e?.code === 10008) {
+        const newMsg = await channel.send({ embeds: [embed] }).catch(() => null);
+        if (!newMsg) return;
+        lb.messageId = newMsg.id;
+        lb.lastUpdated = new Date();
+        await lb.save();
+        return;
+      }
+      throw e;
+    });
 
-    leaderboard.lastUpdated = new Date();
-    await leaderboard.save();
-
+    lb.lastUpdated = new Date();
+    await lb.save();
     return true;
   } catch (error) {
+    if (error?.code === 10004) {
+      await Leaderboard.deleteOne({ guildId });
+      return false;
+    }
     console.error('Error updating leaderboard:', error);
     return false;
   }
 }
 
-/**
- * Update all leaderboards
- * @param {Object} client - Discord client
- */
 export async function updateAllLeaderboards(client) {
   try {
     const leaderboards = await Leaderboard.find({});
-
     console.log(`⏱️  Updating ${leaderboards.length} leaderboards...`);
-
-    for (const leaderboard of leaderboards) {
-      await updateLeaderboard(client, leaderboard.guildId);
+    for (const lb of leaderboards) {
+      await updateLeaderboard(client, lb.guildId);
     }
   } catch (error) {
     console.error('Error updating all leaderboards:', error);
   }
 }
 
-/**
- * Start leaderboard auto-update ticker
- * @param {Object} client - Discord client
- */
 export function startLeaderboardTicker(client) {
   console.log('✅ Leaderboard ticker started (30 sec interval)');
-
-  // Run immediately on start
   updateAllLeaderboards(client);
-
-  // Then run every 30 seconds
   setInterval(() => {
     updateAllLeaderboards(client);
-  }, 30 * 1000); // 30 seconds
+  }, 30 * 1000);
 }
