@@ -1,6 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
 
-// Interaction messages for each command
 const INTERACTIONS = {
   slap: {
     self: (user) => `${user} se gifle lui-même... 🤦`,
@@ -36,7 +35,6 @@ const INTERACTIONS = {
   }
 };
 
-// Create all interaction commands
 export const commands = [];
 
 for (const [action, messages] of Object.entries(INTERACTIONS)) {
@@ -54,12 +52,9 @@ for (const [action, messages] of Object.entries(INTERACTIONS)) {
       const target = interaction.options.getUser('cible');
       const user = interaction.user;
 
-      let message;
-      if (!target || target.id === user.id) {
-        message = messages.self(user.toString());
-      } else {
-        message = messages.other(user.toString(), target.toString());
-      }
+      const message = !target || target.id === user.id
+        ? messages.self(user.toString())
+        : messages.other(user.toString(), target.toString());
 
       await interaction.reply({ content: message });
     }
@@ -68,7 +63,7 @@ for (const [action, messages] of Object.entries(INTERACTIONS)) {
   commands.push(command);
 }
 
-// Export individual commands for registration
+// Exports optionnels si tu veux aussi les importer individuellement
 export const slap = commands[0];
 export const kiss = commands[1];
 export const hug = commands[2];
