@@ -15,11 +15,6 @@ async function ensureGuild(client, guildId) {
   }
 }
 
-/**
- * Génère l'embed du classement :
- *  - noms = displayName (pseudo serveur)
- *  - seulement les membres encore présents sur la guilde
- */
 export async function generateLeaderboardEmbed(client, guildId, displayCount = 10) {
   const guild = await ensureGuild(client, guildId);
   if (!guild) {
@@ -30,33 +25,29 @@ export async function generateLeaderboardEmbed(client, guildId, displayCount = 1
       .setTimestamp();
   }
 
-  // On récupère tous les membres pour :
-  // 1) filtrer ceux encore dans la guilde
-  // 2) récupérer le displayName (pseudo serveur)
-  const members = await guild.members.fetch().catch(() => null);
-  if (!members) {
-    return new EmbedBuilder()
-      .setColor('#FFD700')
-      .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
-      .setDescription('Impossible de récupérer les membres de la guilde.')
-      .setTimestamp();
-  }
-
-  const memberIds = new Set(members.map(m => m.id));
-
-  // On prend tous les joueurs classés par coins, puis on filtre pour ne garder
-  // que ceux qui sont encore dans la guilde. On s’arrête à displayCount.
-  const sortedPlayers = await Player.find({})
+  // On prend une marge, puis on filtre par présence réelle sur la guilde
+  const candidates = await Player.find({ 'economy.coins': { $gte: 0 } })
     .sort({ 'economy.coins': -1 })
-    .limit(100); // marge pour filtrer
+    .limit(200);
 
-  const inGuild = [];
-  for (const p of sortedPlayers) {
-    if (memberIds.has(p.userId)) inGuild.push(p);
-    if (inGuild.length >= displayCount) break;
+  const rows = [];
+  for (const p of candidates) {
+    // essaie cache, sinon fetch ciblé
+    let member = guild.members.cache.get(p.userId) || null;
+    if (!member) {
+      member = await guild.members.fetch(p.userId).catch(() => null);
+    }
+    if (!member) continue; // pas/plus dans la guilde → on skip
+
+    const displayName = member.displayName || member.user?.username || p.username || 'Joueur';
+    const coins = p.economy?.coins ?? 0;
+    const hp = p.combat?.hp ?? 100;
+
+    rows.push({ displayName, coins, hp });
+    if (rows.length >= displayCount) break;
   }
 
-  if (inGuild.length === 0) {
+  if (rows.length === 0) {
     return new EmbedBuilder()
       .setColor('#FFD700')
       .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
@@ -66,16 +57,10 @@ export async function generateLeaderboardEmbed(client, guildId, displayCount = 1
   }
 
   let description = '';
-  inGuild.forEach((player, index) => {
-    const rank = index + 1;
-    const medal = MEDALS[rank] || `${rank}.`;
-    const coins = player.economy?.coins ?? 0;
-    const hp = player.combat?.hp ?? 100;
-
-    const member = members.get(player.userId);
-    const displayName = member?.displayName || member?.user?.username || player.username || 'Joueur';
-
-    description += `${medal} **${displayName}** → 💰 **${coins}** GotCoins | ❤️ **${hp}** PV\n`;
+  rows.forEach((r, i) => {
+    const rank = i + 1;
+    const medal = { 1: '🥇', 2: '🥈', 3: '🥉' }[rank] || `${rank}.`;
+    description += `${medal} **${r.displayName}** → 💰 **${r.coins}** GotCoins | ❤️ **${r.hp}** PV\n`;
   });
 
   return new EmbedBuilder()
