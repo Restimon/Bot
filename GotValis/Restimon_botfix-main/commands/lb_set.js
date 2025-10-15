@@ -25,30 +25,23 @@ export async function execute(interaction) {
   const channelId = interaction.channel.id;
 
   try {
-    // Check if leaderboard already exists for this guild
     let leaderboard = await Leaderboard.findOne({ guildId });
 
     if (leaderboard) {
-      // Delete old leaderboard message
       try {
-        const oldChannel = await interaction.guild.channels.fetch(leaderboard.channelId);
-        const oldMessage = await oldChannel.messages.fetch(leaderboard.messageId);
-        await oldMessage.delete();
+        const oldChannel = await interaction.guild.channels.fetch(leaderboard.channelId).catch(() => null);
+        const oldMessage = oldChannel ? await oldChannel.messages.fetch(leaderboard.messageId).catch(() => null) : null;
+        if (oldMessage) await oldMessage.delete().catch(() => {});
       } catch (error) {
         console.error('Error deleting old leaderboard message:', error);
       }
-
-      // Remove old leaderboard
       await Leaderboard.deleteOne({ guildId });
     }
 
-    // Generate leaderboard embed
-    const embed = await generateLeaderboardEmbed(guildId, displayCount);
+    const embed = await generateLeaderboardEmbed(interaction.client, guildId, displayCount);
 
-    // Send leaderboard message
     const message = await interaction.channel.send({ embeds: [embed] });
 
-    // Save leaderboard configuration
     await Leaderboard.create({
       guildId,
       channelId,
@@ -57,7 +50,7 @@ export async function execute(interaction) {
     });
 
     await interaction.editReply({
-      content: `✅ Leaderboard configuré dans ce salon avec ${displayCount} joueurs affichés.\nLe classement se mettra à jour automatiquement après chaque action.`,
+      content: `✅ Leaderboard configuré dans ce salon avec ${displayCount} joueurs affichés.`,
       ephemeral: true,
     });
   } catch (error) {
