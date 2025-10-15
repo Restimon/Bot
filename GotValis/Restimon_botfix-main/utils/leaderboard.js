@@ -25,19 +25,20 @@ export async function generateLeaderboardEmbed(client, guildId, displayCount = 1
       .setTimestamp();
   }
 
-  // On prend une marge, puis on filtre par présence réelle sur la guilde
   const candidates = await Player.find({ 'economy.coins': { $gte: 0 } })
     .sort({ 'economy.coins': -1 })
     .limit(200);
 
   const rows = [];
   for (const p of candidates) {
-    // essaie cache, sinon fetch ciblé
-    let member = guild.members.cache.get(p.userId) || null;
+    const uid = typeof p.userId === 'number' ? String(p.userId) : String(p.userId || '');
+    if (!uid) continue;
+
+    let member = guild.members.cache.get(uid) || null;
     if (!member) {
-      member = await guild.members.fetch(p.userId).catch(() => null);
+      member = await guild.members.fetch(uid).catch(() => null);
     }
-    if (!member) continue; // pas/plus dans la guilde → on skip
+    if (!member) continue;
 
     const displayName = member.displayName || member.user?.username || p.username || 'Joueur';
     const coins = p.economy?.coins ?? 0;
@@ -59,7 +60,7 @@ export async function generateLeaderboardEmbed(client, guildId, displayCount = 1
   let description = '';
   rows.forEach((r, i) => {
     const rank = i + 1;
-    const medal = { 1: '🥇', 2: '🥈', 3: '🥉' }[rank] || `${rank}.`;
+    const medal = MEDALS[rank] || `${rank}.`;
     description += `${medal} **${r.displayName}** → 💰 **${r.coins}** GotCoins | ❤️ **${r.hp}** PV\n`;
   });
 
