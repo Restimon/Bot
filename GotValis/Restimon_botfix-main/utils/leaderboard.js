@@ -12,36 +12,60 @@ const MEDALS = {
 
 /**
  * Generate leaderboard embed
+ * -> utilise le displayName (pseudo serveur)
+ * -> n'affiche que les membres encore présents sur la guilde
+ * @param {Object} client - Discord client
  * @param {string} guildId - Guild ID
  * @param {number} displayCount - Number of players to display (10 or 20)
  * @returns {Promise<EmbedBuilder>} Leaderboard embed
  */
-export async function generateLeaderboardEmbed(guildId, displayCount = 10) {
-  // Get all players sorted by coins (descending)
+export async function generateLeaderboardEmbed(client, guildId, displayCount = 10) {
+  const guild = await client.guilds.fetch(guildId).catch(() => null);
+
+  // Get top players (on prend large puis on filtrera)
   const players = await Player.find({})
     .sort({ 'economy.coins': -1 })
-    .limit(displayCount);
-
-  if (players.length === 0) {
-    return new EmbedBuilder()
-      .setColor('#FFD700')
-      .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
-      .setDescription('Aucun joueur dans le classement pour le moment.')
-      .setFooter({ text: '💡 Les GotCoins représentent votre richesse accumulée.' })
-      .setTimestamp();
-  }
+    .limit(displayCount * 5);
 
   // Build leaderboard description
   let description = '';
+  let shown = 0;
 
-  players.forEach((player, index) => {
-    const rank = index + 1;
+  for (let index = 0; index < players.length; index++) {
+    const player = players[index];
+
+    // sécurise l'ID (au cas où il aurait été stocké en Number)
+    const uid = typeof player.userId === 'number' ? String(player.userId) : String(player.userId || '');
+    if (!uid) continue;
+
+    // essaie le cache, sinon fetch ciblé
+    let member = guild?.members?.cache.get(uid) || null;
+    if (!member && guild) {
+      member = await guild.members.fetch(uid).catch(() => null);
+    }
+    if (!member) continue; // pas/plus dans la guilde → on ignore
+
+    const displayName = member.displayName || member.user?.username || player.username || 'Joueur';
+    const coins = player.economy?.coins ?? 0;
+    const hp = player.combat?.hp ?? 100;
+
+    const rank = shown + 1;
     const medal = MEDALS[rank] || `${rank}.`;
-    const coins = player.economy.coins;
-    const hp = player.combat.hp;
 
-    description += `${medal} **${player.username}** → 💰 **${coins}** GotCoins | ❤️ **${hp}** PV\n`;
-  });
+    description += `${medal} **${displayName}** → 💰 **${coins}** GotCoins | ❤️ **${hp}** PV\n`;
+
+    shown++;
+    if (shown >= displayCount) break;
+  }
+
+  if (shown === 0) {
+    return new EmbedBuilder()
+      .setColor('#FFD700')
+      .setTitle('🏆 CLASSEMENT GOTVALIS — ÉDITION SPÉCIALE 🏆')
+      .setDescription('Aucun joueur du serveur dans le classement pour le moment.')
+      .setFooter({ text: '💡 Les GotCoins représentent votre richesse accumulée.' })
+      .setTimestamp();
+  }
 
   const embed = new EmbedBuilder()
     .setColor('#FFD700')
@@ -75,14 +99,14 @@ export async function updateLeaderboard(client, guildId) {
       return false;
     }
 
-    const message = await channel.messages.fetch(leaderboard.messageId);
-
+    const message = await channel.messages.fetch(leaderboard.messageId).catch(() => null);
     if (!message) {
       console.error(`Leaderboard message not found for guild ${guildId}`);
       return false;
     }
 
-    const embed = await generateLeaderboardEmbed(guildId, leaderboard.displayCount);
+    // >>> passe le client ici <<<
+    const embed = await generateLeaderboardEmbed(client, guildId, leaderboard.displayCount);
 
     await message.edit({ embeds: [embed] });
 
