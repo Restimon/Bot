@@ -7,9 +7,44 @@ import { connectDatabase } from './database/connection.js';
 import { startStatusEffectTicker } from './utils/statusEffectTicker.js';
 import { startVoiceRewardTicker } from './events/voiceStateUpdate.js';
 import { startLeaderboardTicker } from './utils/leaderboard.js';
+import { ActivitySession } from './database/models/ActivitySession.js'; // ← AJOUT
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// ───────────────────────────────────────────────────────────────
+// Réconciliation des sessions vocales "ouvertes" (bot redémarré)
+// ───────────────────────────────────────────────────────────────
+async function reconcileOpenVoiceSessions(client) {
+  console.log('🔎 Vérification des sessions vocales incomplètes...');
+  const opens = await ActivitySession.find({ type: 'voice', endTime: null });
+
+  for (const s of opens) {
+    try {
+      const guild =
+        client.guilds.cache.get(s.guildId) ||
+        (await client.guilds.fetch(s.guildId).catch(() => null));
+
+      const member =
+        guild
+          ? (guild.members.cache.get(s.userId) ||
+             (await guild.members.fetch(s.userId).catch(() => null)))
+          : null;
+
+      const stillInVoice = !!member?.voice?.channelId;
+
+      if (!stillInVoice) {
+        const now = new Date();
+        s.endTime = now;
+        s.duration = Math.max(1, Math.round((now - s.startTime) / 60000));
+        await s.save();
+        console.log(`✅ Fermeture d’une session vocale orpheline de ${s.userId} (${s.duration} min)`);
+      }
+    } catch (e) {
+      console.error('reconcileOpenVoiceSessions error:', e);
+    }
+  }
+}
 
 // Créer le client Discord
 const client = new Client({
@@ -18,7 +53,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildVoiceStates, // requis pour suivre la voix
   ],
 });
 
@@ -64,7 +99,13 @@ async function start() {
     await client.login(config.token);
 
     // Start tickers after bot is ready
-    client.once('ready', () => {
+    client.once('ready', async () => {
+      console.log(`✅ Connecté en tant que ${client.user.tag}`);
+
+      // ⚠️ Rattrape les sessions vocales ouvertes avant de lancer les tickers
+      await reconcileOpenVoiceSessions(client);
+
+      // Tes tickers existants
       startStatusEffectTicker(client);
       startVoiceRewardTicker(client);
       startLeaderboardTicker(client);
