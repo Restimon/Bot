@@ -21,16 +21,14 @@ export async function execute(interaction) {
       });
     }
 
-    // Delete leaderboard message
     try {
-      const channel = await interaction.guild.channels.fetch(leaderboard.channelId);
-      const message = await channel.messages.fetch(leaderboard.messageId);
-      await message.delete();
+      const channel = await interaction.guild.channels.fetch(leaderboard.channelId).catch(() => null);
+      const message = channel ? await channel.messages.fetch(leaderboard.messageId).catch(() => null) : null;
+      if (message) await message.delete().catch(() => {});
     } catch (error) {
       console.error('Error deleting leaderboard message:', error);
     }
 
-    // Remove leaderboard from database
     await Leaderboard.deleteOne({ guildId });
 
     await interaction.editReply({
