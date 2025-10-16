@@ -7,24 +7,23 @@ export const data = new SlashCommandBuilder()
   .setName('daily')
   .setDescription('Réclamez votre récompense quotidienne');
 
-const DAILY_COOLDOWN = 24 * 60 * 60 * 1000; // 24h
+const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
 const MAX_STREAK = 20;
 const BASE_COINS_MIN = 10;
 const BASE_COINS_MAX = 20;
+const DAILY_GACHA_TICKETS = 1;
+const DAILY_ITEMS_COUNT = 2;
 
-const DAILY_GACHA_TICKETS = 1;   // on crédite gachaTickets
-const DAILY_ITEMS_COUNT = 2;     // nombre d'objets donnés
-
-// ——— pool limité aux catégories autorisées ———
-const ALLOWED_CATEGORIES = new Set(['utility', 'utilitaire', 'heal', 'soins', 'fight', 'combat']);
+// Catégories autorisées
+const ALLOWED_CATEGORIES = new Set(['fight', 'soins', 'heal', 'utilitaire', 'utility']);
 
 function buildDailyPool() {
-  // SHOP_ITEMS attendu au format [{ id, name, emoji?, rarity?, ... }]
-  // getItemCategory(id) -> "heal"/"fight"/"utility"/...
-  return SHOP_ITEMS.filter(it => {
-    const cat = (getItemCategory?.(it.id) || '').toLowerCase();
-    return ALLOWED_CATEGORIES.has(cat);
-  });
+  return Object.entries(SHOP_ITEMS)
+    .filter(([emoji, data]) => {
+      const cat = (getItemCategory?.(emoji) || data.category || '').toLowerCase();
+      return ALLOWED_CATEGORIES.has(cat);
+    })
+    .map(([emoji, data]) => ({ emoji, ...data }));
 }
 
 function pickOne(arr) {
