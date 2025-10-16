@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { Player } from '../database/models/Player.js';
 import { summonCharacter, getRarityInfo } from '../data/characters.js';
 
@@ -21,25 +21,34 @@ export async function execute(interaction) {
   const amount = interaction.options.getInteger('nombre') || 1;
 
   try {
-    // Get player
+    // Charger ou créer le joueur
     let player = await Player.findOne({ userId: interaction.user.id });
-
     if (!player) {
       player = await Player.create({
         userId: interaction.user.id,
         username: interaction.user.username,
+        gachaTickets: 0,
+        characterCollection: [],
       });
     }
 
-    // Check if player has enough tickets
-    if ((player.gachaTickets || 0) < amount) { {
+    // Sécuriser les champs attendus
+    if (!Array.isArray(player.characterCollection)) {
+      player.characterCollection = [];
+    }
+    if (typeof player.gachaTickets !== 'number') {
+      player.gachaTickets = 0;
+    }
+
+    // Vérifier les tickets
+    if ((player.gachaTickets || 0) < amount) {
       return await interaction.editReply({
-        content: `❌ Vous n'avez pas assez de tickets. Vous avez **${player.tickets || 0}** ticket(s), mais vous en avez besoin de **${amount}**.`,
+        content: `❌ Tickets insuffisants. Vous avez **${player.gachaTickets || 0}** ticket(s), il en faut **${amount}**.`,
         ephemeral: true,
       });
     }
 
-    // Perform summons
+    // Effectuer les invocations
     const summonedCharacters = [];
     const newCharacters = [];
 
@@ -47,11 +56,10 @@ export async function execute(interaction) {
       const character = summonCharacter();
       summonedCharacters.push(character);
 
-      // Check if character already in collection
+      // vérifier existant
       const existingChar = player.characterCollection.find(c => c.characterId === character.id);
-
       if (existingChar) {
-        existingChar.count += 1;
+        existingChar.count = (existingChar.count || 1) + 1;
       } else {
         player.characterCollection.push({
           characterId: character.id,
@@ -62,84 +70,77 @@ export async function execute(interaction) {
       }
     }
 
-    // Deduct tickets
+    // Décrémenter les tickets et sauvegarder
     player.gachaTickets -= amount;
     player.lastUpdated = new Date();
     await player.save();
 
-    // Create embeds for each summon
+    const ticketsRestants = player.gachaTickets;
+
+    // Embeds
     if (amount === 1) {
-      // Single summon - detailed view
       const character = summonedCharacters[0];
       const rarityInfo = getRarityInfo(character.rarity);
-      const isNew = newCharacters.includes(character);
+      const isNew = newCharacters.some(nc => nc.id === character.id);
 
       const embed = new EmbedBuilder()
         .setColor(rarityInfo.color)
-        .setTitle('🔮 Résultat de l\'invocation')
+        .setTitle('🔮 Résultat de l’invocation')
         .setDescription(
           `**${character.name}** — *${rarityInfo.name}* (${character.faction}) — ${isNew ? '🆕' : '♻️'}\n\n` +
           `**Description**\n${character.description}\n\n` +
           `**Capacité**\n**${character.passive}** 📜\n${character.passiveDescription}`
         )
         .addFields(
-          {
-            name: '🎫 Tickets',
-            value: `-${amount} (reste: ${player.tickets})`,
-            inline: true,
-          },
+          { name: '🎫 Tickets', value: `-${amount} (reste: ${ticketsRestants})`, inline: true },
           {
             name: '📚 Collection',
-            value: `${player.characterCollection.length} possédé(s) (${newCharacters.length > 0 ? '+1 nouveau' : 'dup'})`,
+            value: `${player.characterCollection.length} possédé(s) ${isNew ? '(+1 nouveau)' : '(dup)'}`,
             inline: true,
           }
         )
-        .setFooter({ text: 'Équipement\n🎭 Personnage équipé inchangé.\n\nAstuce: /invocation 10 pour une multi.' })
+        .setFooter({ text: 'Astuce : /invocation 10 pour une multi.' })
         .setTimestamp();
 
-      // Note: Image would be set if we had real image URLs
-      // .setImage(character.image);
+      // .setImage(character.image) // si tu as une URL d’image
 
       await interaction.editReply({ embeds: [embed] });
     } else {
-      // Multiple summons - summary view
+      // multiple
       const rarityCount = {};
-      summonedCharacters.forEach(char => {
-        const rarity = char.rarity;
-        rarityCount[rarity] = (rarityCount[rarity] || 0) + 1;
-      });
+      for (const ch of summonedCharacters) {
+        rarityCount[ch.rarity] = (rarityCount[ch.rarity] || 0) + 1;
+      }
 
       const summaryLines = Object.entries(rarityCount).map(([rarity, count]) => {
-        const rarityInfo = getRarityInfo(rarity);
-        return `${rarityInfo.emoji} **${rarityInfo.name}**: ${count}`;
+        const r = getRarityInfo(rarity);
+        return `${r.emoji} **${r.name}**: ${count}`;
       });
 
-      const characterList = summonedCharacters.map((char, index) => {
-        const rarityInfo = getRarityInfo(char.rarity);
-        const isNew = newCharacters.some(nc => nc.id === char.id);
-        return `${index + 1}. ${rarityInfo.emoji} ${char.name} ${isNew ? '🆕' : ''}`;
-      }).join('\n');
+      const characterList = summonedCharacters
+        .map((ch, i) => {
+          const r = getRarityInfo(ch.rarity);
+          const isNew = newCharacters.some(nc => nc.id === ch.id);
+          return `${i + 1}. ${r.emoji} ${ch.name} ${isNew ? '🆕' : ''}`;
+        })
+        .join('\n');
 
       const embed = new EmbedBuilder()
         .setColor('#5865F2')
-        .setTitle(`🔮 Résultats de l'invocation (x${amount})`)
+        .setTitle(`🔮 Résultats de l’invocation (x${amount})`)
         .setDescription(
-          `**Résumé des raretés:**\n${summaryLines.join('\n')}\n\n` +
-          `**Personnages obtenus:**\n${characterList}`
+          `**Raretés:**\n${summaryLines.join('\n')}\n\n` +
+          `**Personnages:**\n${characterList}`
         )
         .addFields(
-          {
-            name: '🎫 Tickets',
-            value: `-${amount} (reste: ${player.tickets})`,
-            inline: true,
-          },
+          { name: '🎫 Tickets', value: `-${amount} (reste: ${ticketsRestants})`, inline: true },
           {
             name: '📚 Collection',
             value: `${player.characterCollection.length} possédé(s) (+${newCharacters.length} nouveaux)`,
             inline: true,
           }
         )
-        .setFooter({ text: `${newCharacters.length} nouveau(x) personnage(s) ajouté(s) à votre collection !` })
+        .setFooter({ text: `${newCharacters.length} nouveau(x) personnage(s) ajouté(s) à votre collection` })
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed] });
@@ -148,7 +149,7 @@ export async function execute(interaction) {
   } catch (error) {
     console.error('Error in /summon command:', error);
     await interaction.editReply({
-      content: '❌ Une erreur est survenue lors de l\'invocation.',
+      content: '❌ Une erreur est survenue lors de l’invocation.',
       ephemeral: true,
     });
   }
