@@ -7,40 +7,34 @@ export const data = new SlashCommandBuilder()
   .setName('daily')
   .setDescription('Réclamez votre récompense quotidienne');
 
-const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
+const DAILY_COOLDOWN = 24 * 60 * 60 * 1000; // 24h
 const MAX_STREAK = 20;
 const BASE_COINS_MIN = 10;
 const BASE_COINS_MAX = 20;
 const DAILY_GACHA_TICKETS = 1;
 const DAILY_ITEMS_COUNT = 2;
 
-// Catégories autorisées
+// Catégories autorisées pour le daily
 const ALLOWED_CATEGORIES = new Set(['fight', 'soins', 'heal', 'utilitaire', 'utility']);
 
 function buildDailyPool() {
+  // SHOP_ITEMS est un objet -> on le transforme en tableau
   return Object.entries(SHOP_ITEMS)
     .filter(([emoji, data]) => {
       const cat = (getItemCategory?.(emoji) || data.category || '').toLowerCase();
       return ALLOWED_CATEGORIES.has(cat);
     })
-    .map(([emoji, data]) => ({ emoji, ...data }));
+    .map(([emoji, data]) => ({ emoji, ...data })); // {emoji, id, name, ...}
 }
 
-function pickOne(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function formatWonItem(it) {
-  const icon = it.emoji ? `${it.emoji} ` : '';
-  return `1x ${icon}[${it.name}]`;
-}
+function pickOne(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function formatWonItem(it) { return `1x ${it.emoji ?? ''} [${it.name}]`; }
 
 export async function execute(interaction) {
   await interaction.deferReply();
 
   try {
     let player = await Player.findOne({ userId: interaction.user.id });
-
     if (!player) {
       player = await Player.create({
         userId: interaction.user.id,
@@ -53,68 +47,67 @@ export async function execute(interaction) {
     }
 
     const now = new Date();
-    const lastClaimed = player.daily?.lastClaimed;
+    const last = player.daily?.lastClaimed;
 
     // Cooldown 24h
-    if (lastClaimed) {
-      const timeSince = now - lastClaimed;
-      const remaining = DAILY_COOLDOWN - timeSince;
+    if (last) {
+      const remaining = DAILY_COOLDOWN - (now - last);
       if (remaining > 0) {
-        const h = Math.floor(remaining / (1000 * 60 * 60));
-        const m = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+        const h = Math.floor(remaining / 3600000);
+        const m = Math.floor((remaining % 3600000) / 60000);
         const embed = new EmbedBuilder()
           .setColor('#E74C3C')
           .setTitle('⏰ Récompense quotidienne déjà réclamée')
           .setDescription(`Prochain daily dans : **${h}h ${m}m**`)
           .setFooter({ text: `Streak actuel : ${player.daily.currentStreak || 0}` })
           .setTimestamp();
-        return await interaction.editReply({ embeds: [embed] });
+        await interaction.editReply({ embeds: [embed] });
+        return;
       }
     }
 
     // Streak
     let newStreak = 1;
-    if (lastClaimed) {
-      const hoursSince = (now - lastClaimed) / (1000 * 60 * 60);
-      if (hoursSince <= 48) newStreak = Math.min((player.daily.currentStreak || 0) + 1, MAX_STREAK);
+    if (last && (now - last) / 3600000 <= 48) {
+      newStreak = Math.min((player.daily.currentStreak || 0) + 1, MAX_STREAK);
     }
 
-    // GC
+    // Coins
     const baseCoins = Math.floor(Math.random() * (BASE_COINS_MAX - BASE_COINS_MIN + 1)) + BASE_COINS_MIN;
     const streakBonus = Math.min(newStreak, MAX_STREAK);
     const totalCoins = baseCoins + streakBonus;
 
-    // Tirage objets depuis le pool autorisé
+    // Tirage objets (pool filtré)
     const pool = buildDailyPool();
-    if (pool.length === 0) {
-      console.error('Daily pool vide : vérifie SHOP_ITEMS / getItemCategory');
-    }
-    const wonItems = [];
+    const won = [];
     for (let i = 0; i < DAILY_ITEMS_COUNT; i++) {
-      wonItems.push(pickOne(pool));
+      won.push(pickOne(pool));
     }
 
-    // Appliquer récompenses
+    // Récompenses
     player.economy.coins = (player.economy.coins || 0) + totalCoins;
     player.economy.totalEarned = (player.economy.totalEarned || 0) + totalCoins;
     player.gachaTickets = (player.gachaTickets || 0) + DAILY_GACHA_TICKETS;
 
-    // Ajout objets à l’inventaire (canon: itemId + itemName)
-    for (const it of wonItems) {
-      const idx = player.inventory.findIndex(x => x.itemId === it.id);
-      if (idx >= 0) player.inventory[idx].quantity = (player.inventory[idx].quantity || 0) + 1;
-      else player.inventory.push({ itemId: it.id, itemName: it.name, quantity: 1 });
+    // Ajout inventaire (structure canon)
+    for (const it of won) {
+      const idx = (player.inventory || []).findIndex(x => x.itemId === it.id || x.itemName === it.emoji);
+      if (idx >= 0) {
+        player.inventory[idx].quantity = (player.inventory[idx].quantity || 0) + 1;
+      } else {
+        player.inventory.push({ itemId: it.id ?? undefined, itemName: it.emoji, quantity: 1 });
+      }
     }
 
-    // Streak + timestamps
+    // MàJ streak
     player.daily.lastClaimed = now;
     player.daily.currentStreak = newStreak;
     player.daily.maxStreak = Math.max(player.daily.maxStreak || 0, newStreak);
     player.lastUpdated = now;
     await player.save();
 
-    // Affichage
-    const itemLines = wonItems.map(formatWonItem).join('\n') || '—';
+    // Embed
+    const itemLines = won.map(formatWonItem).join('\n') || '—';
     const next = new Date(now.getTime() + DAILY_COOLDOWN);
     const nextStr = `${next.toLocaleDateString('fr-FR')} à ${next.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 
@@ -132,7 +125,6 @@ export async function execute(interaction) {
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
-
   } catch (error) {
     console.error('Error in /daily command:', error);
     await interaction.editReply({
