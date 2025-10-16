@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { Player } from '../database/models/Player.js';
+import { SHOP_ITEMS } from '../data/shop.js';
 import { getItemCategory } from '../data/itemCategories.js';
 import { COLORS } from '../utils/colors.js';
 
@@ -37,37 +38,34 @@ export async function execute(interaction) {
     const itemGroups = {};
     for (const it of (player.inventory || [])) {
       const name = it.itemName || it.itemId || '';
-      if (/ticket|🎟️/i.test(name)) continue; // on évite le doublon d’affichage
+      if (!name || /ticket|🎟️/i.test(name)) continue; // pas de doublon
       const qty = Number(it.quantity ?? 1);
       itemGroups[name] = (itemGroups[name] || 0) + qty;
     }
 
-    // Catégorisation
     const categorized = { fight: [], heal: [], use: [], other: [] };
+
+    function toLine(emojiKey, qty) {
+      const metaShop = SHOP_ITEMS[emojiKey] || {};
+      const label    = metaShop.name || metaShop.displayName || 'Objet';
+      const desc     = (getItemCategory?.(emojiKey)?.description) || '';
+      return `${qty}x ${emojiKey} [${label}]${desc ? ` — ${desc}` : ''}`;
+    }
 
     for (const [emojiOrKey, quantity] of Object.entries(itemGroups)) {
       const meta = getItemCategory?.(emojiOrKey) || {};
-      const cat = (meta.category || '').toLowerCase();
-      const entry = {
-        emoji: emojiOrKey,
-        quantity,
-        description: meta.description || '',
-      };
+      const cat  = (meta.category || '').toLowerCase();
+      const line = toLine(emojiOrKey, quantity);
 
-      if (cat === 'fight') categorized.fight.push(entry);
-      else if (cat === 'heal' || cat === 'soins') categorized.heal.push(entry);
-      else if (cat === 'use' || cat === 'utilitaire' || cat === 'utility') categorized.use.push(entry);
-      else categorized.other.push(entry);
+      if (cat === 'fight') categorized.fight.push(line);
+      else if (cat === 'heal' || cat === 'soins') categorized.heal.push(line);
+      else if (cat === 'use' || cat === 'utilitaire' || cat === 'utility') categorized.use.push(line);
+      else categorized.other.push(line);
     }
 
-    // Construction du texte
-    function section(label, arr) {
+    function section(title, arr) {
       if (!arr.length) return '';
-      const lines = arr
-        .sort((a, b) => (a.emoji || '').localeCompare(b.emoji || ''))
-        .map(i => `${i.quantity}x ${i.emoji}${i.description ? ` — ${i.description}` : ''}`)
-        .join('\n');
-      return `**${label}**\n${lines}\n\n`;
+      return `**${title}**\n${arr.sort().join('\n')}\n\n`;
     }
 
     let objectsText = '';
@@ -80,10 +78,8 @@ export async function execute(interaction) {
         : '*Aucun objet*';
     }
 
-    // Thumbnail : perso équipé sinon avatar
-    const equippedChar = player.equippedCharacter;
-    const thumbnailURL = equippedChar?.image
-      ? equippedChar.image
+    const thumbnailURL = player.equippedCharacter?.image
+      ? player.equippedCharacter.image
       : targetUser.displayAvatarURL({ dynamic: true });
 
     const embed = new EmbedBuilder()
