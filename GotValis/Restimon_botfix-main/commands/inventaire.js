@@ -23,43 +23,35 @@ export async function execute(interaction) {
     const player = await Player.findOne({ userId: targetUser.id });
 
     if (!player) {
-      return await interaction.editReply({
+      await interaction.editReply({
         content: '❌ Profil non trouvé.',
         ephemeral: true,
       });
+      return;
     }
 
-    // ---- Tickets (source de vérité = gachaTickets) ----
+    // Tickets (source de vérité = gachaTickets)
     const gachaTickets = Number(player.gachaTickets ?? 0);
 
-    // ---- Regroupe les items (et filtre les "tickets" de l'inventaire) ----
+    // Regroupe les items (et filtre les "tickets" de l'inventaire)
     const itemGroups = {};
     for (const it of (player.inventory || [])) {
       const name = it.itemName || it.itemId || '';
-      // On exclut les vieux items "ticket" pour éviter le doublon d’affichage
-      if (/ticket|🎟️/i.test(name)) continue;
-
+      if (/ticket|🎟️/i.test(name)) continue; // on évite le doublon d’affichage
       const qty = Number(it.quantity ?? 1);
       itemGroups[name] = (itemGroups[name] || 0) + qty;
     }
 
-    // ---- Catégorisation ----
-    const categorized = {
-      fight: [],
-      heal: [],
-      use: [],
-      other: [],
-    };
+    // Catégorisation
+    const categorized = { fight: [], heal: [], use: [], other: [] };
 
     for (const [emojiOrKey, quantity] of Object.entries(itemGroups)) {
-      // getItemCategory(emojiOrKey) doit renvoyer { category, description } ou similaire
       const meta = getItemCategory?.(emojiOrKey) || {};
       const cat = (meta.category || '').toLowerCase();
-
       const entry = {
-        emoji: emojiOrKey,            // on garde l’emoji / clé telle quelle
+        emoji: emojiOrKey,
         quantity,
-        description: meta.description || '', // courte description si dispo
+        description: meta.description || '',
       };
 
       if (cat === 'fight') categorized.fight.push(entry);
@@ -68,7 +60,7 @@ export async function execute(interaction) {
       else categorized.other.push(entry);
     }
 
-    // ---- Construction du texte d'objets (une colonne) ----
+    // Construction du texte
     function section(label, arr) {
       if (!arr.length) return '';
       const lines = arr
@@ -83,13 +75,12 @@ export async function execute(interaction) {
     objectsText += section('Soins', categorized.heal);
     objectsText += section('Utilitaires', categorized.use);
     if (!objectsText) {
-      // S’il n’y a rien dans les 3 catégories, on montre Divers ou “Aucun objet”
       objectsText = categorized.other.length
         ? section('Divers', categorized.other)
         : '*Aucun objet*';
     }
 
-    // ---- Thumbnail : perso équipé sinon avatar ----
+    // Thumbnail : perso équipé sinon avatar
     const equippedChar = player.equippedCharacter;
     const thumbnailURL = equippedChar?.image
       ? equippedChar.image
@@ -101,21 +92,12 @@ export async function execute(interaction) {
       .setDescription(objectsText)
       .setThumbnail(thumbnailURL)
       .addFields(
-        {
-          name: '💰 GotCoins',
-          value: String(player.economy?.coins ?? 0),
-          inline: true,
-        },
-        {
-          name: '🎟️ Tickets',
-          value: String(gachaTickets), // ✅ gachaTickets (plus economy.tickets)
-          inline: true,
-        }
+        { name: '💰 GotCoins', value: String(player.economy?.coins ?? 0), inline: true },
+        { name: '🎟️ Tickets', value: String(gachaTickets), inline: true }
       )
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
-
   } catch (error) {
     console.error('Erreur dans la commande /inventaire:', error);
     await interaction.editReply({
