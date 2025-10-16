@@ -127,14 +127,14 @@ async function createLootBoxBasic(anchorMessage, counter) {
       if (lootBox.participants.some(p => p.userId === user.id)) return;
       if (lootBox.participants.length >= BASIC_MAX) return;
 
+      const item = generateRandomItem();
       lootBox.participants.push({
         userId: user.id,
         username: user.username,
         reactedAt: new Date(),
       });
-
-      const item = generateRandomItem();
       lootBox.rewards.push({ userId: user.id, item });
+
       await lootBox.save();
     });
 
@@ -164,12 +164,12 @@ async function handleLootBoxBasicExpiry(anchorMessage, lootBox, counter) {
 
       await anchorMessage.channel.send({ embeds: [noParticipantsEmbed] });
     } else {
-      const lines = updatedLootBox.rewards
-        .map(r => {
-          const icon = r.item.emoji || '⚡';
-          return `✅ <@${r.userId}> a récupéré : ${icon}`;
-        })
-        .join('\n');
+      // créer le texte détaillé
+      const lines = updatedLootBox.rewards.map(r => {
+        const icon = r.item.emoji || '📦';
+        const name = r.item.name || 'Objet mystère';
+        return `✅ <@${r.userId}> a récupéré : ${icon} **${name}**`;
+      }).join('\n');
 
       const hasParticipantsEmbed = new EmbedBuilder()
         .setColor('#2ECC71')
@@ -179,6 +179,7 @@ async function handleLootBoxBasicExpiry(anchorMessage, lootBox, counter) {
 
       await anchorMessage.channel.send({ embeds: [hasParticipantsEmbed] });
 
+      // donner uniquement les objets (pas de GotCoins)
       for (const reward of updatedLootBox.rewards) {
         await Player.findOneAndUpdate(
           { userId: reward.userId },
@@ -190,7 +191,6 @@ async function handleLootBoxBasicExpiry(anchorMessage, lootBox, counter) {
                 quantity: 1,
               },
             },
-            $inc: { 'economy.coins': reward.item.value },
           },
           { upsert: true }
         );
