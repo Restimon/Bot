@@ -16,6 +16,17 @@ export const data = new SlashCommandBuilder()
       .setRequired(false)
   );
 
+// Émote selon le rang
+function rankEmoji(rank) {
+  if (!rank || rank <= 0) return '📊';
+  if (rank === 1) return '🥇';
+  if (rank === 2) return '🥈';
+  if (rank === 3) return '🥉';
+  if (rank <= 10) return '🏅';
+  if (rank <= 50) return '🎖️';
+  return '📊';
+}
+
 export async function execute(interaction) {
   await interaction.deferReply();
 
@@ -35,7 +46,7 @@ export async function execute(interaction) {
     const guild = interaction.guild;
     const allPlayers = await Player.find({ userId: { $exists: true } }).sort({ 'economy.coins': -1 });
     const rank = allPlayers.findIndex(p => p.userId === targetUser.id) + 1;
-    const rankText = rank > 0 ? `#${rank}` : 'Non classé';
+    const rankText = rank > 0 ? `${rankEmoji(rank)}  #${rank}` : '📊  Non classé';
 
     // Date de join
     const member = await guild.members.fetch(targetUser.id);
@@ -50,7 +61,7 @@ export async function execute(interaction) {
         })
       : 'Inconnu';
 
-    // (Conservé si tu veux l'utiliser ailleurs)
+    // (Conservée au cas où, mais on n'affiche plus le texte IA ici)
     await getAIDescription(player).catch(() => null);
 
     // Perso équipé & passif
@@ -61,7 +72,7 @@ export async function execute(interaction) {
       ? `**${characterInfo.passive}** — ${characterInfo.passiveDescription}`
       : 'Aucun';
 
-    // Inventaire (regroupe, masque tickets) => emoji + [Nom] — description
+    // Inventaire (regroupe, masque tickets) => emoji + description (sans nom)
     const inventoryMap = {};
     for (const item of (player.inventory || [])) {
       const key = item.itemName || item.itemId || '';
@@ -70,10 +81,12 @@ export async function execute(interaction) {
     }
 
     const toLine = (emojiKey, qty) => {
-      const metaShop = SHOP_ITEMS[emojiKey] || {};
-      const label    = metaShop.name || metaShop.displayName || 'Objet';
+      // On ne montre pas le nom, juste l’emoji + description
       const descMeta = getItemCategory?.(emojiKey)?.description || '';
-      return `${qty}x ${emojiKey} [${label}]${descMeta ? ` — ${descMeta}` : ''}`;
+      // Si pas de description trouvée, on essaie un fallback basique depuis SHOP_ITEMS
+      const fallback = SHOP_ITEMS[emojiKey]?.short || '';
+      const desc = descMeta || fallback;
+      return desc ? `${qty}x ${emojiKey} — ${desc}` : `${qty}x ${emojiKey}`;
     };
 
     const inventoryItems = Object.entries(inventoryMap)
@@ -101,28 +114,27 @@ export async function execute(interaction) {
     const embed = new EmbedBuilder()
       .setColor('#5865F2')
       .setTitle(`📋 Profil GotValis de ${targetUser.username}`)
-      .setDescription('_Analyse médicale et opérationnelle en cours..._') // ✅ description fixe
+      .setDescription('_Analyse médicale et opérationnelle en cours..._')
       .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
       .addFields(
         { name: '❤️ Points de vie', value: `${player.combat?.hp || 100} / ${player.combat?.maxHp || 100}`, inline: true },
-        { name: '🛡️ Bouclier', value: `${player.combat?.shield || 0} / ${player.combat?.maxShield || 50}`, inline: true },
+        { name: '🛡️ Bouclier', value: `${player.combat?.shield || 0} / ${player.combat?.maxShield || 20}`, inline: true },
         { name: '\u200b', value: '\u200b', inline: true },
 
         { name: '🏆 GotCoins totaux (carrière)', value: `${player.economy?.totalEarned || player.economy?.coins || 0}`, inline: true },
         { name: '💰 Solde actuel (dépensable)', value: `${player.economy?.coins || 0}`, inline: true },
-        { name: '🎟️ Tickets', value: `${player.economy?.tickets || 0}`, inline: true }, // ✅ lit economy.tickets (daily)
+        { name: '🎟️ Tickets', value: `${player.economy?.tickets || 0}`, inline: true },
 
         { name: '🗓️ Membre du serveur depuis', value: joinDate, inline: false },
 
-        // ✅ Passif une ligne sous “Personnage équipé”
-        { name: '🎭 Personnage équipé', value: characterDisplay, inline: true },
-        { name: '⚡ Passif', value: passiveDisplay, inline: true },
-        { name: '\u200b', value: '\u200b', inline: true },
+        // Personnage & Passif sur deux lignes séparées (inline: false pour forcer le retour)
+        { name: '🎭 Personnage équipé', value: characterDisplay, inline: false },
+        { name: '⚡ Passif', value: passiveDisplay, inline: false },
 
-        // ✅ Classement avec emoji, sans “serveur”
+        // Classement avec émote
         { name: '🏅 Classement', value: rankText, inline: false },
 
-        // ✅ Inventaire avec descriptions
+        // Inventaire (emoji + description)
         { name: '🎒 Inventaire', value: inventoryLeft, inline: true }
       );
 
