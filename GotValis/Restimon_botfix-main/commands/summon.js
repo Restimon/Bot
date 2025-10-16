@@ -32,7 +32,7 @@ export async function execute(interaction) {
     }
 
     // Check if player has enough tickets
-    if ((player.tickets || 0) < amount) {
+    if ((player.gachaTickets || 0) < amount) { {
       return await interaction.editReply({
         content: `❌ Vous n'avez pas assez de tickets. Vous avez **${player.tickets || 0}** ticket(s), mais vous en avez besoin de **${amount}**.`,
         ephemeral: true,
@@ -63,7 +63,7 @@ export async function execute(interaction) {
     }
 
     // Deduct tickets
-    player.tickets -= amount;
+    player.gachaTickets -= amount;
     player.lastUpdated = new Date();
     await player.save();
 
