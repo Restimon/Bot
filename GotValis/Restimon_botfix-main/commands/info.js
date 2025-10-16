@@ -29,53 +29,46 @@ export async function execute(interaction) {
       });
     }
 
-    // Get guild member to get join date
     const member = await interaction.guild.members.fetch(targetUser.id);
     const joinedAt = member.joinedAt;
 
-    // Calculate 7 days ago for stats
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    // Get voice sessions in last 7 days
     const voiceSessions = await ActivitySession.find({
       userId: targetUser.id,
       type: 'voice',
       startTime: { $gte: sevenDaysAgo },
     });
 
-    // Calculate total voice time in minutes
     let totalVoiceMinutes = 0;
     voiceSessions.forEach(session => {
       totalVoiceMinutes += session.duration;
     });
 
-    // Get message count in last 7 days
     const messageCount = await ActivitySession.countDocuments({
       userId: targetUser.id,
       type: 'message',
       startTime: { $gte: sevenDaysAgo },
     });
 
-    // Format voice time
     const voiceHours = Math.floor(totalVoiceMinutes / 60);
     const voiceMinutes = totalVoiceMinutes % 60;
     const voiceTimeStr = voiceHours > 0
       ? `${voiceHours} h ${voiceMinutes} min`
       : `${voiceMinutes} min`;
 
-    // Get leaderboard ranking by coins
+    // Classement aligné sur /profile : simple #<rang>, sans libellé supplémentaire
     const higherRankedPlayers = await Player.countDocuments({
-      'economy.coins': { $gt: player.economy.coins }
+      'economy.coins': { $gt: (player.economy?.coins ?? 0) }
     });
     const rank = higherRankedPlayers + 1;
-    const rankingText = rank <= 20 ? `#${rank}` : 'Non classé';
+    const rankingText = `#${rank}`;
 
-    // Build embed
     const embed = new EmbedBuilder()
       .setColor(COLORS.INFO)
       .setTitle(`📊 Stats — ${targetUser.username}`)
-      .setThumbnail(targetUser.displayAvatarURL())
+      .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
       .addFields(
         {
           name: '📅 Sur le serveur depuis',
@@ -93,23 +86,23 @@ export async function execute(interaction) {
           inline: true,
         },
         {
-          name: '🏅 Classement (Points)',
+          name: '🏅 Classement',
           value: rankingText,
           inline: false,
         },
         {
           name: '⚔️ Dégâts totaux (vie)',
-          value: `${player.stats.damageDealt || 0}`,
+          value: `${player.stats?.damageDealt ?? 0}`,
           inline: true,
         },
         {
           name: '💚 Soins totaux (vie)',
-          value: `${player.stats.healingDone || 0}`,
+          value: `${player.stats?.healingDone ?? 0}`,
           inline: true,
         },
         {
-          name: '⚔️ Kills / 💀 Morts (vie)',
-          value: `${player.stats.kills} / ${player.stats.deaths}`,
+          name: '⚔️ Kills / 💀 Morts',
+          value: `${player.stats?.kills ?? 0} / ${player.stats?.deaths ?? 0}`,
           inline: true,
         }
       )
