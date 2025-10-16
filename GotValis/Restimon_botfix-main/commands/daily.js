@@ -21,10 +21,27 @@ function buildDailyPool() {
   // SHOP_ITEMS est un objet -> on le transforme en tableau
   return Object.entries(SHOP_ITEMS)
     .filter(([emoji, data]) => {
-      const cat = (getItemCategory?.(emoji) || data.category || '').toLowerCase();
+      // getItemCategory peut renvoyer un objet { category, description }
+      const meta =
+        (typeof getItemCategory === 'function'
+          ? (getItemCategory(emoji) || (data?.id ? getItemCategory(data.id) : null))
+          : null);
+
+      const rawCat =
+        (meta && typeof meta === 'object' ? meta.category : undefined) ??
+        (typeof data?.category === 'string' ? data.category : undefined) ??
+        (typeof data?.type === 'string' ? data.type : undefined) ??
+        '';
+
+      const cat = String(rawCat).toLowerCase();
       return ALLOWED_CATEGORIES.has(cat);
     })
-    .map(([emoji, data]) => ({ emoji, ...data })); // {emoji, id, name, ...}
+    .map(([emoji, data]) => ({
+      emoji,                                      // ex: '🧪'
+      id: data?.id,
+      name: data?.name || data?.displayName || 'Objet',
+      ...data,
+    })); // => tableau d’items { emoji, id, name, ... }
 }
 
 function pickOne(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
