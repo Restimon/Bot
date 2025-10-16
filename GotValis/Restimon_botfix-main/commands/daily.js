@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { Player } from '../database/models/Player.js';
-import { generateRandomItem } from '../utils/items.js';
+import { SHOP_ITEMS } from '../data/shop.js';
+import { getItemCategory } from '../data/itemCategories.js';
 
 export const data = new SlashCommandBuilder()
   .setName('daily')
@@ -10,8 +11,25 @@ const DAILY_COOLDOWN = 24 * 60 * 60 * 1000; // 24h
 const MAX_STREAK = 20;
 const BASE_COINS_MIN = 10;
 const BASE_COINS_MAX = 20;
+
 const DAILY_GACHA_TICKETS = 1;   // on crédite gachaTickets
 const DAILY_ITEMS_COUNT = 2;     // nombre d'objets donnés
+
+// ——— pool limité aux catégories autorisées ———
+const ALLOWED_CATEGORIES = new Set(['utility', 'utilitaire', 'heal', 'soins', 'fight', 'combat']);
+
+function buildDailyPool() {
+  // SHOP_ITEMS attendu au format [{ id, name, emoji?, rarity?, ... }]
+  // getItemCategory(id) -> "heal"/"fight"/"utility"/...
+  return SHOP_ITEMS.filter(it => {
+    const cat = (getItemCategory?.(it.id) || '').toLowerCase();
+    return ALLOWED_CATEGORIES.has(cat);
+  });
+}
+
+function pickOne(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 function formatWonItem(it) {
   const icon = it.emoji ? `${it.emoji} ` : '';
@@ -48,7 +66,7 @@ export async function execute(interaction) {
         const embed = new EmbedBuilder()
           .setColor('#E74C3C')
           .setTitle('⏰ Récompense quotidienne déjà réclamée')
-          .setDescription(`Vous avez déjà réclamé votre récompense aujourd'hui.\n\n⏱️ Prochain daily dans : **${h}h ${m}m**`)
+          .setDescription(`Prochain daily dans : **${h}h ${m}m**`)
           .setFooter({ text: `Streak actuel : ${player.daily.currentStreak || 0}` })
           .setTimestamp();
         return await interaction.editReply({ embeds: [embed] });
@@ -67,10 +85,14 @@ export async function execute(interaction) {
     const streakBonus = Math.min(newStreak, MAX_STREAK);
     const totalCoins = baseCoins + streakBonus;
 
-    // Tirage objets depuis tout le pool (même logique que ravitaillement)
+    // Tirage objets depuis le pool autorisé
+    const pool = buildDailyPool();
+    if (pool.length === 0) {
+      console.error('Daily pool vide : vérifie SHOP_ITEMS / getItemCategory');
+    }
     const wonItems = [];
     for (let i = 0; i < DAILY_ITEMS_COUNT; i++) {
-      wonItems.push(generateRandomItem());
+      wonItems.push(pickOne(pool));
     }
 
     // Appliquer récompenses
@@ -78,11 +100,11 @@ export async function execute(interaction) {
     player.economy.totalEarned = (player.economy.totalEarned || 0) + totalCoins;
     player.gachaTickets = (player.gachaTickets || 0) + DAILY_GACHA_TICKETS;
 
-    // Ajout objets à l’inventaire (même structure que le ravitaillement)
+    // Ajout objets à l’inventaire (canon: itemId + itemName)
     for (const it of wonItems) {
-      const idx = player.inventory.findIndex(x => x.itemId === it.itemId);
+      const idx = player.inventory.findIndex(x => x.itemId === it.id);
       if (idx >= 0) player.inventory[idx].quantity = (player.inventory[idx].quantity || 0) + 1;
-      else player.inventory.push({ itemId: it.itemId, itemName: it.name, quantity: 1 });
+      else player.inventory.push({ itemId: it.id, itemName: it.name, quantity: 1 });
     }
 
     // Streak + timestamps
