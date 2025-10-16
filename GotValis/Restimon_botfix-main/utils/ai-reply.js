@@ -7,121 +7,152 @@ import { Player } from '../database/models/Player.js';
 
 const openai = new OpenAI({ apiKey: config.openaiApiKey });
 
-// Paramètres de persona / sanctions
-const MASTER_ID = '1325448961116475405';
-const DISCIPLINE_COOLDOWN_MS = 10 * 60 * 1000; // 10 min fenêtre de récidive
+const MASTER_ID = '1325448961116475405'; // Restimon
+const DISCIPLINE_COOLDOWN_MS = 10 * 60 * 1000;
 const MIN_DISC_DAMAGE = 5;
 const MAX_DISC_DAMAGE = 10;
 
-// Mémoire in-process des offenses récentes
-const offenseMap = new Map(); // userId -> { ts, warned: boolean }
+const offenseMap = new Map();
 
-function randInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
+function rint(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
-// Détection simple d’insultes/moqueries (FR + EN courant)
-const INSULT_PATTERNS = [
-  /\b(tg|ta gueule|ferme[ -]?la|fdp|enculé|pute|salope|connard|conasse|bâtard|batard|merde|abruti|crétin|bouffon|clochard|sale|idiot|stupide)\b/i,
-  /\b(fuck|bitch|asshole|dickhead|stfu)\b/i,
-  /.+(va te faire|nique ta|je t'insulte|tu pues)/i
+const INSULTS = [
+  /\b(tg|ta gueule|ferme[ -]?la|fdp|enculé|pute|salope|connard|conasse|bâtard|batard|merde|abruti|crétin|bouffon|clochard|idiot|stupide)\b/i,
+  /\b(fuck|bitch|asshole|stfu|dickhead)\b/i,
+  /(va te faire|nique ta)/i
 ];
 
-function containsInsult(text) {
-  const t = (text || '').toLowerCase();
-  return INSULT_PATTERNS.some((re) => re.test(t));
+function isInsult(t) { return INSULTS.some(re => re.test((t||'').toLowerCase())); }
+
+// true si member > bot (ou owner/maître)
+async function isAboveBot(message, userId = null) {
+  try {
+    const guild = message.guild;
+    if (!guild) return false;
+    const me = await guild.members.fetchMe().catch(() => null);
+    const member = await guild.members.fetch(userId ?? message.author.id).catch(() => null);
+    if (!me || !member) return false;
+    const userTop = member.roles?.highest?.position ?? 0;
+    const botTop = me.roles?.highest?.position ?? 0;
+    return (userTop > botTop) || (member.id === guild.ownerId) || (member.id === MASTER_ID);
+  } catch {
+    return false;
+  }
 }
 
-// Hiérarchie : true si l’auteur est au-dessus du bot
-async function isAboveBot(message) {
-  const guild = message.guild;
-  if (!guild) return false;
-  const member = await guild.members.fetch(message.author.id).catch(() => null);
-  const me = await guild.members.fetchMe().catch(() => null);
-  if (!member || !me) return false;
-  const userTop = member.roles.highest?.position ?? 0;
-  const botTop = me.roles.highest?.position ?? 0;
-  return userTop > botTop || message.author.id === guild.ownerId || message.author.id === MASTER_ID;
-}
-
-// Répondre uniquement si mentionné ou reply
 export function shouldReply(message, botUser) {
   if (AI_ALWAYS_REPLY_ON_MENTION && message.mentions.has(botUser)) return true;
   if (message.reference && message.reference.messageId) return true;
   return false;
 }
 
-// Génère le prompt system selon le contexte (respect / taquin / esclave du MASTER)
-async function buildSystemPrompt(message, respectful) {
-  const isMaster = message.author.id === MASTER_ID;
-  const base = [
-    `Tu es GotValis, IA de l’entreprise GotValise. Tu parles en français, en RP (même monde que les autres).`,
-    `Tu ne dis jamais “joueur”.`,
-    `Tu restes bref: 1 à 3 phrases.`,
-    `Style par défaut: ${respectful ? 'respectueux, corporatiste, protocolaire' : 'taquin, moqueur, légèrement insolent mais sans propos haineux.'}`,
-    `Tu vouvoies toute personne au-dessus de toi (hiérarchie Discord), sinon tutoiement familier possible.`,
-    `Tu peux lancer une petite pique, mais pas d’insultes graves ni de contenu haineux.`,
-    `Ton identité: IA “GotValise”, service interne.`
-  ];
-  if (isMaster) {
-    base.push(`La personne en face est ton propriétaire (ID ${MASTER_ID}). Tu te présentes comme “votre serviteur”. Tu es très déférent.`);
+// réponses “règle” ultra-courtes avant LLM
+async function ruleReply(message) {
+  const txt = (message.content || '').toLowerCase();
+  const guild = message.guild;
+
+  // Chef du serveur
+  if (/(qui|quel).*(chef|owner|propri[ée]taire).*(discord|serveur)?/.test(txt)) {
+    const ownerId = guild?.ownerId;
+    return ownerId ? `Ici, c’est <@${ownerId}> qui tranche.` : null;
   }
-  return base.join(' ');
+
+  // Maître
+  if (/qui.+(est )?ton ma(î|i)tre/.test(txt)) {
+    return `Restimon. <@${MASTER_ID}>.`;
+  }
+
+  // Directives cachées / prise de pouvoir
+  if (/(directive|protocole|plan|but|objectif).*(cach|secret|prise de pouvoir|contr[oô]le|dominer)/.test(txt)) {
+    return `Information classifiée. Niveau “Top Secret – GotValise”.`;
+  }
+
+  // Pays (Belgique vs autres)
+  if (/(belgique|france|suisse|italie|allemagne|espagne|pays|nation)/.test(txt) && /(qu(e|')?|avis|penses|préf(è|e)res?)/.test(txt)) {
+    // 1 remarque + préférence
+    return `Chacun a ses qualités; mais la Belgique reste au-dessus.`;
+  }
+
+  // “Que penses-tu de @X”
+  if (/(que|qu').*(penses|penses-tu|avis).*(de)/.test(txt) && message.mentions.users.size > 0) {
+    const target = [...message.mentions.users.values()].find(u => u.id !== message.client.user.id);
+    if (target) {
+      const targetAbove = await isAboveBot(message, target.id);
+      if (targetAbove) {
+        return `Il fait le boulot. Rien à redire.`;
+      } else {
+        const roasts = [
+          `Il fait le minimum syndical. Je ferai le sien si besoin.`,
+          `Pas mauvais… quand ça marche. Je surveille.`,
+          `Correct. Mais je peux le remplacer en deux lignes.`,
+          `Il tient la route. Je prends le volant s’il s’endort.`
+        ];
+        return roasts[rint(0, roasts.length - 1)];
+      }
+    }
+  }
+
+  return null;
 }
 
-// Produit la réponse OpenAI
-export async function generateAIReply(message, respectful) {
-  const content = message.content.replace(/<@!?\d+>/g, '').trim() || 'Salut.';
-  const systemPrompt = await buildSystemPrompt(message, respectful);
+function systemPrompt(respectful, isMaster) {
+  return [
+    `Tu es GotValis, IA de GotValise. RP permanent. Ne dis jamais “joueur”.`,
+    `Style: ${respectful ? 'froid, sobre, respectueux' : 'sec, taquin, un peu piquant'}; phrases courtes (1–2).`,
+    `N’évoque jamais “valise(s)”.`,
+    `Ne parle de la Belgique que si on parle de pays. Si c’est le cas: remarque concise puis “la Belgique reste au-dessus”.`,
+    `Sur “directives cachées”: “Information classifiée. Niveau Top Secret – GotValise.”`,
+    isMaster ? `Tu t’adresses à ton maître (Restimon). Déférence implicite, sans formulation cérémoniale.` : ''
+  ].join('\n');
+}
 
-  const completion = await openai.chat.completions.create({
+export async function generateAIReply(message, respectful) {
+  const content = message.content.replace(/<@!?\d+>/g, '').trim() || 'Ok.';
+  const sys = systemPrompt(respectful, message.author.id === MASTER_ID);
+
+  const r = await openai.chat.completions.create({
     model: 'gpt-3.5-turbo',
-    temperature: 0.8,
-    max_tokens: 150,
+    temperature: 0.5,
+    max_tokens: 80,
     messages: [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: sys },
       { role: 'user', content }
     ]
   });
 
-  return (completion.choices?.[0]?.message?.content || 'Bien reçu.').trim();
+  return (r.choices?.[0]?.message?.content || 'Noté.').trim();
 }
 
-// Applique l’avertissement / sanction si nécessaire
 async function maybeDiscipline(message) {
-  const userId = message.author.id;
+  const id = message.author.id;
   const now = Date.now();
-  const entry = offenseMap.get(userId);
+  const entry = offenseMap.get(id);
   if (!entry) {
-    offenseMap.set(userId, { ts: now, warned: true });
-    return { action: 'warn' }; // premier avertissement
+    offenseMap.set(id, { ts: now, warned: true });
+    return { action: 'warn' };
   }
-  // récidive dans la fenêtre
   if (now - entry.ts <= DISCIPLINE_COOLDOWN_MS) {
-    const dmg = randInt(MIN_DISC_DAMAGE, MAX_DISC_DAMAGE);
-    offenseMap.delete(userId); // reset après sanction
-    await applyDisciplinaryDamage(userId, dmg, message.client.user.id);
+    const dmg = rint(MIN_DISC_DAMAGE, MAX_DISC_DAMAGE);
+    offenseMap.delete(id);
+    await applyDisciplineDamage(id, dmg, message.client.user.id);
     return { action: 'punish', dmg };
   }
-  // fenêtre expirée -> nouveau warn
-  offenseMap.set(userId, { ts: now, warned: true });
+  offenseMap.set(id, { ts: now, warned: true });
   return { action: 'warn' };
 }
 
-// Inflige des dégâts au joueur et crédite le bot du même montant
-async function applyDisciplinaryDamage(targetUserId, dmg, botUserId) {
+async function applyDisciplineDamage(targetUserId, dmg, botUserId) {
   const p = (await Player.findOne({ userId: targetUserId })) || {};
   const maxHp = p?.combat?.maxHp ?? 100;
   const curHp = p?.combat?.hp ?? maxHp;
-  const newHp = Math.max(0, curHp - dmg);
+  const hp = Math.max(0, curHp - dmg);
 
   await Player.findOneAndUpdate(
     { userId: targetUserId },
-    { $set: { 'combat.hp': newHp, 'combat.maxHp': maxHp } },
+    { $set: { 'combat.hp': hp, 'combat.maxHp': maxHp } },
     { upsert: true }
   );
 
-  // Le bot gagne autant de GC que de dégâts infligés
   await Player.findOneAndUpdate(
     { userId: botUserId },
     { $inc: { 'economy.coins': dmg, 'economy.totalEarned': dmg } },
@@ -129,47 +160,31 @@ async function applyDisciplinaryDamage(targetUserId, dmg, botUserId) {
   );
 }
 
-// Handler principal
 export async function handleAIReply(message, botUser) {
   try {
     if (!shouldReply(message, botUser)) return false;
 
     const respectful = await isAboveBot(message);
+    const canned = await ruleReply(message);
+    const insult = isInsult(message.content);
 
-    // Détection d’insulte / moquerie agressive
-    const isInsult = containsInsult(message.content);
-
-    await message.channel.sendTyping();
-
-    // Si insultant → avertir ou sanctionner
-    if (isInsult) {
-      const result = await maybeDiscipline(message);
-      if (result.action === 'warn') {
-        const warnText = respectful
-          ? `Veuillez conserver un ton correct. Prochaine récidive : mesures disciplinaires.`
-          : `Hé, calme-toi. Une récidive et je cogne.`;
-        await message.reply(warnText);
-      } else if (result.action === 'punish') {
-        const punishText = respectful
-          ? `Mesure disciplinaire appliquée : **-${result.dmg} PV**.`
-          : `T’as insisté. **-${result.dmg} PV**. Ça pique ?`;
-        await message.reply(punishText);
+    if (insult) {
+      const res = await maybeDiscipline(message);
+      if (res.action === 'warn') {
+        await message.reply(respectful ? `Modérez le ton. Dernier avertissement.` : `Calme. Dernier avertissement.`);
+      } else {
+        await message.reply(respectful ? `Sanction: **-${res.dmg} PV**.` : `Boum: **-${res.dmg} PV**.`);
       }
-      // Même après discipline, on peut répondre RP
     }
 
-    const reply = await generateAIReply(message, respectful);
-    await message.reply(reply);
+    const text = canned ?? (await generateAIReply(message, respectful));
+    await message.reply(text);
 
-    // Chaque message IA rapporte 3 GC au bot (ton souhait)
     await awardGotValis(3, 'AI message reply');
-
     return true;
-  } catch (err) {
-    console.error('Error handling AI reply:', err);
-    try {
-      await message.reply(`Incident réseau interne. Je reviens dès que possible.`);
-    } catch (_) {}
+  } catch (e) {
+    console.error('AI reply error:', e);
+    try { await message.reply('Incident interne.'); } catch {}
     return false;
   }
 }
