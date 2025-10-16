@@ -1,104 +1,110 @@
 import mongoose from 'mongoose';
 
 const playerSchema = new mongoose.Schema({
-  userId: { type: String, required: true, unique: true },
+  userId:   { type: String, required: true, unique: true },
   username: { type: String, required: true },
 
   // Statistiques de jeu
   stats: {
-    damageDealt: { type: Number, default: 0 }, // Total damage dealt (cumulative)
-    damageTaken: { type: Number, default: 0 }, // Total damage taken (cumulative)
-    healingDone: { type: Number, default: 0 }, // Total healing done (cumulative)
-    kills: { type: Number, default: 0 },
-    deaths: { type: Number, default: 0 },
-    assists: { type: Number, default: 0 },
-    // Legacy fields for compatibility
+    damageDealt: { type: Number, default: 0 },
+    damageTaken: { type: Number, default: 0 },
+    healingDone: { type: Number, default: 0 },
+    kills:        { type: Number, default: 0 },
+    deaths:       { type: Number, default: 0 },
+    assists:      { type: Number, default: 0 },
+    // legacy
     damages: { type: Number, default: 0 },
-    heals: { type: Number, default: 0 },
+    heals:   { type: Number, default: 0 },
   },
 
   // Activité Discord
   activity: {
-    messagesSent: { type: Number, default: 0 },
-    voiceTime: { type: Number, default: 0 }, // en minutes
-    lastMessageReward: { type: Date }, // Last message reward timestamp (15s cooldown)
-    lastVoiceReward: { type: Date }, // Last voice reward timestamp (30 min cooldown)
+    messagesSent:      { type: Number, default: 0 },
+    voiceTime:         { type: Number, default: 0 }, // minutes
+    lastMessageReward: { type: Date },
+    lastVoiceReward:   { type: Date },
   },
 
   // Économie
   economy: {
-    coins: { type: Number, default: 0 },
-    tickets: { type: Number, default: 0 }, // Gacha tickets
-    totalEarned: { type: Number, default: 0 }, // Total gagné depuis le début
-    casinoBalance: { type: Number, default: 0 },
+    coins:        { type: Number, default: 0 },
+    totalEarned:  { type: Number, default: 0 },
+    casinoBalance:{ type: Number, default: 0 },
+
+    // ❌ legacy: ne plus utiliser (gardé pour compat)
+    tickets:      { type: Number, default: 0 },
   },
 
-  // Combat stats
+  // ✅ Tickets gacha (source de vérité)
+  gachaTickets: { type: Number, default: 0 },
+
+  // Combat
   combat: {
-    hp: { type: Number, default: 100 },
-    maxHp: { type: Number, default: 100 },
-    shield: { type: Number, default: 0 },
-    maxShield: { type: Number, default: 20 }, // Default max shield is 20
-    isKO: { type: Boolean, default: false }, // KO status (alive or dead)
-    lastKOAt: { type: Date }, // Last KO timestamp
+    hp:        { type: Number, default: 100 },
+    maxHp:     { type: Number, default: 100 },
+    shield:    { type: Number, default: 0 },
+    maxShield: { type: Number, default: 20 },
+    isKO:      { type: Boolean, default: false },
+    lastKOAt:  { type: Date },
   },
 
-  // Equipped character
+  // Équipement/personnage
   equippedCharacter: {
     characterId: { type: String, default: null },
-    equippedAt: { type: Date },
+    equippedAt:  { type: Date },
+    // image?: string  // si tu veux l’afficher dans les embeds
   },
 
-  // Character collection
+  // Collection de personnages
   characterCollection: [{
-    characterId: String,
-    obtainedAt: { type: Date, default: Date.now },
-    count: { type: Number, default: 1 }, // For duplicates
+    characterId: { type: String, required: true },
+    obtainedAt:  { type: Date, default: Date.now },
+    count:       { type: Number, default: 1 },
   }],
 
-  // Unequip cooldown
+  // Cooldown unequip
   lastUnequip: { type: Date },
 
-  // Inventaire
+  // Inventaire (clé = emoji en itemName)
   inventory: [{
-    itemId: String,
-    itemName: String,
+    itemId:   { type: String },                  // optionnel
+    itemName: { type: String, required: true },  // ex: '🔫'
     quantity: { type: Number, default: 1 },
   }],
 
   // XP et niveau
-  xp: { type: Number, default: 0 },
+  xp:    { type: Number, default: 0 },
   level: { type: Number, default: 1 },
 
-  // Tickets
+  // ❌ legacy: ancien doublon de tickets (à ne plus utiliser)
   tickets: { type: Number, default: 0 },
 
-  // Active status effects
+  // Effets d’état
   activeEffects: [{
-    effect: String, // POISON, BURN, REGENERATION, VIRUS, INFECTION
-    appliedAt: { type: Date, default: Date.now },
-    duration: Number, // in seconds
-    tickValue: Number, // damage or healing per tick
-    tickInterval: Number, // seconds between ticks
-    lastTickAt: { type: Date, default: Date.now }, // last tick timestamp
-    channelId: String, // channel where effect was applied (for notifications)
-    guildId: String, // guild where effect was applied
+    effect:      String,   // POISON, BURN, REGENERATION, VIRUS, INFECTION
+    appliedAt:   { type: Date, default: Date.now },
+    duration:    Number,   // sec
+    tickValue:   Number,
+    tickInterval:Number,   // sec
+    lastTickAt:  { type: Date, default: Date.now },
+    channelId:   String,
+    guildId:     String,
   }],
 
-  // Daily rewards
+  // Daily
   daily: {
-    lastClaimed: { type: Date },
+    lastClaimed:   { type: Date },
     currentStreak: { type: Number, default: 0 },
-    maxStreak: { type: Number, default: 0 },
+    maxStreak:     { type: Number, default: 0 },
   },
 
   // Timestamps
-  createdAt: { type: Date, default: Date.now },
-  lastUpdated: { type: Date, default: Date.now },
+  createdAt:  { type: Date, default: Date.now },
+  lastUpdated:{ type: Date, default: Date.now },
 });
 
-// Calculer le KDA
-playerSchema.virtual('kda').get(function() {
+// KDA virtuel
+playerSchema.virtual('kda').get(function () {
   const { kills, deaths, assists } = this.stats;
   if (deaths === 0) return (kills + assists).toFixed(2);
   return ((kills + assists) / deaths).toFixed(2);
