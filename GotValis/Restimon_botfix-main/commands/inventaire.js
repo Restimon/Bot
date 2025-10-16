@@ -94,9 +94,7 @@ export async function execute(interaction) {
           inline: true,
         },
         {
-          name: '🎟️ Tickets',
-          value: (player.economy.tickets || 0).toString(),
-          inline: true,
+          name: '🎟️ Tickets', value: String(player.gachaTickets || 0), inline: true },
         }
       )
       .setTimestamp();
