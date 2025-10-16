@@ -37,11 +37,11 @@ function buildDailyPool() {
       return ALLOWED_CATEGORIES.has(cat);
     })
     .map(([emoji, data]) => ({
-      emoji,                                      // ex: '🧪'
+      emoji,                                      // ex: '🔫'
       id: data?.id,
       name: data?.name || data?.displayName || 'Objet',
       ...data,
-    })); // => tableau d’items { emoji, id, name, ... }
+    })); // => [{ emoji, id, name, ... }]
 }
 
 function pickOne(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -106,13 +106,14 @@ export async function execute(interaction) {
     player.economy.totalEarned = (player.economy.totalEarned || 0) + totalCoins;
     player.gachaTickets = (player.gachaTickets || 0) + DAILY_GACHA_TICKETS;
 
-    // Ajout inventaire (structure canon)
+    // Ajout inventaire (clé = emoji)
     for (const it of won) {
-      const idx = (player.inventory || []).findIndex(x => x.itemId === it.id || x.itemName === it.emoji);
+      const emoji = it.emoji;
+      const idx = (player.inventory || []).findIndex(x => x.itemName === emoji);
       if (idx >= 0) {
         player.inventory[idx].quantity = (player.inventory[idx].quantity || 0) + 1;
       } else {
-        player.inventory.push({ itemId: it.id ?? undefined, itemName: it.emoji, quantity: 1 });
+        player.inventory.push({ itemId: it.id ?? undefined, itemName: emoji, quantity: 1 });
       }
     }
 
