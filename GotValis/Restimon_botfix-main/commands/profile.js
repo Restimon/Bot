@@ -95,7 +95,7 @@ export async function execute(interaction) {
         { name: '\u200b', value: '\u200b', inline: true },
         { name: '🏆 GotCoins totaux (carrière)', value: `${player.economy?.totalEarned || player.economy?.coins || 0}`, inline: true },
         { name: '💰 Solde actuel (dépensable)', value: `${player.economy?.coins || 0}`, inline: true },
-        { name: '🎟️ Tickets', value: `${player.tickets || 0}`, inline: true },
+        { name: '🎟️ Tickets', value: `${player.gachaTickets || 0}`, inline: true },
         { name: '🗓️ Membre du serveur depuis', value: joinDate, inline: false },
         { name: '🧍 Personnage équipé', value: characterDisplay, inline: true },
         { name: '⚡ Passif', value: passiveDisplay, inline: true },
